@@ -49,6 +49,15 @@
             ],
             "versions": [
                 {
+                    "version": "2.0.4",
+                    "buildVersion": "1",
+                    "date": "2026-11-08",
+                    "localizedDescription": "Needle 2.0.4: a genre cloud and bubbles, and a new Fix my library.\n\n- The genre map has two new views: every genre as a word, or as a circle grouped by family.\n- Fix my library opens with how much of your library is in good shape, and a row for each thing to fix.\n- Settings › Scrobbling shows why listens did not reach Last.fm or ListenBrainz.\n- On mobile data or in Low Data Mode, the picture search waits for Wi-Fi.\n- Library in numbers shows the lossy and low-quality share of your songs.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-2.0.4-ios.ipa",
+                    "size": 17832544,
+                    "minOSVersion": "26.0"
+                },
+                {
                     "version": "2.0.2",
                     "buildVersion": "1",
                     "date": "2026-11-03",
