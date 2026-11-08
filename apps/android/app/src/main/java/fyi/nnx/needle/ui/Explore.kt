@@ -1,5 +1,10 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.withContext
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clipToBounds
@@ -93,8 +98,11 @@ fun NumbersScreen(open: (Route) -> Unit) {
         item { ShelfTitle("Quality", "How the songs are kept") }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Lossless and lossy make up the whole library; hi-res and low quality are parts.
                 CountBar("Lossless", numbers.lossless.toInt(), songs, percent = true)
                 CountBar("Hi-res", numbers.hires.toInt(), songs, percent = true)
+                CountBar("Lossy", numbers.lossy.toInt(), songs, percent = true)
+                CountBar("Low quality (under 192 kbit/s)", numbers.lowQualitySongs.toInt(), songs, percent = true)
             }
         }
         countSection("Formats", "Songs in each", numbers.formats, songs)
@@ -192,8 +200,77 @@ fun MoodMapScreen() {
             }
         }
     }
+    // Map (where the songs sound), Cloud, or Bubbles (by family); the last two by songs or plays.
+    var view by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("map") }
+    var byPlays by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var art by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var artFor by remember { mutableStateOf("") }
+    // Laid out again when the library changes (a scan that ends while the page is open).
+    val version by NeedleApp.instance.libraryVersion.collectAsState()
+    LaunchedEffect(view, byPlays, version) {
+        if (view == "map") return@LaunchedEffect
+        // Cleared for another view or order; a library change keeps the old one until the new.
+        val key = "$view|$byPlays"
+        if (key != artFor) { art = null; artFor = key }
+        art = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { org.json.JSONObject(NeedleApp.instance.core.genreArtJson(view, byPlays, 0.8f)) }.getOrNull()
+        }
+    }
+    fun playSpellings(name: String, spellings: List<String>) {
+        NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val songs = runCatching { NeedleApp.instance.core.genresSongs(spellings) }.getOrDefault(emptyList())
+            if (songs.isEmpty()) showMessage("No songs in $name") else {
+                playSongs(songs.map { it.id })
+                showMessage("Playing $name")
+            }
+        }
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Genre map") }
+        item {
+            Column(Modifier.padding(horizontal = Edge, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf("map" to "Map", "cloud" to "Cloud", "bubbles" to "Bubbles").forEachIndexed { i, (key, label) ->
+                        SegmentedButton(
+                            selected = view == key,
+                            onClick = { view = key },
+                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 3),
+                        ) { Text(label) }
+                    }
+                }
+                if (view != "map") {
+                    androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        listOf(false to "By songs", true to "By plays").forEachIndexed { i, (plays, label) ->
+                            SegmentedButton(
+                                selected = byPlays == plays,
+                                onClick = { byPlays = plays },
+                                shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 2),
+                            ) { Text(label) }
+                        }
+                    }
+                }
+            }
+        }
+        if (view != "map") {
+            val picture = art
+            val items = picture?.optJSONArray("items")
+            item {
+                Text(
+                    when {
+                        picture == null -> "Laying it out…"
+                        items == null || items.length() == 0 -> if (byPlays) "Nothing played yet." else "Your songs have no genres in their tags yet."
+                        else -> "${count(items.length(), "genre")}. ${if (view == "cloud") "As big as" else "Grouped by family, as big as"} ${if (byPlays) "their plays" else "their songs"}. Tap one to play it."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = Edge),
+                )
+            }
+            if (picture != null && items != null && items.length() > 0) item {
+                GenreArt(picture, cloud = view == "cloud", play = ::playSpellings)
+            }
+            return@LazyColumn
+        }
         if (spots != null) item {
             Text(
                 when {
@@ -440,6 +517,71 @@ fun CrateScreen(open: (Route) -> Unit) {
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
+        }
+    }
+}
+
+/**
+ * The genre cloud (words) or bubbles (circles by family), drawn where the core placed them
+ * (genre_art.rs: a box 1 wide and `height` high), as wide as the page. A tap plays a genre.
+ */
+@Composable
+private fun GenreArt(art: org.json.JSONObject, cloud: Boolean, play: (String, List<String>) -> Unit) {
+    val items = art.optJSONArray("items") ?: return
+    val height = art.optDouble("height", 1.0).toFloat()
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 8.dp)) {
+        val scale = maxWidth.value
+        Box(Modifier.fillMaxWidth().height((height * scale).dp)) {
+            for (i in 0 until items.length()) {
+                val item = items.getJSONObject(i)
+                val genre = item.optString("genre")
+                val spellings = item.optJSONArray("spellings")?.let { a -> List(a.length()) { a.optString(it) } } ?: listOf(genre)
+                val hue = item.optDouble("hue").toFloat()
+                val tone = Color.hsv(hue, if (dark) 0.5f else 0.65f, if (dark) 0.85f else 0.55f)
+                val x = item.optDouble("x").toFloat() * scale
+                val y = item.optDouble("y").toFloat() * scale
+                val size = item.optDouble("size").toFloat() * scale
+                if (cloud) {
+                    val font = size.coerceAtLeast(6f)
+                    // Placed by its middle: measured, then moved back by half its size.
+                    androidx.compose.foundation.layout.Box(
+                        Modifier
+                            .layout { measurable, constraints ->
+                                val p = measurable.measure(constraints.copy(minWidth = 0, maxWidth = Int.MAX_VALUE))
+                                layout(p.width, p.height) { p.place((x.dp.roundToPx() - p.width / 2), (y.dp.roundToPx() - p.height / 2)) }
+                            }
+                            .clickable { play(genre, spellings) },
+                    ) {
+                        Text(genre, color = tone, fontSize = font.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, lineHeight = font.sp)
+                    }
+                } else {
+                    Box(
+                        Modifier
+                            .offset((x - size).dp, (y - size).dp)
+                            .size((size * 2).dp)
+                            .clip(CircleShape)
+                            .background(tone.copy(alpha = 0.9f))
+                            .clickable { play(genre, spellings) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // As big as fits, its longest word on one line; no name when too small.
+                        val font = minOf((size * 0.32f).coerceIn(8f, 20f), size * item.optDouble("fit", 0.3).toFloat())
+                        if (font >= 7f) {
+                            Text(
+                                genre,
+                                color = if (dark) Color.Black.copy(alpha = 0.8f) else Color.White,
+                                fontSize = font.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                maxLines = 2,
+                                lineHeight = (font * 1.1f).sp,
+                                modifier = Modifier.width((size * 1.6f).dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

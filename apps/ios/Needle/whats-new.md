@@ -1,3 +1,11 @@
+# 2.0.4
+A genre cloud and bubbles, and a new Fix my library.
+- **Genre cloud and bubbles.** The genre map has two new views: every genre as a word, or as a circle grouped by family, as big as its songs or its plays.
+- **Fix my library, at a glance.** It opens with how much of your library is in good shape, and a row for each thing to fix.
+- **Why scrobbles failed.** Settings › Scrobbling shows why listens did not reach Last.fm or ListenBrainz, when some did not.
+- On mobile data or in Low Data Mode, the picture search waits for Wi-Fi unless you turn that off.
+- Library in numbers shows the lossy and low-quality share of your songs.
+
 # 2.0.2
 Shuffle that stays on, and fixes.
 - [player] **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on. Turned off, up next is the list in its own order again.

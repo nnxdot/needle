@@ -140,7 +140,9 @@ class NeedleApp : Application() {
             val online = runCatching { core.playbackSettings().onlineMedia }.getOrDefault(false)
             val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
             val unmetered = connectivity?.activeNetwork != null && connectivity.isActiveNetworkMetered == false
-            val allowed = opened.isCompleted && online && _more.value.artistPictures && unmetered && !scan.value.running
+            // On mobile data too, when Fewer lookups on metered connections is turned off.
+            val network = unmetered || (connectivity?.activeNetwork != null && !_more.value.fewerLookupsOnMetered)
+            val allowed = opened.isCompleted && online && _more.value.artistPictures && network && !scan.value.running
             runCatching { core.allowPictureSweep(allowed) }
         }
     }
@@ -164,6 +166,8 @@ class NeedleApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Crashes in the app's own code become crash reports too (see CrashCatcher).
+        CrashCatcher.install(this, File(filesDir, "needle"))
         NativeBridge.initAndroid(this)
         core = Needle.newQuiet(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
@@ -180,7 +184,11 @@ class NeedleApp : Application() {
         runCatching { fyi.nnx.needle.ui.SleepShake.start(this) }
         // The background search for artists' pictures follows the network and the settings.
         getSystemService(android.net.ConnectivityManager::class.java)?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
-            override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) = artistPicturesAllowed()
+            override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) {
+                // The core's own background lookups wait on a metered network (Settings).
+                runCatching { core.setMetered(!capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) }
+                artistPicturesAllowed()
+            }
             override fun onLost(network: android.net.Network) = artistPicturesAllowed()
         })
         core.setDecoder(File(applicationInfo.nativeLibraryDir, "libneedle_ffmpeg.so").absolutePath)

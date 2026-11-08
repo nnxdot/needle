@@ -432,6 +432,7 @@ enum Event {
     Translated(String, Vec<String>),
     Numbers(Box<needle_core::numbers::LibraryNumbers>),
     GenreMap(Vec<needle_core::radio::GenreSpot>),
+    GenreArt(usize, bool, Box<needle_core::genre_art::GenreArt>),
     ArtFetched,
     MediaKey(media_keys::Key),
     /// A key everywhere (or a taskbar button) was pressed: its action.
@@ -507,6 +508,12 @@ pub struct AppView {
     numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
     /// The genre map's genres, the most songs first.
     genre_spots: std::rc::Rc<Vec<needle_core::radio::GenreSpot>>,
+    /// The genre map's view: 0 the map (where the songs sound), 1 the cloud, 2 the bubbles.
+    genre_view: usize,
+    /// The cloud and bubbles by plays, not songs.
+    genre_by_plays: bool,
+    /// The cloud or bubbles laid out by the core, for the view and order they were asked for.
+    genre_art: Option<(usize, bool, std::rc::Rc<needle_core::genre_art::GenreArt>)>,
     page: Page,
     back: Vec<Page>,
     /// Pages left by going back, for going forward again (a new page clears it).
@@ -755,6 +762,8 @@ pub struct AppView {
     groups: Vec<library::Group>,
     service_status: Option<integrations::ServiceStatus>,
     scrobble_summary: Option<integrations::ScrobbleSummary>,
+    /// Settings › Scrobbling › Details: why listens did not reach that service.
+    scrobble_problems: Option<(&'static str, integrations::ScrobbleProblems)>,
     service_busy: bool,
     lastfm_pending: Option<integrations::LastfmPending>,
     lastfm_key: Entity<InputState>,
@@ -1200,7 +1209,11 @@ impl AppView {
             history_stats: None,
             history_range: 1,
             history_loading: false,
-            picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
+            picture_sweep: {
+                // Whether the network is metered, asked of the system now and then.
+                needle_core::network::watch();
+                needle_core::media::pictures::PictureSweep::start(library.clone())
+            },
             on_this_day: vec![],
             home_year: None,
             search_tab: Default::default(),
@@ -1217,6 +1230,9 @@ impl AppView {
             crate_scroll: 0.,
             numbers: None,
             genre_spots: Default::default(),
+            genre_view: 0,
+            genre_by_plays: false,
+            genre_art: None,
             library,
             player,
             playback,
@@ -1386,6 +1402,7 @@ impl AppView {
             groups: vec![],
             service_status: None,
             scrobble_summary: None,
+            scrobble_problems: None,
             service_busy: false,
             lastfm_pending: None,
             lastfm_key,
@@ -1723,6 +1740,13 @@ impl AppView {
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
                 Event::GenreMap(spots) => self.genre_spots = std::rc::Rc::new(spots),
+                // Only for the view and order showing now: a late answer for another (switched
+                // away from while it was laid out) would leave this one waiting for good.
+                Event::GenreArt(view, plays, art) => {
+                    if (view, plays) == (self.genre_view, self.genre_by_plays) {
+                        self.genre_art = Some((view, plays, std::rc::Rc::new(*art)));
+                    }
+                }
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::Doctor(msg) => self.doctor_message(msg),

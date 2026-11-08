@@ -115,6 +115,24 @@ impl AppView {
                 .map_err(|e| format!("{e:#}"));
             let _ = sender.send(Event::UpdateStarted(result));
         });
+        // The progress bar moves while it downloads: drawn again four times a second.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(250))
+                    .await;
+                let going = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        matches!(this.update, Some(UpdateState::Downloading(_)))
+                    })
+                    .unwrap_or(false);
+                if !going {
+                    break;
+                }
+            }
+        })
+        .detach();
         cx.notify();
     }
 
@@ -130,13 +148,16 @@ impl AppView {
     pub(super) fn updates_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let status = match &self.update {
             Some(UpdateState::Available(r)) => format!(
-                "Needle {} is out. You have {}.",
+                "Needle {} is out. You have {}.{}",
                 r.version,
-                env!("CARGO_PKG_VERSION")
+                env!("CARGO_PKG_VERSION"),
+                if needle_core::network::metered() {
+                    " You are on a metered connection: the update downloads tens of MB."
+                } else {
+                    ""
+                }
             ),
-            Some(UpdateState::Downloading(r)) => {
-                format!("Downloading Needle {} and checking it…", r.version)
-            }
+            Some(UpdateState::Downloading(r)) => progress_words(&r.version, &update::progress()),
             Some(UpdateState::Failed(e)) => format!("The update did not work: {e}"),
             None => format!(
                 "You have Needle {}. Needle checks needle.nnx.fyi once a day.",
@@ -175,10 +196,35 @@ impl AppView {
                 }))
                 .into_any_element(),
         };
+        let bar = matches!(self.update, Some(UpdateState::Downloading(_))).then(|| {
+            let p = update::progress();
+            let fraction = if p.total > 0 {
+                (p.done as f32 / p.total as f32).clamp(0., 1.)
+            } else if p.stage == "check" || p.stage == "install" {
+                1.
+            } else {
+                0.
+            };
+            let pal = super::theme::pal(cx);
+            div()
+                .mx_4()
+                .mb_2()
+                .h(px(6.))
+                .rounded_full()
+                .bg(pal.line_soft)
+                .child(
+                    div()
+                        .h_full()
+                        .rounded_full()
+                        .bg(pal.accent)
+                        .w(relative(fraction)),
+                )
+        });
         div()
             .flex()
             .flex_col()
             .child(super::widgets::setting_row("Updates", &status, action, cx))
+            .children(bar)
             .child(super::widgets::setting_row(
                 "What's new",
                 &format!("What Needle {} brings.", env!("CARGO_PKG_VERSION")),
@@ -203,5 +249,22 @@ impl AppView {
                     })),
                 cx,
             ))
+    }
+}
+
+/// What an update is doing, in words: "Downloading Needle 2.0.4 · 12.3 of 45.6 MB".
+fn progress_words(version: &str, p: &update::Progress) -> String {
+    let mb = |bytes: u64| bytes as f64 / 1_000_000.;
+    match p.stage.as_str() {
+        "list" => format!("Getting ready to download Needle {version}…"),
+        "download" if p.total > 0 => format!(
+            "Downloading Needle {version} · {:.1} of {:.1} MB",
+            mb(p.done),
+            mb(p.total)
+        ),
+        "download" => format!("Downloading Needle {version} · {:.1} MB", mb(p.done)),
+        "check" => format!("Checking Needle {version}…"),
+        "install" => format!("Installing Needle {version}…"),
+        _ => format!("Downloading Needle {version} and checking it…"),
     }
 }

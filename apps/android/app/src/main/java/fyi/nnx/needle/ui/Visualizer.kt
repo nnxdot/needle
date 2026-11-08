@@ -33,7 +33,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -123,11 +122,7 @@ fun FullVisualizer(onClose: () -> Unit) {
     val playbackState = NeedleApp.instance.playback.collectAsState()
     val current by remember { derivedStateOf { playbackState.value?.current } }
     val song = current
-    val view = LocalView.current
-    DisposableEffect(Unit) {
-        view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
-    }
+    KeepScreenOn("visualizer", true)
     androidx.activity.compose.BackHandler(onBack = onClose)
     var chrome by remember { mutableStateOf(true) }
     LaunchedEffect(chrome) {

@@ -205,6 +205,11 @@ struct ArtistPicturesRow: View {
                     .disabled(progress.hurry)
                     .font(.needle(.subheadline))
             }
+            if store.choices.artistPictures {
+                Toggle(isOn: Binding(get: { store.choices.fewerLookupsOnMetered }, set: { on in store.updateChoices { $0.fewerLookupsOnMetered = on }; store.allowPictures() })) {
+                    SettingLabel(title: "Fewer lookups on mobile data", detail: "The search waits for Wi-Fi on mobile data, a hotspot, or Low Data Mode.", icon: "antenna.radiowaves.left.and.right", tint: .green)
+                }
+            }
         }
         .task {
             while !Task.isCancelled {

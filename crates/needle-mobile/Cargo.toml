@@ -28,6 +28,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# QR codes a TV shows, to finish a sign-in on a phone (Last.fm).
+qrcode = { version = "0.14.1", default-features = false }
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 uniffi = { version = "0.32", features = ["cli"] }

@@ -17,8 +17,38 @@ pub struct Update {
 
 static FOUND: Mutex<Option<update::Release>> = Mutex::new(None);
 
+/// How far an update has got (see `needle_core::update::Progress`): `stage` is "" (none),
+/// "list", "download", "check", or "install"; `done` of `total` bytes (`total` 0 when unknown).
+#[derive(Clone, uniffi::Record)]
+pub struct UpdateProgress {
+    pub stage: String,
+    pub done: u64,
+    pub total: u64,
+}
+
 #[uniffi::export]
 impl Needle {
+    /// The app says whether its network is metered now (mobile data, a hotspot, Low Data Mode):
+    /// background lookups then wait, when Fewer lookups on metered connections is on.
+    pub fn set_metered(&self, on: bool) {
+        needle_core::network::set_metered(on);
+    }
+
+    /// Whether the network is metered, as the app last said.
+    pub fn metered(&self) -> bool {
+        needle_core::network::metered()
+    }
+
+    /// How far the update running now has got, for a progress bar.
+    pub fn update_progress(&self) -> UpdateProgress {
+        let p = update::progress();
+        UpdateProgress {
+            stage: p.stage,
+            done: p.done,
+            total: p.total,
+        }
+    }
+
     /// Asks needle.nnx.fyi whether a newer Needle is out. Sends nothing but the request.
     pub fn check_update(&self) -> Result<Option<Update>> {
         let found = update::check(env!("CARGO_PKG_VERSION"))?;

@@ -154,10 +154,12 @@ struct Welcome: View {
                         Text("Sends only the artist, album, and song title.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
-                Toggle(isOn: Binding(get: { s.checkUpdates }, set: { store.set(["check_updates": $0]) })) {
-                    VStack(alignment: .leading) {
-                        Text("Check for new versions")
-                        Text("Once a day, asks needle.nnx.fyi for the newest version number.").font(.needle(.caption)).foregroundStyle(.secondary)
+                if !Store.fromAppStore {
+                    Toggle(isOn: Binding(get: { s.checkUpdates }, set: { store.set(["check_updates": $0]) })) {
+                        VStack(alignment: .leading) {
+                            Text("Check for new versions")
+                            Text("Once a day, asks needle.nnx.fyi for the newest version number.").font(.needle(.caption)).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 Toggle(isOn: Binding(get: { s.discordPresence }, set: { store.set(["discord_presence": $0]) })) {

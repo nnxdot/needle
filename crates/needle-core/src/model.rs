@@ -190,6 +190,9 @@ pub struct Settings {
     pub layout: Layout,
     /// Look up lyrics, artist photos, and missing album art online.
     pub online_media: bool,
+    /// On a metered network (mobile data, a hotspot, Low Data Mode), background lookups (the
+    /// search for artists' pictures) wait for a free one. See `network`.
+    pub fewer_lookups_on_metered: bool,
     /// Album and artist pages (and the window, on the Mac, while one is open) take the colours
     /// of their cover or photo.
     pub cover_colors: bool,
@@ -394,6 +397,7 @@ impl Default for Settings {
             scrobble_corrections: true,
             layout: Layout::default(),
             online_media: false,
+            fewer_lookups_on_metered: true,
             cover_colors: true,
             immersive_cover: true,
             animated_covers: true,

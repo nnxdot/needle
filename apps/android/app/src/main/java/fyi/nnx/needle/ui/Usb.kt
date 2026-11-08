@@ -81,6 +81,11 @@ private fun bitPerfect(audio: AudioManager, device: AudioDeviceInfo): AudioMixer
         .minByOrNull { SENDABLE.indexOf(it.format.encoding) * 2 + (if (it.format.sampleRate == 44100) 0 else 1) }
 }.getOrNull()
 
+/** [bitPerfect]'s mixer in words ("32-bit at 48 kHz"), for code that also runs before Android 14. */
+@RequiresApi(34)
+private fun mixerWords(audio: AudioManager, device: AudioDeviceInfo): String? =
+    bitPerfect(audio, device)?.let { "${encodingName(it.format.encoding)} at ${kHz(it.format.sampleRate)} kHz" }
+
 /** The encodings Needle's output can send a mixer exactly, the DAC's own (whole numbers) first. */
 private val SENDABLE = listOf(
     android.media.AudioFormat.ENCODING_PCM_32BIT,
@@ -277,13 +282,15 @@ fun UsbBitPerfect() {
             override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) { if (Build.VERSION.SDK_INT >= 34) device = usbOutput(audio) }
             override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) { if (Build.VERSION.SDK_INT >= 34) device = usbOutput(audio) }
         }
-        audio.registerAudioDeviceCallback(callback, android.os.Handler(android.os.Looper.getMainLooper()))
-        onDispose { audio.unregisterAudioDeviceCallback(callback) }
+        // Some TVs' Android may refuse: the row then only misses a DAC plugged in while it shows.
+        runCatching { audio.registerAudioDeviceCallback(callback, android.os.Handler(android.os.Looper.getMainLooper())) }
+        onDispose { runCatching { audio.unregisterAudioDeviceCallback(callback) } }
     }
     val connected = device
-    val offer = remember(connected) { if (Build.VERSION.SDK_INT >= 34) connected?.let { bitPerfect(audio, it) } else null }
-    // The mixer's format in words (Android 14 and newer only).
-    val offerText = remember(offer) { if (Build.VERSION.SDK_INT >= 34 && offer != null) "${encodingName(offer.format.encoding)} at ${kHz(offer.format.sampleRate)} kHz" else null }
+    // Android's bit-perfect mixer for the DAC, as its format in words (Android 14 and newer only),
+    // or null. Only words here: naming Android 14's AudioMixerAttributes in this function crashed
+    // Settings › Sound on Android 8 to 13 (2.0.3), even where the value was null.
+    val offerText = remember(connected) { if (Build.VERSION.SDK_INT >= 34) connected?.let { mixerWords(audio, it) } else null }
     androidx.compose.runtime.LaunchedEffect(connected) { if (Build.VERSION.SDK_INT >= 34) connected?.let { logDac(audio, it) } }
     // What the driver plays now ("96 kHz, 24-bit"), read while the row shows.
     var playing by remember { mutableStateOf<String?>(null) }
@@ -309,7 +316,7 @@ fun UsbBitPerfect() {
         is fyi.nnx.needle.UsbDriver.State.Resting -> "${d.info.name}: let go while paused"
         is fyi.nnx.needle.UsbDriver.State.Fallback if replug != null -> "Unplug $replug and plug it in again to use Android's sound"
         is fyi.nnx.needle.UsbDriver.State.Asking -> "Allow Needle to use ${d.name}"
-        is fyi.nnx.needle.UsbDriver.State.Fallback -> if (app.usbBitPerfect && offer != null) "${d.name}: Android's bit-perfect mixer, $offerText" else "${d.name} plays through Android"
+        is fyi.nnx.needle.UsbDriver.State.Fallback -> if (app.usbBitPerfect && offerText != null) "${d.name}: Android's bit-perfect mixer, $offerText" else "${d.name} plays through Android"
         else -> if (replug != null) "Unplug $replug and plug it in again to use Android's sound"
         else if (connected != null && Build.VERSION.SDK_INT >= 23) "${connected.productName}: the exact sound; other sounds wait"
         else "Plug in a USB DAC for the exact sound"
@@ -341,7 +348,7 @@ fun UsbBitPerfect() {
         if (why != null) {
             Text(
                 if (replug != null) "Needle's own driver could not play to it ($why)."
-                else "Needle's own driver could not play to it ($why), so ${if (offer != null) "Android's bit-perfect mixer" else "Android"} plays to it instead.",
+                else "Needle's own driver could not play to it ($why), so ${if (offerText != null) "Android's bit-perfect mixer" else "Android"} plays to it instead.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp),

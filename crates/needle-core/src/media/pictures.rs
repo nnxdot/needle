@@ -411,7 +411,15 @@ fn sweep(library: Library, state: Arc<SweepState>) {
     let mut names: Vec<String> = vec![];
     let mut listed = Instant::now() - Duration::from_secs(3600);
     while !state.stop.load(Ordering::SeqCst) {
-        if !state.allowed.load(Ordering::SeqCst) {
+        // On a metered network the search waits (Settings › Fewer lookups on metered
+        // connections, on unless turned off).
+        let fewer = library
+            .settings()
+            .map(|s| s.fewer_lookups_on_metered)
+            .unwrap_or(true);
+        if !state.allowed.load(Ordering::SeqCst)
+            || !crate::network::background_lookups_allowed(fewer)
+        {
             std::thread::park_timeout(Duration::from_secs(60));
             continue;
         }

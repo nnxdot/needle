@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.collectAsState
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -390,8 +392,22 @@ private fun trashRequest(context: Context, paths: List<String>): android.app.Pen
 @Composable
 fun FixLibraryScreen() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // The overview: what is wrong, card by card; a card opens its tool, shows the songs, or
+    // fixes them at once.
+    val version by NeedleApp.instance.libraryVersion.collectAsState()
+    var health by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var confirmForget by remember { mutableStateOf(false) }
+    LaunchedEffect(version) {
+        health = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { org.json.JSONObject(core.libraryHealthJson()) }.getOrNull() }
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Fix my library") }
+        health?.let { h ->
+            val songs = h.optInt("songs")
+            if (songs > 0) item {
+                HealthCards(h, onTab = { tab = it }, onForget = { confirmForget = true })
+            }
+        }
         item {
             PrimaryTabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.background) {
                 listOf("Duplicates", "Covers", "Albums", "Tidy").forEachIndexed { i, label ->
@@ -408,6 +424,64 @@ fun FixLibraryScreen() {
                     else -> Tidy()
                 }
             }
+        }
+    }
+    if (confirmForget) {
+        val gone = health?.optInt("gone") ?: 0
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmForget = false },
+            title = { Text("Forget ${count(gone, "song")} whose file is gone?") },
+            text = { Text("They leave the library. Their plays stay in your history, and nothing on the phone changes.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmForget = false
+                    NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val n = runCatching { core.forgetGone() }.getOrDefault(0u)
+                        NeedleApp.instance.libraryChanged()
+                        showMessage("Forgot ${count(n.toInt(), "song")}.")
+                    }
+                }) { Text("Forget them") }
+            },
+            dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Fix my library's overview: how much is fine, then a card for each thing wrong. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun HealthCards(h: org.json.JSONObject, onTab: (Int) -> Unit, onForget: () -> Unit) {
+    val songs = h.optInt("songs")
+    val fine = h.optInt("fine")
+    val open: (Route) -> Unit = { Ui.openRoute.tryEmit(it) }
+    Column(Modifier.padding(horizontal = Edge, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            if (fine >= songs) "All ${count(songs, "song")} are in good shape."
+            else "${fine * 100 / songs.coerceAtLeast(1)}% of your songs are in good shape. Tap a card to fix what is left.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        androidx.compose.material3.LinearProgressIndicator(progress = { fine.toFloat() / songs.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            @Composable
+            fun card(number: Int, label: String, action: String, run: () -> Unit) {
+                if (number <= 0) return
+                androidx.compose.material3.Card(onClick = run, modifier = Modifier.width(160.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("$number", style = MaterialTheme.typography.headlineSmall)
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, minLines = 2, maxLines = 3)
+                        Text(action, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+            card(h.optInt("duplicate_copies"), "extra copies of songs", "Show") { onTab(0) }
+            card(h.optInt("albums_without_cover"), "albums without a cover", "Find covers") { onTab(1) }
+            card(h.optInt("album_issues"), "albums missing a year, track numbers, or album artist", "Fix tags") { onTab(2) }
+            card(h.optInt("no_genre"), "songs with no genre", "Show them") { open(Route.Rule("No genre", "not exists(genre)")) }
+            card(h.optInt("no_artist"), "songs with no artist", "Show them") { open(Route.Rule("No artist", "not exists(artist)")) }
+            card(h.optInt("no_album"), "songs with no album", "Show them") { open(Route.Rule("No album", "not exists(album)")) }
+            card(h.optInt("gone"), "songs whose file is gone", "Forget them", onForget)
+            card(h.optInt("low_quality_albums"), "albums in low quality", "Show") { open(Route.Numbers) }
         }
     }
 }

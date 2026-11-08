@@ -48,12 +48,16 @@ struct Sidebar: View {
                                     set: { setCollection(c.key, on: $0) }))
                             }
                         } label: {
-                            Image(systemName: "plus")
+                            HeaderPlus()
                         }
-                        .menuStyle(.borderlessButton)
+                        // Drawn as plainly as the Playlists +: a borderless menu had its own
+                        // size and shape beside the button's.
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
                         .menuIndicator(.hidden)
                         .fixedSize()
                         .help("Add a collection")
+                        .accessibilityLabel("Add a collection")
                     }
                 }
             }
@@ -73,8 +77,8 @@ struct Sidebar: View {
                     HStack {
                         Text("Playlists")
                         Spacer()
-                        Button { store.editor = .new() } label: { Image(systemName: "plus") }
-                            .buttonStyle(.borderless)
+                        Button { store.editor = .new() } label: { HeaderPlus() }
+                            .buttonStyle(.plain)
                             .help("New playlist")
                             .accessibilityLabel("New playlist")
                     }
@@ -175,10 +179,14 @@ private func footerLabel(_ name: String, _ icon: String, _ rail: Bool) -> some V
 struct SidebarLabel: LabelStyle {
     let rail: Bool
     func makeBody(configuration: Configuration) -> some View {
+        // The icons in a solid colour of the theme's, not the sidebar's see-through glass
+        // (vibrancy): in Mission Control's picture of the window that glass is dropped, and the
+        // icons vanished and flickered while the words stayed.
+        let ink = Store.shared.colors.ink2
         if rail {
-            configuration.icon.font(.needle(.title3)).frame(maxWidth: .infinity)
+            configuration.icon.font(.needle(.title3)).foregroundStyle(ink).frame(maxWidth: .infinity)
         } else {
-            Label(configuration)
+            Label { configuration.title } icon: { configuration.icon.foregroundStyle(ink) }
         }
     }
 }
@@ -350,5 +358,20 @@ struct Rail: View {
 
     private func selectedBackground(_ selected: Bool) -> some View {
         RoundedRectangle(cornerRadius: 8, style: .continuous).fill(selected ? store.colors.accent.opacity(0.18) : .clear)
+    }
+}
+
+/** The + beside a sidebar heading (Collections, Playlists): one size and shape for both. */
+private struct HeaderPlus: View {
+    @State private var hovering = false
+
+    var body: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(hovering ? .primary : .secondary)
+            .frame(width: 20, height: 20)
+            .background(hovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
     }
 }

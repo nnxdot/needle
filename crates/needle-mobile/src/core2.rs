@@ -31,6 +31,9 @@ pub struct LibraryChoices {
     /// Checking the music folders forgets songs whose file is gone or broken.
     #[uniffi(default = false)]
     pub forget_missing: bool,
+    /// On a metered network, background lookups (artists' pictures) wait (see `set_metered`).
+    #[uniffi(default = true)]
+    pub fewer_lookups_on_metered: bool,
     /// Find every artist's pictures slowly in the background (with online lookups on).
     pub artist_pictures: bool,
     /// The crossfade ends where the music ends and lasts whole bars.
@@ -153,6 +156,12 @@ pub struct LibraryNumbers {
     pub server_songs: u32,
     pub lossless: u32,
     pub hires: u32,
+    /// Lossy songs: with `lossless`, the whole library.
+    #[uniffi(default = 0)]
+    pub lossy: u32,
+    /// Lossy songs under 192 kbit/s.
+    #[uniffi(default = 0)]
+    pub low_quality_songs: u32,
     pub formats: Vec<Count>,
     pub decades: Vec<Count>,
     pub genres: Vec<Count>,
@@ -222,6 +231,7 @@ impl Needle {
             album_artists_only: s.album_artists_only,
             hide_compilation_artists: s.hide_compilation_artists,
             forget_missing: s.forget_missing,
+            fewer_lookups_on_metered: s.fewer_lookups_on_metered,
             artist_pictures: s.artist_pictures,
             smart_mix: s.smart_mix,
             shuffle_stays: s.shuffle_stays,
@@ -244,6 +254,7 @@ impl Needle {
             s.album_artists_only = value.album_artists_only;
             s.hide_compilation_artists = value.hide_compilation_artists;
             s.forget_missing = value.forget_missing;
+            s.fewer_lookups_on_metered = value.fewer_lookups_on_metered;
             s.artist_pictures = value.artist_pictures;
             s.smart_mix = value.smart_mix;
             s.shuffle_stays = value.shuffle_stays;
@@ -466,6 +477,8 @@ impl Needle {
             server_songs: n.server_songs as u32,
             lossless: n.lossless as u32,
             hires: n.hires as u32,
+            lossy: n.lossy as u32,
+            low_quality_songs: n.low_quality_songs as u32,
             formats: counts(n.formats),
             decades: counts(n.decades),
             genres: counts(n.genres),
@@ -525,6 +538,56 @@ impl Needle {
                 x: g.place.map_or(0.5, |p| p.0),
                 y: g.place.map_or(0.5, |p| p.1),
             })
+            .collect())
+    }
+
+    /// Fix my library's overview as JSON (see `needle_core::doctor::Health`): `songs`, `fine`,
+    /// `duplicate_sets`, `duplicate_copies`, `albums_without_cover`, `album_issues`,
+    /// `no_artist`, `no_album`, `no_genre`, `gone`, `low_quality_albums`.
+    pub fn library_health_json(&self) -> String {
+        self.library
+            .health()
+            .ok()
+            .and_then(|h| serde_json::to_string(&h).ok())
+            .unwrap_or_else(|| "{}".into())
+    }
+
+    /// Forgets the songs on this device whose file is gone (Fix my library); returns how many.
+    pub fn forget_gone(&self) -> Result<u32> {
+        Ok(self.library.forget_missing(&[])? as u32)
+    }
+
+    /// The genre map's cloud (`kind` "cloud") or bubbles ("bubbles") as JSON, laid out by the
+    /// core for a picture `aspect` times as wide as high: `height` (the width is 1) and `items`,
+    /// each with `genre`, `spellings`, `songs`, `plays`, `family`, `hue`, `x`, `y`, and `size`
+    /// (a word's font size or a circle's radius). By plays with `by_plays`, else by songs.
+    pub fn genre_art_json(&self, kind: String, by_plays: bool, aspect: f32) -> String {
+        let kind = if kind == "cloud" {
+            needle_core::genre_art::ArtKind::Cloud
+        } else {
+            needle_core::genre_art::ArtKind::Bubbles
+        };
+        let most = if kind == needle_core::genre_art::ArtKind::Cloud {
+            120
+        } else {
+            160
+        };
+        self.library
+            .genre_art(kind, by_plays, aspect, most)
+            .ok()
+            .and_then(|art| serde_json::to_string(&art).ok())
+            .unwrap_or_else(|| "{\"height\":1,\"items\":[]}".into())
+    }
+
+    /// The songs of a genre written any of these ways (a word or bubble of the genre map),
+    /// shuffled, at most 500.
+    pub fn genres_songs(&self, spellings: Vec<String>) -> Result<Vec<Song>> {
+        Ok(self
+            .library
+            .songs_of_genres(&spellings, 500)?
+            .iter()
+            .filter(|t| !t.missing)
+            .map(Song::from)
             .collect())
     }
 

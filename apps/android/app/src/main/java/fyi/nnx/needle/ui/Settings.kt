@@ -1,6 +1,7 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.DataSaverOn
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Groups
@@ -1107,6 +1108,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Swipe the cover to skip", "Left for next, right for back", app.swipeCover, icon = Icons.Rounded.Swipe) { on ->
             update { it.copy(swipeCover = on) }
         }
+        Divider()
+        SwitchRow("Keep the screen on", "While the player shows, lyrics or not", app.keepScreenOnPlayer, icon = Icons.Rounded.LightMode) { on ->
+            update { it.copy(keepScreenOnPlayer = on) }
+        }
     }
     Group("Backdrop") {
         SwitchRow(
@@ -1203,7 +1208,8 @@ private fun ArtistPicturesRow() {
         !more.artistPictures -> "Finds every artist's picture, slowly, on Wi-Fi"
         p == null || p.total == 0u -> "Finds every artist's picture, slowly, on Wi-Fi"
         p.done >= p.total -> "All ${p.total} artists looked for"
-        !p.allowed -> "${p.done} of ${p.total} artists · waiting for Wi-Fi"
+        !p.allowed && more.fewerLookupsOnMetered -> "${p.done} of ${p.total} artists · waiting for Wi-Fi"
+        !p.allowed -> "${p.done} of ${p.total} artists · waiting"
         else -> "${p.done} of ${p.total} artists"
     }
     DependentRow {
@@ -1220,6 +1226,12 @@ private fun ArtistPicturesRow() {
                     },
                     modifier = Modifier.padding(start = 60.dp, bottom = 6.dp),
                 ) { Text("Check all now") }
+            }
+            if (more.artistPictures) {
+                SwitchRow("Fewer lookups on mobile data", "The search for pictures waits for Wi-Fi on mobile data or a hotspot", more.fewerLookupsOnMetered, icon = Icons.Rounded.DataSaverOn) { on ->
+                    NeedleApp.instance.updateMore { it.copy(fewerLookupsOnMetered = on) }
+                    NeedleApp.instance.artistPicturesAllowed()
+                }
             }
         }
     }
@@ -1335,16 +1347,39 @@ private fun ScrobblingSettings() {
     LaunchedEffect(Unit) { playback = withContext(Dispatchers.IO) { runCatching { core.playbackSettings() }.getOrNull() } }
     var key by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
+    // A TV has no browser to allow Needle in: Last.fm's page shows as a QR code, for a phone.
+    val tv = isTv()
+    var qrPage by remember { mutableStateOf<String?>(null) }
     // Last.fm's page, where Needle is allowed: opened at once with Needle's own key, else after
-    // the key and secret of the person's own API account are in.
+    // the key and secret of the person's own API account are in. On a TV, or with no browser,
+    // it shows as a QR code to open on a phone.
     fun openLastfm() {
         run {
             val url = core.lastfmBegin(key, secret)
-            // Without a browser there is no page to allow Needle on; say so plainly.
-            if (tryOpen("web browser to sign in with") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
-                waitingForBrowser = true
-            }
+            val opened = !tv && runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.isSuccess
+            qrPage = if (opened) null else url
+            waitingForBrowser = true
             null
+        }
+    }
+    // With the QR code up, Needle asks Last.fm every few seconds whether it was allowed, so the
+    // remote has nothing more to press (for 10 minutes; then "I allowed it" still works).
+    LaunchedEffect(qrPage) {
+        val page = qrPage ?: return@LaunchedEffect
+        repeat(200) {
+            kotlinx.coroutines.delay(3000)
+            if (qrPage != page) return@LaunchedEffect
+            val user = withContext(Dispatchers.IO) { runCatching { core.lastfmComplete() }.getOrNull() } ?: return@repeat
+            // A new code made while it asked: that one's own check goes on.
+            if (qrPage != page) return@LaunchedEffect
+            qrPage = null
+            waitingForBrowser = false
+            connectingLastfm = false
+            message = if (user.isBlank()) "Signed in to Last.fm." else "Signed in as $user."
+            refresh++
+            return@LaunchedEffect
         }
     }
 
@@ -1354,10 +1389,15 @@ private fun ScrobblingSettings() {
                 run { core.setScrobbling(on, null); null }
             }
             TextButton(onClick = { run { core.signOut("lastfm"); "Signed out of Last.fm." } }, modifier = Modifier.padding(start = 56.dp, bottom = 4.dp)) { Text("Sign out of Last.fm") }
+            ScrobbleProblems("lastfm", refresh)
         } else {
             SettingRow(Icons.Rounded.MusicNote, "Last.fm", if (waitingForBrowser) "Waiting for Last.fm" else "Not connected") {
                 if (connectingLastfm || waitingForBrowser) {
-                    TextButton(onClick = { connectingLastfm = false; waitingForBrowser = false }) { Text("Cancel") }
+                    TextButton(onClick = {
+                        connectingLastfm = false; waitingForBrowser = false; qrPage = null
+                        // A check still under way then saves nothing.
+                        runCatching { core.lastfmStopWaiting() }
+                    }) { Text("Cancel") }
                 } else {
                     FilledTonalButton(enabled = !busy, onClick = {
                         // With Needle's own key there is nothing to fill in: straight to Last.fm.
@@ -1368,18 +1408,25 @@ private fun ScrobblingSettings() {
             AnimatedVisibility(waitingForBrowser || connectingLastfm) {
                 Column(Modifier.fillMaxWidth().padding(start = 68.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (waitingForBrowser) {
-                        Text("Allow Needle on the Last.fm page, then come back here.", style = MaterialTheme.typography.bodyMedium)
+                        val page = qrPage
+                        if (page != null) {
+                            Text("Scan this with your phone's camera, sign in, and allow Needle. Needle signs in here by itself.", style = MaterialTheme.typography.bodyMedium)
+                            QrCode(page, Modifier.size(220.dp))
+                        } else {
+                            Text("Allow Needle on the Last.fm page, then come back here.", style = MaterialTheme.typography.bodyMedium)
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(enabled = !busy, onClick = {
                                 run {
                                     val user = core.lastfmComplete()
                                     waitingForBrowser = false
                                     connectingLastfm = false
+                                    qrPage = null
                                     if (user.isBlank()) "Signed in to Last.fm." else "Signed in as $user."
                                 }
                             }) { Text("I allowed it") }
                             // The page was closed, or the key was wrong: ask for a new page.
-                            TextButton(enabled = !busy, onClick = { waitingForBrowser = false; if (a.lastfmKeyBuiltIn) openLastfm() }) { Text("Open the page again") }
+                            TextButton(enabled = !busy, onClick = { waitingForBrowser = false; qrPage = null; if (a.lastfmKeyBuiltIn) openLastfm() }) { Text(if (qrPage != null) "New code" else "Open the page again") }
                         }
                     } else {
                         Text("This build needs your own Last.fm API account, from last.fm/api.", style = MaterialTheme.typography.bodyMedium)
@@ -1396,6 +1443,7 @@ private fun ScrobblingSettings() {
                 run { core.setScrobbling(null, on); null }
             }
             TextButton(onClick = { run { core.signOut("listenbrainz"); "Signed out of ListenBrainz." } }, modifier = Modifier.padding(start = 56.dp, bottom = 4.dp)) { Text("Sign out of ListenBrainz") }
+            ScrobbleProblems("listenbrainz", refresh)
         } else {
             SettingRow(Icons.Rounded.Headphones, "ListenBrainz", "Not connected") {
                 if (connectingLb) TextButton(onClick = { connectingLb = false }) { Text("Cancel") }
@@ -1637,6 +1685,74 @@ private fun FanartKeyRow() {
                     own = true
                     background { core.setFanartKey(saved) }
                 }) { Text("Save") }
+            }
+        }
+    }
+}
+
+/**
+ * Why listens did not reach a service, when some did not: each reason with how many listens it
+ * holds back (one reason for every listen, such as a refused sign-in, is not the same as a few the
+ * network dropped), then the latest listens held back. Hidden when nothing went wrong.
+ */
+@Composable
+private fun ScrobbleProblems(service: String, refresh: Int) {
+    var json by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var open by remember { mutableStateOf(false) }
+    LaunchedEffect(service, refresh) {
+        json = withContext(Dispatchers.IO) { runCatching { org.json.JSONObject(core.scrobbleProblemsJson(service)) }.getOrNull() }
+    }
+    val reasons = json?.optJSONArray("reasons") ?: return
+    if (reasons.length() == 0) return
+    val recent = json?.optJSONArray("recent")
+    fun whenText(seconds: Long) = if (seconds <= 0) "some time ago" else
+        android.text.format.DateUtils.getRelativeTimeSpanString(seconds * 1000, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+    Column(Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp, bottom = 8.dp)) {
+        TextButton(onClick = { open = !open }) { Text(if (open) "Hide why listens were not sent" else "Why some listens were not sent") }
+        AnimatedVisibility(open) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (i in 0 until reasons.length()) {
+                    val r = reasons.getJSONObject(i)
+                    val n = r.optInt("listens")
+                    Column {
+                        Text(r.optString("error"), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${count(n, "listen")} · ${if (r.optBoolean("failed")) "refused for good" else "will be tried again"} · last ${whenText(r.optLong("latest"))}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (recent != null && recent.length() > 0) {
+                    Text("Latest", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
+                    for (i in 0 until recent.length()) {
+                        val item = recent.getJSONObject(i)
+                        val title = item.optString("title")
+                        Column {
+                            Text(if (title.isEmpty()) "A song no longer in your library" else "$title — ${item.optString("artist")}", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(
+                                "${whenText(item.optLong("played"))} · ${if (item.optBoolean("failed")) "refused" else count(item.optInt("attempts"), "attempt") + " so far"} · ${item.optString("error")}",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A QR code of [text] (a sign-in page to open on a phone), dark on white with a quiet edge. */
+@Composable
+fun QrCode(text: String, modifier: Modifier = Modifier) {
+    val code = remember(text) { runCatching { core.qrCode(text) }.getOrNull() } ?: return
+    androidx.compose.foundation.Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(Color.White)) {
+        val n = code.width.toInt()
+        // Four squares of white around it, as readers expect.
+        val cell = size.minDimension / (n + 8)
+        val start = (size.minDimension - cell * n) / 2
+        for (y in 0 until n) for (x in 0 until n) {
+            if (code.dark[y * n + x]) {
+                drawRect(Color.Black, androidx.compose.ui.geometry.Offset(start + x * cell, start + y * cell), androidx.compose.ui.geometry.Size(cell + 0.5f, cell + 0.5f))
             }
         }
     }

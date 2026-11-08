@@ -15,10 +15,17 @@ struct ServicesSettings: View {
 
     var body: some View {
         let s = store.settings
+        // The App Store updates its build itself.
+        if !Store.fromAppStore { updates(s) }
+        services(s)
+    }
+
+    @ViewBuilder private func updates(_ s: NeedleSettings) -> some View {
         Section {
             SettingRow(title: "Check for updates automatically", detail: "Once a day. You have Needle \(store.version).", icon: "arrow.down.circle") {
                 SettingSwitch(key: "check_updates", on: s.checkUpdates)
             }
+            if store.updating, let update = store.update { UpdateProgressRow(version: update.version) }
             HStack {
                 Button("Check now") { store.checkForUpdate(force: true) }
                 if let update = store.update {
@@ -33,6 +40,9 @@ struct ServicesSettings: View {
         } header: {
             GroupHeader(title: "Updates")
         }
+    }
+
+    @ViewBuilder private func services(_ s: NeedleSettings) -> some View {
         Section {
             if let error = info?.status.storeError {
                 Text("The Keychain could not be read: \(error)").foregroundStyle(store.plainColors.danger).padding(.vertical, 6)
@@ -91,6 +101,9 @@ struct ServicesSettings: View {
                     if let error = q.signInRequired ?? q.lastError {
                         Text(error).font(.needle(.caption)).foregroundStyle(store.plainColors.danger).lineLimit(1)
                     }
+                    // What went wrong, song by song: one reason for every listen (a refused
+                    // sign-in) is not the same as a few that the network dropped.
+                    ScrobbleProblemsButton(service: service)
                     if q.failed > 0 {
                         // Refused for good, a listen stays failed: Clear failed lets it go.
                         HStack {
@@ -443,6 +456,9 @@ private struct SourceCard: View {
     let plugin: PluginItem
     @State private var fields: [String: String] = [:]
     @State private var usage: [UInt64] = [0, 0]
+    /// Pressed Update now or Refresh everything: the card reads the server's progress again
+    /// each second until the song list and the covers are done (it showed none before).
+    @State private var watching = 0
     /// Songs played lately, kept for a while to play again without the network: count, bytes.
     @State private var cached: [UInt64] = [0, 0]
     /// The sign-in form, shown only after Sign in… (test builds: `-open-signin YES` opens it).
@@ -468,6 +484,20 @@ private struct SourceCard: View {
         }
         .padding(.vertical, 4)
         .task { loadUsage() }
+        .task(id: watching) {
+            guard watching > 0 else { return }
+            let id = plugin.id
+            var seconds = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                seconds += 1
+                store.reloadPlugins()
+                let now = store.plugins.first { $0.id == id }?.source
+                // A few seconds first: the update starts a moment after the press.
+                if seconds >= 4, now.map({ !$0.syncing && $0.coversLeft == 0 }) ?? true { break }
+            }
+            store.libraryChanged()
+        }
         .task(id: "\(source.songs)|\(source.syncing)") {
             guard source.signedIn else { return }
             // The core counts albums and artists with the server's rule, as the iPhone shows them.
@@ -496,12 +526,13 @@ private struct SourceCard: View {
                 Spacer()
                 Button("Show songs") { store.navigate(.source(plugin: plugin.id, name: source.name)) }
                     .buttonStyle(.borderedProminent)
-                Button(source.syncing ? "Updating…" : "Update now") { store.core.sourceSync(plugin: plugin.id) }
+                Button(source.syncing ? "Updating…" : "Update now") { store.core.sourceSync(plugin: plugin.id); watching += 1 }
                     .disabled(source.syncing)
                     .help("Ask the server for its songs again")
                 Button("Refresh everything…") {
                     if confirm("Refresh everything?", "Needle gets every song and cover again. Songs no longer on the server leave your library.", "Refresh") {
                         store.core.sourceRefresh(plugin: plugin.id)
+                        watching += 1
                     }
                 }
                 .disabled(source.syncing)
@@ -737,4 +768,112 @@ func openWebPage(_ address: String) {
         return
     }
     NSWorkspace.shared.open(url)
+}
+
+/// Why listens did not reach a service: each reason with how many listens it holds back and
+/// when it last happened, then the latest listens held back, song by song.
+private struct ScrobbleProblems: Decodable {
+    struct Reason: Decodable, Hashable { var error: String; var listens: Int; var failed: Bool; var latest: Int64 }
+    struct Problem: Decodable, Hashable { var title: String; var artist: String; var played: Int64; var error: String; var failed: Bool; var attempts: Int }
+    var reasons: [Reason]
+    var recent: [Problem]
+}
+
+/// "Details…" beside a service's waiting or failed listens: what went wrong, in a popover.
+private struct ScrobbleProblemsButton: View {
+    private var store: Store { .shared }
+    let service: String
+    @State private var shown = false
+    @State private var problems: ScrobbleProblems?
+
+    var body: some View {
+        Button("Details…") { shown = true }
+            .controlSize(.small)
+            .fixedSize()
+            .popover(isPresented: $shown, arrowEdge: .bottom) {
+                content
+                    .frame(width: 440)
+                    .frame(maxHeight: 460)
+                    .task {
+                        let service = service
+                        problems = JSON.decode(ScrobbleProblems.self, await store.load { $0.scrobbleProblemsJson(service: service) })
+                    }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let p = problems {
+            if p.reasons.isEmpty {
+                Text("Nothing went wrong lately.").foregroundStyle(.secondary).padding(20)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Why").font(.needle(.headline))
+                        ForEach(p.reasons, id: \.self) { r in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.error).fixedSize(horizontal: false, vertical: true)
+                                Text("\(count(r.listens, "listen")) · \(r.failed ? "refused for good" : "will be tried again") · last \(when(r.latest))")
+                                    .font(.needle(.caption)).foregroundStyle(.secondary)
+                            }
+                        }
+                        Divider()
+                        Text("Latest").font(.needle(.headline))
+                        ForEach(p.recent, id: \.self) { item in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title.isEmpty ? "A song no longer in your library" : "\(item.title) — \(item.artist)").lineLimit(1)
+                                Text("\(when(item.played)) · \(item.failed ? "refused" : "\(count(item.attempts, "attempt")) so far") · \(item.error)")
+                                    .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        }
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        } else {
+            ProgressView().padding(30)
+        }
+    }
+
+    private func when(_ seconds: Int64) -> String {
+        seconds > 0 ? Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(.relative(presentation: .named)) : "some time ago"
+    }
+}
+
+/// An update on its way: a bar and what it is doing ("Downloading · 12.3 of 45.6 MB"), read from
+/// the core four times a second. On a slow network it shows that something is happening.
+private struct UpdateProgressRow: View {
+    private var store: Store { .shared }
+    let version: String
+    @State private var progress: UpdateProgress?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let p = progress, p.total > 0, p.stage == "download" {
+                ProgressView(value: Double(p.done), total: Double(p.total))
+            } else {
+                ProgressView().progressViewStyle(.linear)
+            }
+            Text(words).font(.needle(.caption)).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .padding(.vertical, 4)
+        .task {
+            while !Task.isCancelled {
+                progress = store.core.updateProgress()
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    private var words: String {
+        guard let p = progress else { return "Getting ready to download Needle \(version)…" }
+        let mb = { (bytes: UInt64) in String(format: "%.1f", Double(bytes) / 1_000_000) }
+        switch p.stage {
+        case "download": return p.total > 0 ? "Downloading Needle \(version) · \(mb(p.done)) of \(mb(p.total)) MB" : "Downloading Needle \(version) · \(mb(p.done)) MB"
+        case "check": return "Checking Needle \(version)…"
+        case "install": return "Installing Needle \(version)…"
+        default: return "Getting ready to download Needle \(version)…"
+        }
+    }
 }

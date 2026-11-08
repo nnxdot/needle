@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import Network
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -65,6 +66,8 @@ final class Store {
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
+    /// An update downloading and installing now (Settings shows its progress).
+    private(set) var updating = false
     /// The core's sleep timer, while it runs (its seconds left change once a second here).
     private(set) var sleep: SleepTimerState?
     /// The speed and pitch the music plays at.
@@ -143,6 +146,7 @@ final class Store {
     @ObservationIgnored private var coverFetched: Set<String> = []
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored let nowPlaying = NowPlaying()
+    @ObservationIgnored private let metered = NWPathMonitor()
 
     init() {
         // `--data-dir <folder>` opens another library, as on the desktop (for tests).
@@ -158,6 +162,8 @@ final class Store {
             alert.runModal()
             exit(1)
         }
+        // The music folders picked earlier, before anything reads the library (the sandbox).
+        Bookmarks.start(in: folder)
         version = core.version()
         settings = JSON.decode(NeedleSettings.self, try? core.settingsJson()) ?? NeedleSettings()
         // The side panel opens when asked for (Lyrics, Queue, Details), as in Apple Music, not
@@ -167,6 +173,9 @@ final class Store {
         core.startDesktop()
         // The slow search for artists' pictures may look (it waits while the library is read).
         core.artistPicturesAllow(may: true)
+        // A hotspot, a phone's connection, or Low Data Mode: the core's background lookups wait.
+        metered.pathUpdateHandler = { [core] path in core.setMetered(on: path.isExpensive || path.isConstrained) }
+        metered.start(queue: .global(qos: .utility))
         reloadPlaylists()
         reloadPlugins()
         reloadThemes()
@@ -190,6 +199,9 @@ final class Store {
             let volume = (note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)?.path
             MainActor.assumeIsolated {
                 guard let self, self.settings.welcomed, let volume else { return }
+                // In the sandbox: what was picked on the drive (music folders, songs opened from
+                // Finder) may be opened only now, as it was away at the start.
+                Bookmarks.reopen()
                 // Only a drive that holds one of the music folders (not a disk image, a camera).
                 let roots = (try? self.core.folders()) ?? []
                 guard roots.contains(where: { $0 == volume || $0.hasPrefix(volume.hasSuffix("/") ? volume : volume + "/") }) else { return }
@@ -989,6 +1001,7 @@ final class Store {
         panel.prompt = "Add"
         panel.message = "Add a music folder to Needle"
         guard panel.runModal() == .OK else { return }
+        Bookmarks.remember(panel.urls)
         let paths = panel.urls.map(\.path)
         Task {
             _ = await ask { core in for path in paths { try core.addFolder(path: path) } }
@@ -1025,6 +1038,8 @@ final class Store {
             }
         }
         guard !music.isEmpty else { return }
+        // Opened songs join the library: keep the way back to them for the next start.
+        Bookmarks.remember(urls.filter { music.contains($0.path) })
         Task { [music] in
             guard let n = await ask({ try $0.openFiles(paths: music) }) else { return }
             if n == 0 { notify("Needle could not open that. It may not be a music file Needle can play.") }
@@ -1104,8 +1119,13 @@ final class Store {
         }
     }
 
+    /// The App Store build: the only one in Apple's sandbox. The App Store updates it, so it
+    /// has no update check of its own.
+    static let fromAppStore = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
+
     /// Once a day at most (or now, when asked), asks needle.nnx.fyi whether a newer Needle is out.
     func checkForUpdate(force: Bool) {
+        guard !Store.fromAppStore else { return }
         let day = Int(Date().timeIntervalSince1970) - 86_400
         guard force || (settings.checkUpdates && settings.lastUpdateCheck < day) else { return }
         Task {
@@ -1124,9 +1144,11 @@ final class Store {
     }
 
     func installUpdate() {
-        guard let update else { return }
+        guard let update, !Store.fromAppStore else { return }
         notify("Downloading Needle \(update.version) and checking it…")
+        updating = true
         Task {
+            defer { updating = false }
             if await ask({ try $0.installMacUpdate() }) != nil {
                 core.shutdownDesktop()
                 NSApp.terminate(nil)

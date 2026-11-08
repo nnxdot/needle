@@ -64,6 +64,13 @@ pub struct EqPreset {
 }
 
 /// The app's own look and behaviour.
+/// A QR code's squares, row by row from the top left: `true` is dark. `width` squares a side.
+#[derive(Clone, uniffi::Record)]
+pub struct QrModules {
+    pub width: u32,
+    pub dark: Vec<bool>,
+}
+
 #[derive(Clone, Serialize, Deserialize, uniffi::Record)]
 #[serde(default)]
 pub struct AppSettings {
@@ -143,6 +150,9 @@ pub struct AppSettings {
     /// bit-perfect mixer where it cannot.
     #[uniffi(default = false)]
     pub usb_bit_perfect: bool,
+    /// Keep the screen on while the player shows, lyrics or not (a TV playing to a room).
+    #[uniffi(default = false)]
+    pub keep_screen_on_player: bool,
 }
 
 impl Default for AppSettings {
@@ -181,6 +191,7 @@ impl Default for AppSettings {
             moving_covers_on_mobile_data: false,
             server_mark: true,
             usb_bit_perfect: false,
+            keep_screen_on_player: false,
         }
     }
 }
@@ -476,24 +487,53 @@ impl Needle {
         Ok(url)
     }
 
+    /// Why listens did not reach `service` ("lastfm" or "listenbrainz"), as JSON: `reasons`
+    /// (`error`, `listens`, `failed`, `latest`) and the latest 20 listens held back (`title`,
+    /// `artist`, `played`, `error`, `failed`, `attempts`).
+    pub fn scrobble_problems_json(&self, service: String) -> String {
+        needle_core::integrations::scrobble_problems(&self.library, &service, 20)
+            .ok()
+            .and_then(|p| serde_json::to_string(&p).ok())
+            .unwrap_or_else(|| "{\"reasons\":[],\"recent\":[]}".into())
+    }
+
+    /// A QR code of `text` for a screen to show: on a TV, Last.fm's sign-in page, opened on a
+    /// phone. `None` when the text is too long for one.
+    pub fn qr_code(&self, text: String) -> Option<QrModules> {
+        qr_modules(&text)
+    }
+
+    /// Cancel on a Last.fm sign-in: the sign-in waiting is forgotten, so a check still under
+    /// way (a TV asks every few seconds) finds it gone and saves nothing.
+    pub fn lastfm_stop_waiting(&self) {
+        *PENDING.lock().unwrap() = None;
+    }
+
     /// Finishes signing in to Last.fm once the listener allowed Needle in the browser.
     pub fn lastfm_complete(&self) -> Result<String> {
+        // Read, not taken out: a TV asks every few seconds while a new code may be made, and
+        // putting an old one back after a slow answer replaced the new one.
         let pending = PENDING
             .lock()
             .unwrap()
-            .take()
+            .clone()
             .ok_or_else(|| NeedleError::Failed("Start signing in to Last.fm first".into()))?;
-        match integrations::lastfm_complete(&pending) {
-            Ok(user) => {
-                self.set_scrobbling(Some(true), None)?;
-                Ok(user)
+        let answer = integrations::lastfm_exchange(&pending)?;
+        let user = {
+            // Saved only while it is still the sign-in waiting (a newer one may have begun during
+            // the slow answer), with the lock held so none begins while it is saved.
+            let mut waiting = PENDING.lock().unwrap();
+            if !waiting.as_ref().is_some_and(|p| p.token == pending.token) {
+                return Err(NeedleError::Failed(
+                    "A newer sign-in to Last.fm has begun".into(),
+                ));
             }
-            Err(error) => {
-                // Not allowed yet: keep it, so the listener can try again after allowing.
-                *PENDING.lock().unwrap() = Some(pending);
-                Err(error.into())
-            }
-        }
+            let user = integrations::lastfm_save(&pending, answer)?;
+            *waiting = None;
+            user
+        };
+        self.set_scrobbling(Some(true), None)?;
+        Ok(user)
     }
 
     pub fn listenbrainz_sign_in(&self, token: String) -> Result<String> {
@@ -549,6 +589,31 @@ fn picked_name(stem: &str) -> &str {
         &stem[37..]
     } else {
         stem.trim_start_matches("picked-")
+    }
+}
+
+fn qr_modules(text: &str) -> Option<QrModules> {
+    let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
+    Some(QrModules {
+        width: code.width() as u32,
+        dark: code
+            .to_colors()
+            .into_iter()
+            .map(|c| c == qrcode::Color::Dark)
+            .collect(),
+    })
+}
+
+#[cfg(test)]
+mod qr_tests {
+    #[test]
+    fn a_sign_in_page_makes_a_square_code() {
+        let url = "https://www.last.fm/api/auth/?api_key=0123456789abcdef0123456789abcdef&token=abcdefghijklmnopqrstuvwxyz012345";
+        let qr = super::qr_modules(url).expect("a code");
+        assert!(qr.width >= 21);
+        assert_eq!(qr.dark.len(), (qr.width * qr.width) as usize);
+        // The finder square's corner, top left, is dark.
+        assert!(qr.dark[0]);
     }
 }
 

@@ -18,7 +18,9 @@ struct SettingsWindow: View {
         NavigationSplitView {
             List(selection: Binding<String?>(get: { tab }, set: { if let t = $0 { tab = t } })) {
                 ForEach(Self.tabs, id: \.0) { name, icon in
-                    Label(name, systemImage: icon).tag(name)
+                    // Solid icons, as in the main window's sidebar (SidebarLabel): the glass ones
+                    // vanished in Mission Control.
+                    Label(name, systemImage: icon).labelStyle(SidebarLabel(rail: false)).tag(name)
                 }
             }
             .listItemTint(.fixed(store.playerAccent))
@@ -526,6 +528,7 @@ struct LibrarySettings: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             if await store.ask({ try $0.removeFolder(path: root) }) != nil {
+                Bookmarks.forget(root)
                 store.core.rewatch()
                 roots = (try? store.core.folders()) ?? []
                 store.libraryChanged()

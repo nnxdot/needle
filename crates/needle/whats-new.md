@@ -1,3 +1,12 @@
+# 2.0.4 [windows, linux]
+A genre cloud and genre bubbles, a new Fix my library, and fewer surprises on slow or costly networks.
+- **Genre cloud and bubbles.** The genre map has two new views: every genre as a word, or as a circle grouped by family (rock, pop, hip hop, …), as big as its songs or its plays. Genres written differently count as one (Hip-Hop and hip hop, R&B and RnB).
+- **Fix my library, at a glance.** It opens with how much of your library is in good shape, and a card for each thing to fix: extra copies, albums without a cover or with missing tags, songs with no genre, artist, or album, songs whose file is gone, and albums in low quality. A card opens its tool, shows the songs, or fixes them.
+- **Why scrobbles failed.** Settings › Online services › Details shows why listens did not reach Last.fm or ListenBrainz, reason by reason and song by song.
+- **Update progress.** Updating shows a progress bar and what it is doing.
+- **Metered connections.** On a hotspot or a metered network, the slow search for artist pictures waits for another one (Settings, on unless you turn it off), and an update says it will use data.
+- Library in numbers shows the lossy and low-quality share of your songs, beside lossless and hi-res.
+
 # 2.0.3 [windows, linux]
 Fixes for Home and the Artists page.
 - The mouse wheel over Home's shelves (and other rows that scroll sideways) scrolls the page again. Shift with the wheel, or a touchpad, still moves a row sideways.
@@ -52,6 +61,19 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.
+
+# 2.0.4 [macos]
+A genre cloud and genre bubbles, a new Fix my library, and fixes.
+- **Genre cloud and bubbles.** The genre map has two new views: every genre as a word, or as a circle grouped by family, as big as its songs or its plays. Genres written differently count as one (Hip-Hop and hip hop, R&B and RnB).
+- **Fix my library, at a glance.** It opens with how much of your library is in good shape, and a card for each thing to fix; a click opens its tool, shows the songs, or fixes them.
+- **Why scrobbles failed.** Settings › Online services › Details shows why listens did not reach Last.fm or ListenBrainz, reason by reason and song by song.
+- **Update progress.** Updating shows a progress bar and what it is doing.
+- On a hotspot or in Low Data Mode, the slow search for artist pictures waits for another network.
+- The artist filters (Only album artists, Hide Various Artists-only) are buttons on the Artists page, and its letter bar keeps readable letters in a short window.
+- The lyric line under the player moves as the other lyrics do, hides while the Lyrics panel is open, and sits beside the player in the title bar.
+- Refresh everything and Update now on a music server show their progress.
+- The sidebar's icons no longer vanish or flicker in Mission Control, and its + buttons match.
+- Library in numbers shows the lossy and low-quality share of your songs.
 
 # 2.0.2 [macos]
 Shuffle that stays on, and fixes.

@@ -19,6 +19,11 @@ import SwiftUI
 /// - `--render-letters <path.png>`: the letter bar with A to Z, Korean, Japanese, and Chinese
 ///   letters, in a short and a tall space.
 /// - `--test-spectrum <file>`: the core's spectrum twice a second for 12 seconds.
+/// - `--test-sandbox <file>`: for a build in Apple's sandbox. Lists the outputs, sets the
+///   volume to 0 and the output to `--test-output <name>` when given, adds the music folder
+///   `--test-sandbox-add <path>` when given, lists the folders and albums, plays
+///   `--test-sandbox-play <path>` when given (or what came through Open), then writes what
+///   plays, once a second for 10 seconds. `<file>` is in the app's container when relative.
 @MainActor
 enum TestRenders {
     static func start() {
@@ -102,6 +107,9 @@ enum TestRenders {
             .frame(width: 180, height: 940, alignment: .topLeading)
             .background(store.colors.canvas), to: path)
         }
+        if let file = value("--test-sandbox") {
+            Task { await testSandbox(store, file, output: value("--test-output"), play: value("--test-sandbox-play"), add: value("--test-sandbox-add")) }
+        }
         if let file = value("--test-spectrum") {
             Task {
                 var lines: [String] = []
@@ -114,6 +122,42 @@ enum TestRenders {
                 try? lines.joined(separator: "\n").write(toFile: file, atomically: true, encoding: .utf8)
             }
         }
+    }
+
+    private static func testSandbox(_ store: Store, _ file: String, output: String?, play: String?, add: String?) async {
+        let report = file.hasPrefix("/") ? file : NSHomeDirectory() + "/" + file
+        var lines = ["home: \(NSHomeDirectory())", "sandboxed: \(ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil)"]
+        func write() { try? lines.joined(separator: "\n").write(toFile: report, atomically: true, encoding: .utf8) }
+        store.setVolume(0)
+        let devices = await store.load { $0.outputDevices() } ?? []
+        lines.append("outputs: \(devices)")
+        if let output {
+            store.set(["output_device": output])
+            lines.append("output set: \(output)")
+        }
+        write()
+        try? await Task.sleep(for: .seconds(3))
+        if let add {
+            lines.append("folder readable: \(FileManager.default.isReadableFile(atPath: add))")
+            let added = await store.ask { try $0.addFolder(path: add) }
+            lines.append("addFolder: \(added == nil ? "failed" : "ok")")
+            try? await Task.sleep(for: .seconds(3))
+        }
+        let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: "") }) ?? []
+        lines.append("folders: \((try? store.core.folders()) ?? []), albums: \(albums.map(\.album))")
+        if let play {
+            lines.append("readable: \(FileManager.default.isReadableFile(atPath: play))")
+            let opened = await store.ask { try $0.openFiles(paths: [play]) }
+            lines.append("openFiles: \(opened.map(String.init) ?? "failed")")
+        }
+        for second in 1...10 {
+            try? await Task.sleep(for: .seconds(1))
+            guard let p = store.playback else { lines.append("\(second): no playback"); continue }
+            lines.append("\(second): “\(p.title)” \(p.format) playing \(p.playing) at \(String(format: "%.1f", p.position)) s, volume \(p.volume), output \(p.output) (\(p.outputDevice ?? "default"), \(p.outputRate) Hz), loading \(p.loading), error \(p.error ?? "none"), notice \(p.outputNotice ?? "none")")
+            write()
+        }
+        lines.append("done")
+        write()
     }
 
     private static func test202(_ store: Store, _ file: String, play: Bool) async {

@@ -422,6 +422,11 @@ impl AppView {
         if queue.failed > 0 {
             parts.push(format!("{} failed", queue.failed));
         }
+        let details = self
+            .scrobble_problems
+            .as_ref()
+            .filter(|(shown, _)| *shown == service)
+            .map(|(_, problems)| problems.clone());
         el.child(
             div()
                 .flex()
@@ -431,6 +436,33 @@ impl AppView {
                 .when_some(
                     queue.sign_in_required.clone().or(queue.last_error.clone()),
                     |el, error| el.child(faint(error, cx).text_color(p.danger).truncate().flex_1()),
+                )
+                // What went wrong, song by song: one reason for every listen (a refused
+                // sign-in) is not the same as a few that the network dropped.
+                .child(
+                    small_button(
+                        SharedString::from(format!("problems-{service}")),
+                        if details.is_some() {
+                            "Hide details"
+                        } else {
+                            "Details"
+                        },
+                    )
+                    .ghost()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let open = this
+                            .scrobble_problems
+                            .as_ref()
+                            .is_some_and(|(s, _)| *s == service);
+                        this.scrobble_problems = if open {
+                            None
+                        } else {
+                            integrations::scrobble_problems(&this.library, service, 20)
+                                .ok()
+                                .map(|problems| (service, problems))
+                        };
+                        cx.notify();
+                    })),
                 )
                 .when(queue.failed > 0, |el| {
                     el.child(
@@ -471,6 +503,9 @@ impl AppView {
                     )
                 }),
         )
+        .when_some(details, |el, problems| {
+            el.child(scrobble_problems_view(&problems, cx))
+        })
     }
 
     fn service_job(&mut self, job: impl FnOnce() -> Result<String> + Send + 'static) {
@@ -974,6 +1009,23 @@ impl AppView {
                         })),
                         cx,
                     ))
+                    // A hotspot or mobile data: the slow search for artists' pictures waits.
+                    .when(self.settings.online_media, |el| {
+                        el.child(setting_row(
+                            "Fewer lookups on metered connections",
+                            if needle_core::network::metered() {
+                                "On a metered connection now (a hotspot or mobile data): the search for artist pictures waits for another."
+                            } else {
+                                "On a hotspot or mobile data, the search for artist pictures waits for another network."
+                            },
+                            Switch::new("fewer-on-metered").checked(self.settings.fewer_lookups_on_metered).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                this.settings.fewer_lookups_on_metered = *checked;
+                                this.persist_settings();
+                                cx.notify();
+                            })),
+                            cx,
+                        ))
+                    })
                     .when(self.settings.online_media, |el| {
                         let progress = self.picture_sweep.progress();
                         let line = if !self.settings.artist_pictures {
@@ -1896,4 +1948,89 @@ impl AppView {
             cx,
         )
     }
+}
+
+/// Why listens did not reach a service: each reason with how many listens it holds back and when
+/// it last happened, then the latest listens held back, song by song.
+fn scrobble_problems_view(problems: &integrations::ScrobbleProblems, cx: &App) -> Div {
+    let p = pal(cx);
+    let when = |seconds: i64| {
+        if seconds <= 0 {
+            "some time ago".to_string()
+        } else {
+            chrono::DateTime::from_timestamp(seconds, 0)
+                .map(|t| {
+                    t.with_timezone(&chrono::Local)
+                        .format("%-d %b %Y, %H:%M")
+                        .to_string()
+                })
+                .unwrap_or_default()
+        }
+    };
+    if problems.reasons.is_empty() {
+        return div().pt_2().child(faint("Nothing went wrong lately.", cx));
+    }
+    let mut list = div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_2()
+        .child(meta("Why", cx));
+    for r in &problems.reasons {
+        list = list.child(
+            div()
+                .flex()
+                .flex_col()
+                .child(div().text_sm().text_color(p.ink).child(r.error.clone()))
+                .child(faint(
+                    format!(
+                        "{} listen{} · {} · last {}",
+                        r.listens,
+                        if r.listens == 1 { "" } else { "s" },
+                        if r.failed {
+                            "refused for good"
+                        } else {
+                            "will be tried again"
+                        },
+                        when(r.latest)
+                    ),
+                    cx,
+                )),
+        );
+    }
+    list = list.child(div().pt_2().child(meta("Latest", cx)));
+    for item in &problems.recent {
+        let song = if item.title.is_empty() {
+            "A song no longer in your library".to_string()
+        } else {
+            format!("{} — {}", item.title, item.artist)
+        };
+        list = list.child(
+            div()
+                .flex()
+                .flex_col()
+                .child(div().text_sm().text_color(p.ink).truncate().child(song))
+                .child(
+                    faint(
+                        format!(
+                            "{} · {} · {}",
+                            when(item.played),
+                            if item.failed {
+                                "refused".to_string()
+                            } else {
+                                format!(
+                                    "{} attempt{} so far",
+                                    item.attempts,
+                                    if item.attempts == 1 { "" } else { "s" }
+                                )
+                            },
+                            item.error
+                        ),
+                        cx,
+                    )
+                    .truncate(),
+                ),
+        );
+    }
+    list
 }

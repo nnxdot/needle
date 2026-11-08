@@ -169,8 +169,12 @@ struct NumbersView: View {
                     .padding(.top, 8)
                     SectionTitle(title: "Quality")
                     VStack(spacing: 12) {
+                        // Lossless and lossy make up the whole library; hi-res and low quality
+                        // are parts of them.
                         share("Lossless", n.lossless, of: n.songs)
                         share("Hi-res", n.hires, of: n.songs)
+                        share("Lossy", n.lossy, of: n.songs)
+                        share("Low quality (under 192 kbit/s)", n.lowQualitySongs, of: n.songs)
                     }
                     .padding(.horizontal).padding(.top, 8)
                     if !n.formats.isEmpty { SectionTitle(title: "Formats"); bars(n.formats) }

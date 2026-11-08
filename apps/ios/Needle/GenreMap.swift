@@ -128,6 +128,13 @@ struct FlowLayout: Layout {
 struct GenreMapView: View {
     @Environment(Store.self) private var store
     @State private var spots: [GenreSpot]?
+    /// "map" (where the songs sound), "cloud", or "bubbles" (by family).
+    @AppStorage("genre-view") private var view = "map"
+    /// Cloud and bubbles by plays instead of songs.
+    @AppStorage("genre-by-plays") private var byPlays = false
+    @State private var art: GenreArt?
+    /// The view and order `art` was laid out for ("cloud|false").
+    @State private var artFor = ""
 
     var body: some View {
         GeometryReader { geo in
@@ -143,6 +150,27 @@ struct GenreMapView: View {
                         ContentUnavailableView("No genres yet", systemImage: "circle.hexagongrid",
                                                description: Text("Your songs have no genres in their tags yet."))
                     } else if let spots {
+                        Picker("View", selection: $view) {
+                            Text("Map").tag("map")
+                            Text("Cloud").tag("cloud")
+                            Text("Bubbles").tag("bubbles")
+                        }
+                        .pickerStyle(.segmented)
+                        if view != "map" {
+                            Picker("Size by", selection: $byPlays) {
+                                Text("By songs").tag(false)
+                                Text("By plays").tag(true)
+                            }
+                            .pickerStyle(.segmented)
+                            if let art, artFor == "\(view)|\(byPlays)" {
+                                Text(art.items.isEmpty ? (byPlays ? "Nothing played yet." : "No genres yet.")
+                                     : "\(count(art.items.count, "genre")). \(view == "cloud" ? "As big as" : "Grouped by family, as big as") \(byPlays ? "their plays" : "their songs"). Tap one to play it.")
+                                    .font(.needle(.subheadline)).foregroundStyle(store.colors.muted)
+                                if !art.items.isEmpty {
+                                    GenreArtView(art: art, cloud: view == "cloud", width: side, maxHeight: max(geo.size.height - 200, 320), dark: store.colors.dark) { play($0) }
+                                }
+                            }
+                        } else {
                         Text(laid.bubbles.isEmpty
                              ? "Needle measures each song's sound in the background (Settings › Library). Genres take their place as their songs are measured."
                              : "\(count(spots.count, "genre")), each where its songs sound. Tap one to play it.")
@@ -165,6 +193,7 @@ struct GenreMapView: View {
                                 }
                             }
                         }
+                        }
                     }
                 }
                 .padding(20)
@@ -172,6 +201,16 @@ struct GenreMapView: View {
         }
         .navigationTitle("Genre map")
         .themed()
+        .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)") {
+            guard view != "map" else { return }
+            let (kind, plays) = (view, byPlays)
+            // Upright on a phone: a little taller than wide.
+            let json = await store.load { $0.genreArtJson(kind: kind, byPlays: plays, aspect: 0.8) } ?? ""
+            // Switched to another view or order meanwhile: that one has its own load.
+            guard !Task.isCancelled, kind == view, plays == byPlays else { return }
+            art = try? JSONDecoder().decode(GenreArt.self, from: Data(json.utf8))
+            artFor = "\(kind)|\(plays)"
+        }
         .task(id: store.libraryVersion) {
             spots = await store.load { try $0.genreMap() } ?? []
             // For tests: `-play-genre <name>` plays that genre as a tap does.
@@ -224,12 +263,101 @@ struct GenreMapView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
+    private func play(_ item: GenreArt.Item) {
+        Task {
+            let spellings = item.spellings
+            let songs = await store.ask { try $0.genresSongs(spellings: spellings) } ?? []
+            if songs.isEmpty { return }
+            store.play(songs)
+            store.message = "Playing \(item.genre), shuffled"
+        }
+    }
+
     private func play(_ genre: String) {
         Task {
             let songs = await store.ask { try $0.genreSongs(name: genre) } ?? []
             if songs.isEmpty { return }
             store.play(songs.shuffled())
             store.message = "Playing \(genre), shuffled"
+        }
+    }
+}
+
+/// The core's cloud or bubbles (see genre_art.rs): places and sizes in a box 1 wide and `height`
+/// high.
+struct GenreArt: Decodable {
+    struct Item: Decodable, Identifiable {
+        var genre: String
+        var spellings: [String]
+        var songs: Int
+        var plays: Int
+        var family: String
+        var hue: Double
+        var x: Double
+        var y: Double
+        var size: Double
+        /// A circle's name fits at `fit` × the radius (its longest word across 80 % of it).
+        var fit: Double
+        var id: String { genre }
+    }
+    var height: Double
+    var items: [Item]
+}
+
+/// The genre cloud (words) or bubbles (circles by family), drawn where the core placed them,
+/// scaled to `width` (or to `maxHeight`, when the picture is taller). A tap plays a genre.
+struct GenreArtView: View {
+    let art: GenreArt
+    let cloud: Bool
+    let width: Double
+    let maxHeight: Double
+    let dark: Bool
+    let play: (GenreArt.Item) -> Void
+
+    var body: some View {
+        let scale = min(width, maxHeight / max(art.height, 0.01))
+        ZStack(alignment: .topLeading) {
+            ForEach(art.items) { item in
+                Button { play(item) } label: { label(item, scale: scale) }
+                    .buttonStyle(Pressable())
+                    .accessibilityLabel("\(item.genre), \(count(item.songs, "song"))")
+                    .accessibilityHint("Plays it, shuffled")
+                    .position(x: item.x * scale, y: item.y * scale)
+            }
+        }
+        .frame(width: scale, height: art.height * scale, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func tone(_ item: GenreArt.Item) -> Color {
+        Color(hue: item.hue / 360, saturation: dark ? 0.5 : 0.65, brightness: dark ? 0.85 : 0.55)
+    }
+
+    @ViewBuilder
+    private func label(_ item: GenreArt.Item, scale: Double) -> some View {
+        if cloud {
+            Text(item.genre)
+                .font(.system(size: max(item.size * scale, 6), weight: .bold))
+                .foregroundStyle(tone(item))
+                .fixedSize()
+        } else {
+            let r = item.size * scale
+            ZStack {
+                Circle().fill(tone(item).opacity(0.9))
+                // As big as fits, its longest word on one line; no name when too small.
+                let font = min(min(max(r * 0.32, 8), 20), r * item.fit)
+                if font >= 7 {
+                    Text(item.genre)
+                        .font(.system(size: font, weight: .semibold))
+                        .foregroundStyle(dark ? Color.black.opacity(0.8) : Color.white)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.6)
+                        .frame(width: r * 1.6)
+                }
+            }
+            .frame(width: r * 2, height: r * 2)
+            .contentShape(.circle)
         }
     }
 }

@@ -26,6 +26,10 @@ const TABS: [&str; 4] = ["Duplicates", "Covers", "Tags", "Organize"];
 
 /// Results coming back from the background.
 pub enum Msg {
+    /// The overview's counts (the cards over the tools).
+    Health(Box<doctor::Health>),
+    /// Forget songs that are gone: how many.
+    Forgot(usize),
     Duplicates(Vec<DuplicateGroup>),
     Merged(usize, Vec<String>),
     Covers(Vec<Track>),
@@ -91,6 +95,9 @@ impl Bulk {
 
 pub struct Doctor {
     pub tab: usize,
+    pub health: Option<doctor::Health>,
+    /// Forget songs that are gone: waiting for a second click.
+    pub confirm_forget: bool,
     pub duplicates: Option<Vec<DuplicateGroup>>,
     /// Waiting for a second click: a group, or `usize::MAX` for all.
     pub confirm_merge: Option<usize>,
@@ -110,6 +117,8 @@ impl Doctor {
         let pattern = cx.new(|cx| InputState::new(window, cx).default_value(doctor::PATTERNS[0]));
         Self {
             tab: 0,
+            health: None,
+            confirm_forget: false,
             duplicates: None,
             confirm_merge: None,
             covers: None,
@@ -156,6 +165,8 @@ impl AppView {
 
     /// Start the checks of the open tab.
     pub(super) fn doctor_load(&mut self) {
+        // The overview, quick: one pass over the library.
+        self.doctor_send(|library| Msg::Health(Box::new(library.health().unwrap_or_default())));
         let tab = self.doctor.tab;
         match tab {
             0 => {
@@ -234,6 +245,11 @@ impl AppView {
                 }
             }
             Msg::Issues(list) => d.issues = Some(list),
+            Msg::Health(health) => d.health = Some(*health),
+            Msg::Forgot(n) => {
+                self.notify(format!("Forgot {}.", plural(n, "song", "songs")));
+                self.doctor_load();
+            }
             Msg::Releases(album, result) => {
                 if let Some(lookup) = &mut d.lookup
                     && lookup.issue.album == album
@@ -576,7 +592,7 @@ impl AppView {
                                     .flex_col()
                                     .gap_1()
                                     .child(display("Fix my library", 34.))
-                                    .child(meta("Find copies, fill in covers and tags, and tidy your files.", cx)),
+                                    .child(meta(health_summary(d.health.as_ref()), cx)),
                             )
                             .child(segmented("doctor-tab", &TABS, d.tab, cx, {
                                 let view = cx.entity().downgrade();
@@ -590,9 +606,189 @@ impl AppView {
                                 }
                             })),
                     )
+                    .children(self.health_cards(cx))
                     .child(body),
             )
             .into_any_element()
+    }
+
+    /// The overview's cards: what is wrong, how much, and what a click does (opens its tool,
+    /// shows the songs, or fixes them).
+    fn health_cards(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let h = self.doctor.health.clone()?;
+        if h.songs == 0 {
+            return None;
+        }
+        let p = pal(cx);
+        let share = h.fine as f32 / h.songs.max(1) as f32;
+        let mut cards: Vec<AnyElement> = vec![];
+        let mut card = |id: &'static str,
+                        icon: &'static str,
+                        number: usize,
+                        label: &str,
+                        action: &'static str,
+                        on: CardAction| {
+            cards.push(
+                div()
+                    .id(id)
+                    .w(px(220.))
+                    .p_4()
+                    .rounded(px(12.))
+                    .bg(p.raised)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.raised_hover))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(glyph(icon).size(px(16.)).text_color(p.accent))
+                            .child(div().text_size(px(12.)).text_color(p.accent).child(action)),
+                    )
+                    .child(display(number.to_string(), 24.))
+                    .child(meta(label.to_string(), cx))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        on(this, window, cx);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        };
+        let tab = |i: usize| -> CardAction {
+            Box::new(move |this, _, _| {
+                this.doctor.tab = i;
+                this.doctor_load();
+            })
+        };
+        let show = |rule: &'static str| -> CardAction {
+            // As Back expects (navigate), on the All tab (not Lyrics or another left from an
+            // earlier search), with the rule typed in.
+            Box::new(move |this, window, cx| {
+                this.navigate(super::Page::Search, window, cx);
+                this.search_tab = Default::default();
+                this.search
+                    .update(cx, |s, cx| s.set_value(rule.to_string(), window, cx));
+                this.run_find(cx);
+            })
+        };
+        if h.duplicate_copies > 0 {
+            card(
+                "health-dupes",
+                "copy",
+                h.duplicate_copies,
+                "extra copies of songs",
+                "Show",
+                tab(0),
+            );
+        }
+        if h.albums_without_cover > 0 {
+            card(
+                "health-covers",
+                "albums",
+                h.albums_without_cover,
+                "albums without a cover",
+                "Find covers",
+                tab(1),
+            );
+        }
+        if h.album_issues > 0 {
+            card(
+                "health-tags",
+                "tag",
+                h.album_issues,
+                "albums missing a year, track numbers, or album artist",
+                "Fix tags",
+                tab(2),
+            );
+        }
+        if h.no_genre > 0 {
+            card(
+                "health-genre",
+                "genres",
+                h.no_genre,
+                "songs with no genre",
+                "Show them",
+                show("not exists(genre)"),
+            );
+        }
+        if h.no_artist > 0 {
+            card(
+                "health-artist",
+                "artists",
+                h.no_artist,
+                "songs with no artist",
+                "Show them",
+                show("not exists(artist)"),
+            );
+        }
+        if h.no_album > 0 {
+            card(
+                "health-album",
+                "songs",
+                h.no_album,
+                "songs with no album",
+                "Show them",
+                show("not exists(album)"),
+            );
+        }
+        if h.gone > 0 {
+            let confirming = self.doctor.confirm_forget;
+            card(
+                "health-gone",
+                "trash",
+                h.gone,
+                "songs whose file is gone",
+                if confirming {
+                    "Click again to forget"
+                } else {
+                    "Forget them"
+                },
+                Box::new(move |this, _, _| {
+                    if this.doctor.confirm_forget {
+                        this.doctor.confirm_forget = false;
+                        this.doctor_send(|library| {
+                            Msg::Forgot(library.forget_missing(&[]).unwrap_or(0))
+                        });
+                    } else {
+                        this.doctor.confirm_forget = true;
+                    }
+                }),
+            );
+        }
+        if h.low_quality_albums > 0 {
+            card(
+                "health-low",
+                "alert",
+                h.low_quality_albums,
+                "albums in low quality",
+                "Show",
+                Box::new(|this, window, cx| this.navigate(super::Page::Numbers, window, cx)),
+            );
+        }
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .w(px(520.))
+                        .h(px(6.))
+                        .rounded_full()
+                        .bg(p.line_soft)
+                        .child(
+                            div()
+                                .h_full()
+                                .rounded_full()
+                                .bg(p.accent)
+                                .w(relative(share)),
+                        ),
+                )
+                .child(div().flex().flex_wrap().gap_3().children(cards)),
+        )
     }
 
     fn loading(&self, text: &str, cx: &App) -> AnyElement {
@@ -1450,5 +1646,21 @@ impl AppView {
             );
         }
         body.into_any_element()
+    }
+}
+
+/// What a card of the overview does when clicked.
+type CardAction = Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)>;
+
+/// The line under the title: how much of the library is in good shape.
+fn health_summary(health: Option<&doctor::Health>) -> String {
+    match health {
+        None => "Checking your library…".into(),
+        Some(h) if h.songs == 0 => "Your library is empty.".into(),
+        Some(h) if h.fine == h.songs => format!("All {} songs are in good shape.", h.songs),
+        Some(h) => format!(
+            "{:.0}% of your songs are in good shape. The cards show what is left; click one to fix it.",
+            h.fine as f32 / h.songs as f32 * 100.
+        ),
     }
 }
