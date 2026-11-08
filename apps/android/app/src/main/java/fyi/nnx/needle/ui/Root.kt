@@ -58,7 +58,10 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -229,6 +232,7 @@ fun NeedleRoot() {
     // button when what had it goes.
     val covered = welcoming || (playerOpen && hasSong)
     val keys = usingKeys()
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val pageFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     var inPage by remember { mutableStateOf(false) }
     var toPage by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -258,7 +262,20 @@ fun NeedleRoot() {
                 Modifier
                     .fillMaxSize()
                     .onSizeChanged { window = with(density) { androidx.compose.ui.unit.DpSize(it.width.toDp(), it.height.toDp()) } }
-                    .onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false },
+                    .onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }
+                    // A remote's up or down held goes faster the longer it is held (a long
+                    // playlist), as only what nothing below used for itself (a slider's arrows).
+                    .onKeyEvent { event ->
+                        val direction = when (event.key) {
+                            androidx.compose.ui.input.key.Key.DirectionDown -> androidx.compose.ui.focus.FocusDirection.Down
+                            androidx.compose.ui.input.key.Key.DirectionUp -> androidx.compose.ui.focus.FocusDirection.Up
+                            else -> return@onKeyEvent false
+                        }
+                        val held = event.nativeKeyEvent.repeatCount
+                        if (!keys || event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown || held < HeldFrom) return@onKeyEvent false
+                        repeat(if (held < HeldFaster) 3 else 8) { focus.moveFocus(direction) }
+                        true
+                    },
             ) {
                 CompositionLocalProvider(androidx.compose.ui.platform.LocalConfiguration provides left) {
                 // The keyboard takes room from the pages, so a text box low on a page shows above it.
@@ -529,3 +546,8 @@ private fun Page(route: Route, open: (Route) -> Unit) {
 
 /** A page's place in its tab's stack, the key its kept state is held under. */
 private fun pageKey(tab: Tab, index: Int, route: Route) = "${tab.name}/$index/$route"
+
+/** Repeats of a held arrow before it moves three rows at a time (about half a second)… */
+private const val HeldFrom = 10
+/** …and eight (about two seconds). */
+private const val HeldFaster = 40
