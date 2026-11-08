@@ -622,57 +622,55 @@ impl AppView {
         let p = pal(cx);
         let share = h.fine as f32 / h.songs.max(1) as f32;
         let mut cards: Vec<AnyElement> = vec![];
-        let mut card =
-            |id: &'static str,
-             icon: &'static str,
-             number: usize,
-             label: &str,
-             action: &'static str,
-             on: Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)>| {
-                cards.push(
-                    div()
-                        .id(id)
-                        .w(px(220.))
-                        .p_4()
-                        .rounded(px(12.))
-                        .bg(p.raised)
-                        .cursor_pointer()
-                        .hover(|s| s.bg(p.raised_hover))
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .child(glyph(icon).size(px(16.)).text_color(p.accent))
-                                .child(div().text_size(px(12.)).text_color(p.accent).child(action)),
-                        )
-                        .child(display(&number.to_string(), 24.))
-                        .child(meta(label.to_string(), cx))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            on(this, window, cx);
-                            cx.notify();
-                        }))
-                        .into_any_element(),
-                );
-            };
-        let tab = |i: usize| -> Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)> {
+        let mut card = |id: &'static str,
+                        icon: &'static str,
+                        number: usize,
+                        label: &str,
+                        action: &'static str,
+                        on: CardAction| {
+            cards.push(
+                div()
+                    .id(id)
+                    .w(px(220.))
+                    .p_4()
+                    .rounded(px(12.))
+                    .bg(p.raised)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.raised_hover))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(glyph(icon).size(px(16.)).text_color(p.accent))
+                            .child(div().text_size(px(12.)).text_color(p.accent).child(action)),
+                    )
+                    .child(display(number.to_string(), 24.))
+                    .child(meta(label.to_string(), cx))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        on(this, window, cx);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        };
+        let tab = |i: usize| -> CardAction {
             Box::new(move |this, _, _| {
                 this.doctor.tab = i;
                 this.doctor_load();
             })
         };
-        let show =
-            |rule: &'static str| -> Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)> {
-                Box::new(move |this, window, cx| {
-                    this.search
-                        .update(cx, |s, cx| s.set_value(rule.to_string(), window, cx));
-                    this.page = super::Page::Search;
-                    this.run_find(cx);
-                })
-            };
+        let show = |rule: &'static str| -> CardAction {
+            Box::new(move |this, window, cx| {
+                this.search
+                    .update(cx, |s, cx| s.set_value(rule.to_string(), window, cx));
+                this.page = super::Page::Search;
+                this.run_find(cx);
+            })
+        };
         if h.duplicate_copies > 0 {
             card(
                 "health-dupes",
@@ -1647,6 +1645,9 @@ impl AppView {
         body.into_any_element()
     }
 }
+
+/// What a card of the overview does when clicked.
+type CardAction = Box<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)>;
 
 /// The line under the title: how much of the library is in good shape.
 fn health_summary(health: Option<&doctor::Health>) -> String {
