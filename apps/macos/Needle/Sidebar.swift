@@ -179,10 +179,14 @@ private func footerLabel(_ name: String, _ icon: String, _ rail: Bool) -> some V
 struct SidebarLabel: LabelStyle {
     let rail: Bool
     func makeBody(configuration: Configuration) -> some View {
+        // The icons in a solid colour of the theme's, not the sidebar's see-through glass
+        // (vibrancy): in Mission Control's picture of the window that glass is dropped, and the
+        // icons vanished and flickered while the words stayed.
+        let ink = Store.shared.colors.ink2
         if rail {
-            configuration.icon.font(.needle(.title3)).frame(maxWidth: .infinity)
+            configuration.icon.font(.needle(.title3)).foregroundStyle(ink).frame(maxWidth: .infinity)
         } else {
-            Label(configuration)
+            Label { configuration.title } icon: { configuration.icon.foregroundStyle(ink) }
         }
     }
 }
