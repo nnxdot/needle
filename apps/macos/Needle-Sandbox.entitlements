@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Needle in Apple's sandbox, as the Mac App Store and TestFlight need it. -->
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Music servers, lyrics, covers, scrobbling, Discord, network speakers. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Phone remote and AI assistants answer on the network when they are on. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- Music folders the person picks (tags are written there), kept across starts. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+	<!-- The Music folder, where most libraries live. -->
+	<key>com.apple.security.assets.music.read-write</key>
+	<true/>
+</dict>
+</plist>

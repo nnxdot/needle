@@ -528,6 +528,7 @@ struct LibrarySettings: View {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             if await store.ask({ try $0.removeFolder(path: root) }) != nil {
+                Bookmarks.forget(root)
                 store.core.rewatch()
                 roots = (try? store.core.folders()) ?? []
                 store.libraryChanged()

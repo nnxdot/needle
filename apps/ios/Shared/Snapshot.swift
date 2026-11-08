@@ -22,7 +22,10 @@ struct Snapshot: Codable {
     var weekSongs = 0
     var topArtist: String?
 
-    static let group = "group.fyi.nnx.needle"
+    /// From Info.plist, because the App Store build has another id than the SideStore one; the
+    /// Watch app has no shared folder and keeps the old name.
+    static let group = Bundle.main.object(forInfoDictionaryKey: "NeedleAppGroup") as? String
+        ?? "group.fyi.nnx.needle"
 
     static var folder: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)

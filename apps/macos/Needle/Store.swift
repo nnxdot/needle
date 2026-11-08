@@ -162,6 +162,8 @@ final class Store {
             alert.runModal()
             exit(1)
         }
+        // The music folders picked earlier, before anything reads the library (the sandbox).
+        Bookmarks.start(in: folder)
         version = core.version()
         settings = JSON.decode(NeedleSettings.self, try? core.settingsJson()) ?? NeedleSettings()
         // The side panel opens when asked for (Lyrics, Queue, Details), as in Apple Music, not
@@ -996,6 +998,7 @@ final class Store {
         panel.prompt = "Add"
         panel.message = "Add a music folder to Needle"
         guard panel.runModal() == .OK else { return }
+        Bookmarks.remember(panel.urls)
         let paths = panel.urls.map(\.path)
         Task {
             _ = await ask { core in for path in paths { try core.addFolder(path: path) } }
@@ -1032,6 +1035,8 @@ final class Store {
             }
         }
         guard !music.isEmpty else { return }
+        // Opened songs join the library: keep the way back to them for the next start.
+        Bookmarks.remember(urls.filter { music.contains($0.path) })
         Task { [music] in
             guard let n = await ask({ try $0.openFiles(paths: music) }) else { return }
             if n == 0 { notify("Needle could not open that. It may not be a music file Needle can play.") }
@@ -1111,8 +1116,13 @@ final class Store {
         }
     }
 
+    /// The App Store build: the only one in Apple's sandbox. The App Store updates it, so it
+    /// has no update check of its own.
+    static let fromAppStore = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
+
     /// Once a day at most (or now, when asked), asks needle.nnx.fyi whether a newer Needle is out.
     func checkForUpdate(force: Bool) {
+        guard !Store.fromAppStore else { return }
         let day = Int(Date().timeIntervalSince1970) - 86_400
         guard force || (settings.checkUpdates && settings.lastUpdateCheck < day) else { return }
         Task {
@@ -1131,7 +1141,7 @@ final class Store {
     }
 
     func installUpdate() {
-        guard let update else { return }
+        guard let update, !Store.fromAppStore else { return }
         notify("Downloading Needle \(update.version) and checking it…")
         updating = true
         Task {

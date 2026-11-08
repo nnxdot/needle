@@ -88,5 +88,8 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- The folder the app shares with its widgets (Snapshot.group). -->
+	<key>NeedleAppGroup</key>
+	<string>group.$(NEEDLE_ID)</string>
 </dict>
 </plist>
