@@ -410,6 +410,88 @@ impl Library {
     }
 }
 
+// ---------------------------------------------------------------- the overview
+
+/// Fix my library's overview: how much of the library is fine, and what is wrong, in one quick
+/// pass, for its cards. Each count has a tool (duplicates, covers, album tags), a search to show
+/// the songs (`not exists(genre)`, `missing`), or a fix in one press (Forget songs that are gone).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Health {
+    pub songs: usize,
+    /// Songs with nothing below wrong.
+    pub fine: usize,
+    /// Songs in the library more than once: the sets, and the extra copies in them.
+    pub duplicate_sets: usize,
+    pub duplicate_copies: usize,
+    pub albums_without_cover: usize,
+    /// Albums missing a year or track numbers, or with no album artist to hold them together.
+    pub album_issues: usize,
+    pub no_artist: usize,
+    pub no_album: usize,
+    pub no_genre: usize,
+    /// Songs on this device whose file is gone.
+    pub gone: usize,
+    /// Albums whose songs are all lossy and under 192 kbit/s.
+    pub low_quality_albums: usize,
+}
+
+impl Library {
+    /// Fix my library's overview (see [`Health`]).
+    pub fn health(&self) -> Result<Health> {
+        let all = self.search("")?;
+        let present: Vec<Track> = all.iter().filter(|t| !t.missing).cloned().collect();
+        let mut wrong: HashSet<String> = HashSet::new();
+        let duplicates = find_duplicates(&present);
+        let mut health = Health {
+            songs: all.len(),
+            duplicate_sets: duplicates.len(),
+            ..Default::default()
+        };
+        for group in &duplicates {
+            for (i, t) in group.tracks.iter().enumerate() {
+                if i != group.keep {
+                    health.duplicate_copies += 1;
+                    wrong.insert(t.id.clone());
+                }
+            }
+        }
+        let issues = album_issues(&present);
+        health.album_issues = issues.len();
+        for issue in &issues {
+            wrong.extend(issue.track_ids.iter().cloned());
+        }
+        for t in &all {
+            if t.missing {
+                if !t.is_streamed() {
+                    health.gone += 1;
+                    wrong.insert(t.id.clone());
+                }
+                continue;
+            }
+            let mut bad = false;
+            if t.artist.trim().is_empty() {
+                health.no_artist += 1;
+                bad = true;
+            }
+            if t.album.trim().is_empty() {
+                health.no_album += 1;
+                bad = true;
+            }
+            if t.genre.trim().is_empty() {
+                health.no_genre += 1;
+                bad = true;
+            }
+            if bad {
+                wrong.insert(t.id.clone());
+            }
+        }
+        health.albums_without_cover = self.albums_without_covers()?.len();
+        health.low_quality_albums = self.numbers()?.low_quality_albums;
+        health.fine = all.len().saturating_sub(wrong.len());
+        Ok(health)
+    }
+}
+
 // ---------------------------------------------------------------- MusicBrainz album tags
 
 /// A release on MusicBrainz that may be this album.
@@ -1558,5 +1640,48 @@ mod tests {
             "the new folder is gone again"
         );
         assert!(!library.can_undo_organize());
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+
+    #[test]
+    fn the_overview_counts_what_is_wrong() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let song = |id: &str, title: &str, artist: &str, album: &str, genre: &str| Track {
+            id: id.into(),
+            path: format!("/music/{id}.flac"),
+            title: title.into(),
+            artist: artist.into(),
+            album_artist: artist.into(),
+            album: album.into(),
+            genre: genre.into(),
+            year: 2020,
+            track_number: 1,
+            duration: 200.,
+            format: "FLAC".into(),
+            ..Default::default()
+        };
+        for t in [
+            song("a", "Tidewater", "Mara Quinn", "Shore", "Folk"),
+            song("b", "Lanterns", "Mara Quinn", "Shore", ""),
+            song("c", "Nameless", "", "Loose", "Folk"),
+        ] {
+            library.upsert(&t).unwrap();
+        }
+        let mut gone = song("d", "Gone", "Mara Quinn", "Shore", "Folk");
+        gone.missing = true;
+        library.upsert(&gone).unwrap();
+        let h = library.health().unwrap();
+        assert_eq!(h.songs, 4);
+        assert_eq!((h.no_genre, h.no_artist, h.gone), (1, 1, 1));
+        assert_eq!(h.duplicate_sets, 0);
+        // Tidewater is the only song with nothing wrong (no album has a cover, but covers are
+        // counted by album, not as a song's fault).
+        assert_eq!(h.fine, 1);
+        assert_eq!(h.albums_without_cover, 2);
     }
 }

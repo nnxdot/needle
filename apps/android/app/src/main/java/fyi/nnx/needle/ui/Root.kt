@@ -81,6 +81,8 @@ sealed interface Route {
     data class Artist(val name: String) : Route
     data class Playlist(val id: String, val name: String) : Route
     data class Genre(val name: String) : Route
+    /** The songs a rule finds (Fix my library's cards: songs with no genre, …). */
+    data class Rule(val title: String, val query: String) : Route
     /** One section of Settings. */
     data class SettingsPage(val section: SettingsSection) : Route
     data object Favorites : Route
@@ -479,6 +481,7 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         is Route.Artist -> ArtistScreen(route.name, open)
         is Route.Playlist -> PlaylistScreen(route, open)
         is Route.Genre -> GenreScreen(route.name, open)
+        is Route.Rule -> RuleScreen(route.title, route.query, open)
         is Route.SettingsPage -> SettingsSectionScreen(route.section, open)
         Route.Favorites -> FavoritesScreen(open)
         Route.RecentlyAdded -> RecentlyAddedScreen(open)

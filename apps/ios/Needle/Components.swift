@@ -26,6 +26,8 @@ enum Route: Hashable {
     case artist(String)
     case playlist(Playlist)
     case genre(String)
+    /// The songs a rule finds (Fix my library's cards: songs with no genre, …): title, rule.
+    case rule(String, String)
     case folder(String)
     case albums, artists, songs, playlists, genres, favorites, recent, folders
     case history, stats, wrapped, crate, playerButtons, numbers, genreMap, fonts(Bool)
@@ -45,6 +47,7 @@ extension View {
             case .artist(let name): ArtistView(name: name)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
             case .genre(let name): GenreView(name: name)
+            case .rule(let title, let query): SongList(title: title) { try $0.searchSongsPage(query: query, offset: 0, size: 2000) }
             case .folder(let path): FoldersView(path: path)
             case .folders: FoldersView(path: nil)
             case .albums: AlbumsView()

@@ -541,6 +541,22 @@ impl Needle {
             .collect())
     }
 
+    /// Fix my library's overview as JSON (see `needle_core::doctor::Health`): `songs`, `fine`,
+    /// `duplicate_sets`, `duplicate_copies`, `albums_without_cover`, `album_issues`,
+    /// `no_artist`, `no_album`, `no_genre`, `gone`, `low_quality_albums`.
+    pub fn library_health_json(&self) -> String {
+        self.library
+            .health()
+            .ok()
+            .and_then(|h| serde_json::to_string(&h).ok())
+            .unwrap_or_else(|| "{}".into())
+    }
+
+    /// Forgets the songs on this device whose file is gone (Fix my library); returns how many.
+    pub fn forget_gone(&self) -> Result<u32> {
+        Ok(self.library.forget_missing(&[])? as u32)
+    }
+
     /// The genre map's cloud (`kind` "cloud") or bubbles ("bubbles") as JSON, laid out by the
     /// core for a picture `aspect` times as wide as high: `height` (the width is 1) and `items`,
     /// each with `genre`, `spellings`, `songs`, `plays`, `family`, `hue`, `x`, `y`, and `size`

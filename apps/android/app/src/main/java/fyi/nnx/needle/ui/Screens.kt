@@ -172,6 +172,14 @@ fun GenreScreen(name: String, open: (Route) -> Unit) {
     SongListPage(name, songs, open, songsLoad.loading)
 }
 
+/** The songs a rule finds (such as `not exists(genre)`), at most 2,000. */
+@Composable
+fun RuleScreen(title: String, query: String, open: (Route) -> Unit) {
+    val songsLoad = rememberLoaded(query) { searchSongsPage(query, 0u, 2000u) }
+    val songs by songsLoad
+    SongListPage(title, songs, open, songsLoad.loading)
+}
+
 @Composable
 fun PlaylistsScreen(open: (Route) -> Unit) {
     val playlistsLoad = rememberLoaded { playlists() }

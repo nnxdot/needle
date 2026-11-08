@@ -364,6 +364,11 @@ impl AppView {
                             }
                         }
                     }
+                    // "fix:0" to "fix:3": Fix my library, on that tool.
+                    Some(("fix", tab)) => {
+                        v.doctor.tab = tab.parse().unwrap_or(0);
+                        open(v, Page::Doctor, window, cx);
+                    }
                     // "genres:cloud" or "genres:bubbles" (":plays" after, by plays): the genre map
                     // in that view.
                     Some(("genres", how)) => {

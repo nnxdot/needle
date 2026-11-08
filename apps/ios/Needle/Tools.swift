@@ -4,8 +4,49 @@ import UniformTypeIdentifiers
 /// Fix my library: duplicates, albums without covers, albums with missing tags, and tidying
 /// the files into folders.
 struct FixLibraryView: View {
+    @Environment(Store.self) private var store
+    @State private var health: Health?
+    @State private var confirmForget = false
+
+    /// Fix my library's overview, from the core (`needle_core::doctor::Health`).
+    struct Health: Decodable {
+        var songs: Int
+        var fine: Int
+        var duplicate_copies: Int
+        var albums_without_cover: Int
+        var album_issues: Int
+        var no_artist: Int
+        var no_album: Int
+        var no_genre: Int
+        var gone: Int
+        var low_quality_albums: Int
+    }
+
     var body: some View {
         List {
+            // The overview: what is wrong, row by row; a row opens its tool, shows the songs,
+            // or fixes them at once.
+            if let h = health, h.songs > 0 {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(h.fine >= h.songs ? "All \(count(h.songs, "song")) are in good shape."
+                             : "\(h.fine * 100 / max(h.songs, 1))% of your songs are in good shape.")
+                        ProgressView(value: Double(h.fine), total: Double(max(h.songs, 1)))
+                    }
+                    if h.duplicate_copies > 0 { NavigationLink(value: Route.duplicates) { row("square.on.square", h.duplicate_copies, "extra copies of songs") } }
+                    if h.albums_without_cover > 0 { NavigationLink(value: Route.missingCovers) { row("photo", h.albums_without_cover, "albums without a cover") } }
+                    if h.album_issues > 0 { NavigationLink(value: Route.albumProblems) { row("tag", h.album_issues, "albums missing tags") } }
+                    if h.no_genre > 0 { NavigationLink(value: Route.rule("No genre", "not exists(genre)")) { row("guitars", h.no_genre, "songs with no genre") } }
+                    if h.no_artist > 0 { NavigationLink(value: Route.rule("No artist", "not exists(artist)")) { row("person.fill.questionmark", h.no_artist, "songs with no artist") } }
+                    if h.no_album > 0 { NavigationLink(value: Route.rule("No album", "not exists(album)")) { row("square.dashed", h.no_album, "songs with no album") } }
+                    if h.gone > 0 {
+                        Button { confirmForget = true } label: { row("questionmark.folder", h.gone, "songs whose file is gone · Forget") }
+                    }
+                    if h.low_quality_albums > 0 { NavigationLink(value: Route.numbers) { row("waveform.badge.exclamationmark", h.low_quality_albums, "albums in low quality") } }
+                } header: {
+                    Text("Your library")
+                }
+            }
             Section {
                 NavigationLink(value: Route.duplicates) { Label("Duplicates", systemImage: "square.on.square") }
                 NavigationLink(value: Route.missingCovers) { Label("Albums without covers", systemImage: "photo") }
@@ -17,6 +58,30 @@ struct FixLibraryView: View {
         }
         .navigationTitle("Fix my library")
         .themed()
+        .task(id: store.libraryVersion) {
+            let json = await store.load { $0.libraryHealthJson() } ?? ""
+            health = try? JSONDecoder().decode(Health.self, from: Data(json.utf8))
+        }
+        .confirmationDialog("Forget \(count(health?.gone ?? 0, "song")) whose file is gone?", isPresented: $confirmForget, titleVisibility: .visible) {
+            Button("Forget Them", role: .destructive) {
+                Task {
+                    if let n = await store.ask({ try $0.forgetGone() }) { store.message = "Forgot \(count(Int(n), "song"))." }
+                    store.libraryChanged()
+                }
+            }
+        } message: {
+            Text("They leave the library. Their plays stay in your history, and nothing on the phone changes.")
+        }
+    }
+
+    private func row(_ icon: String, _ number: Int, _ label: String) -> some View {
+        Label {
+            HStack {
+                Text(label)
+                Spacer()
+                Text(number.formatted()).monospacedDigit().foregroundStyle(.secondary)
+            }
+        } icon: { Image(systemName: icon) }
     }
 }
 

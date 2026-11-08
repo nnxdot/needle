@@ -1,16 +1,25 @@
 import SwiftUI
 
-/// Fix my library: songs you have more than once, albums without covers, albums missing tags,
-/// and files to tidy into folders by a pattern.
+/// Fix my library: an overview of what is wrong, card by card (each opens its tool, shows the
+/// songs, or fixes them at once), then the tools: songs you have more than once, albums without
+/// covers, albums missing tags, and files to tidy into folders by a pattern.
 struct DoctorPage: View {
     private var store: Store { .shared }
     @State private var tab = "Duplicates"
+    @State private var health: LibraryHealth?
+    @State private var confirmForget = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Fix my library").font(store.display(28))
-                Text("Find copies, fill in covers and tags, and tidy your files.").foregroundStyle(store.colors.ink2)
+                Text(health.map(\.summary) ?? "Checking your library…").foregroundStyle(store.colors.ink2)
+            }
+            if let h = health, h.songs > 0 {
+                ProgressView(value: Double(h.fine), total: Double(max(h.songs, 1)))
+                    .tint(store.colors.accent)
+                    .frame(maxWidth: 520)
+                overview(h)
             }
             Picker("", selection: $tab) {
                 ForEach(["Duplicates", "Covers", "Tags", "Organize"], id: \.self) { Text($0).tag($0) }
@@ -27,6 +36,88 @@ struct DoctorPage: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task(id: store.libraryVersion) {
+            health = JSON.decode(LibraryHealth.self, await store.load { $0.libraryHealthJson() })
+        }
+        .confirmationDialog("Forget \(count(health?.gone ?? 0, "song")) whose file is gone?", isPresented: $confirmForget) {
+            Button("Forget Them", role: .destructive) {
+                Task {
+                    if let n = await store.ask({ try $0.forgetGone() }) { store.notify("Forgot \(count(Int(n), "song")).") }
+                    store.libraryChanged()
+                }
+            }
+        } message: {
+            Text("They leave the library. Their plays stay in your history, and nothing on disk changes.")
+        }
+    }
+
+    /// The cards: what is wrong, how much, and what a click does.
+    private func overview(_ h: LibraryHealth) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 12)], alignment: .leading, spacing: 12) {
+            if h.duplicateCopies > 0 {
+                card("square.on.square", "\(h.duplicateCopies)", "extra copies of songs", "Show") { tab = "Duplicates" }
+            }
+            if h.albumsWithoutCover > 0 {
+                card("photo", "\(h.albumsWithoutCover)", "albums without a cover", "Find covers") { tab = "Covers" }
+            }
+            if h.albumIssues > 0 {
+                card("tag", "\(h.albumIssues)", "albums missing a year, track numbers, or album artist", "Fix tags") { tab = "Tags" }
+            }
+            if h.noGenre > 0 { card("guitars", "\(h.noGenre)", "songs with no genre", "Show them") { show("not exists(genre)") } }
+            if h.noArtist > 0 { card("person.fill.questionmark", "\(h.noArtist)", "songs with no artist", "Show them") { show("not exists(artist)") } }
+            if h.noAlbum > 0 { card("square.dashed", "\(h.noAlbum)", "songs with no album", "Show them") { show("not exists(album)") } }
+            if h.gone > 0 { card("questionmark.folder", "\(h.gone)", "songs whose file is gone", "Forget…") { confirmForget = true } }
+            if h.lowQualityAlbums > 0 {
+                card("waveform.badge.exclamationmark", "\(h.lowQualityAlbums)", "albums in low quality", "Show") { store.navigate(.numbers) }
+            }
+        }
+    }
+
+    private func card(_ icon: String, _ number: String, _ label: String, _ action: String, run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: icon).foregroundStyle(store.colors.accent)
+                    Spacer()
+                    Text(action).font(.needle(.caption)).foregroundStyle(store.colors.accent)
+                }
+                Text(number).font(store.display(24)).monospacedDigit()
+                Text(label).font(.needle(.callout)).foregroundStyle(store.colors.ink2).lineLimit(2, reservesSpace: true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The songs a rule finds, on the Songs page.
+    private func show(_ rule: String) {
+        store.search = rule
+        store.navigate(.songs)
+    }
+}
+
+/// Fix my library's overview, from the core (`needle_core::doctor::Health`).
+struct LibraryHealth: Decodable {
+    var songs: Int
+    var fine: Int
+    var duplicateSets: Int
+    var duplicateCopies: Int
+    var albumsWithoutCover: Int
+    var albumIssues: Int
+    var noArtist: Int
+    var noAlbum: Int
+    var noGenre: Int
+    var gone: Int
+    var lowQualityAlbums: Int
+
+    var summary: String {
+        guard songs > 0 else { return "Your library is empty." }
+        let share = Double(fine) / Double(songs)
+        if fine == songs { return "All \(songs.formatted()) songs are in good shape." }
+        return "\(share.formatted(.percent.precision(.fractionLength(0)))) of your songs are in good shape. The cards show what is left; click one to fix it."
     }
 }
 
