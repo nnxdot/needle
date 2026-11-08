@@ -199,12 +199,12 @@ final class Store {
             let volume = (note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)?.path
             MainActor.assumeIsolated {
                 guard let self, self.settings.welcomed, let volume else { return }
+                // In the sandbox: what was picked on the drive (music folders, songs opened from
+                // Finder) may be opened only now, as it was away at the start.
+                Bookmarks.reopen()
                 // Only a drive that holds one of the music folders (not a disk image, a camera).
                 let roots = (try? self.core.folders()) ?? []
                 guard roots.contains(where: { $0 == volume || $0.hasPrefix(volume.hasSuffix("/") ? volume : volume + "/") }) else { return }
-                // In the sandbox: the drive's folders may be opened only now (it was away at the
-                // start).
-                Bookmarks.reopen()
                 self.core.rescan()
                 self.core.rewatch()
             }

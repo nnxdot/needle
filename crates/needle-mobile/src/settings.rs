@@ -512,14 +512,20 @@ impl Needle {
             .unwrap()
             .clone()
             .ok_or_else(|| NeedleError::Failed("Start signing in to Last.fm first".into()))?;
-        let user = integrations::lastfm_complete(&pending)?;
-        {
-            // Done with it, unless a newer sign-in has begun since.
+        let answer = integrations::lastfm_exchange(&pending)?;
+        let user = {
+            // Saved only while it is still the sign-in waiting (a newer one may have begun during
+            // the slow answer), with the lock held so none begins while it is saved.
             let mut waiting = PENDING.lock().unwrap();
-            if waiting.as_ref().is_some_and(|p| p.token == pending.token) {
-                *waiting = None;
+            if !waiting.as_ref().is_some_and(|p| p.token == pending.token) {
+                return Err(NeedleError::Failed(
+                    "A newer sign-in to Last.fm has begun".into(),
+                ));
             }
-        }
+            let user = integrations::lastfm_save(&pending, answer)?;
+            *waiting = None;
+            user
+        };
         self.set_scrobbling(Some(true), None)?;
         Ok(user)
     }

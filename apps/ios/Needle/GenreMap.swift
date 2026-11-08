@@ -133,6 +133,8 @@ struct GenreMapView: View {
     /// Cloud and bubbles by plays instead of songs.
     @AppStorage("genre-by-plays") private var byPlays = false
     @State private var art: GenreArt?
+    /// The view and order `art` was laid out for ("cloud|false").
+    @State private var artFor = ""
 
     var body: some View {
         GeometryReader { geo in
@@ -160,7 +162,7 @@ struct GenreMapView: View {
                                 Text("By plays").tag(true)
                             }
                             .pickerStyle(.segmented)
-                            if let art {
+                            if let art, artFor == "\(view)|\(byPlays)" {
                                 Text(art.items.isEmpty ? (byPlays ? "Nothing played yet." : "No genres yet.")
                                      : "\(count(art.items.count, "genre")). \(view == "cloud" ? "As big as" : "Grouped by family, as big as") \(byPlays ? "their plays" : "their songs"). Tap one to play it.")
                                     .font(.needle(.subheadline)).foregroundStyle(store.colors.muted)
@@ -204,7 +206,10 @@ struct GenreMapView: View {
             let (kind, plays) = (view, byPlays)
             // Upright on a phone: a little taller than wide.
             let json = await store.load { $0.genreArtJson(kind: kind, byPlays: plays, aspect: 0.8) } ?? ""
+            // Switched to another view or order meanwhile: that one has its own load.
+            guard !Task.isCancelled, kind == view, plays == byPlays else { return }
             art = try? JSONDecoder().decode(GenreArt.self, from: Data(json.utf8))
+            artFor = "\(kind)|\(plays)"
         }
         .task(id: store.libraryVersion) {
             spots = await store.load { try $0.genreMap() } ?? []

@@ -670,17 +670,30 @@ pub fn lastfm_begin(api_key: &str, secret: &str) -> Result<LastfmPending> {
 /// Step 2: after browser approval, exchange the token (auth.getSession) and save the session.
 /// Returns [`ServiceError::NotYetAuthorized`] until the user approves; call again after that.
 pub fn lastfm_complete(pending: &LastfmPending) -> Result<String> {
+    let answer = lastfm_exchange(pending)?;
+    lastfm_save(pending, answer)
+}
+
+/// The first half of [`lastfm_complete`]: Last.fm's answer for an allowed token (its session),
+/// not saved yet. An app that can start a new sign-in meanwhile checks that this one is still
+/// the current one before [`lastfm_save`].
+pub fn lastfm_exchange(pending: &LastfmPending) -> Result<Value> {
     let fields = BTreeMap::from([
         ("method".into(), "auth.getSession".into()),
         ("api_key".into(), pending.api_key.clone()),
         ("token".into(), pending.token.clone()),
     ]);
     let (status, body) = lastfm_post(fields, &pending.secret)?;
+    lastfm_checked(status, body)
+}
+
+/// The second half of [`lastfm_complete`]: saves the session [`lastfm_exchange`] got.
+pub fn lastfm_save(pending: &LastfmPending, answer: Value) -> Result<String> {
     let user = finish_lastfm(
         &SystemStore,
         |name| std::env::var(name).ok(),
         pending,
-        lastfm_checked(status, body)?,
+        answer,
     )?;
     forget_rejections();
     Ok(user)

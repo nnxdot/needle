@@ -135,6 +135,8 @@ struct GenreMapPage: View {
     /// Cloud and bubbles by plays instead of songs.
     @AppStorage("genre-by-plays") private var byPlays = false
     @State private var art: GenreArt?
+    /// The view and order `art` was laid out for ("cloud|false").
+    @State private var artFor = ""
 
     var body: some View {
         let colors = store.colors
@@ -169,7 +171,7 @@ struct GenreMapPage: View {
                     }
                 }
                 if view != "map" {
-                    if let art, !art.items.isEmpty {
+                    if let art, !art.items.isEmpty, artFor == "\(view)|\(byPlays)" {
                         GenreArtView(art: art, cloud: view == "cloud", width: side, maxHeight: 640, dark: colors.dark) { play($0) }
                     }
                 } else if !laid.bubbles.isEmpty {
@@ -202,7 +204,10 @@ struct GenreMapPage: View {
             guard view != "map" else { return }
             let (kind, plays, aspect) = (view, byPlays, Float(side / height))
             let json = await store.load { $0.genreArtJson(kind: kind, byPlays: plays, aspect: aspect) } ?? ""
+            // Switched to another view or order meanwhile: that one has its own load.
+            guard !Task.isCancelled, kind == view, plays == byPlays else { return }
             art = JSON.decode(GenreArt.self, json)
+            artFor = "\(kind)|\(plays)"
         }
         .task(id: store.libraryVersion) {
             spots = await store.load { try $0.genreMap() } ?? []

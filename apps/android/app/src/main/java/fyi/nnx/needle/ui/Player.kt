@@ -1780,8 +1780,8 @@ private fun SwipeSpace(swipe: Boolean, haptics: (Boolean) -> Unit) {
     )
 }
 
-/** Who keeps the screen on now (the lyrics, the player, the visualizer): it stays on while one does. */
-private val keepingOn = mutableSetOf<String>()
+/** Who keeps the screen on now (each lyrics, player, visualizer shown): on while one does. */
+private val keepingOn = mutableSetOf<Any>()
 
 /**
  * Keeps the screen on while this shows and [on] holds. Several can ask at once (the player and
@@ -1790,11 +1790,15 @@ private val keepingOn = mutableSetOf<String>()
 @Composable
 fun KeepScreenOn(who: String, on: Boolean) {
     val view = LocalView.current
-    DisposableEffect(on) {
-        if (on) keepingOn += who else keepingOn -= who
+    // This one's own token: two of a kind can show at once (the lyrics in the side pane and in
+    // the player, while one slides away), and one going must not turn the screen off for the
+    // other. `who` names it for reading only.
+    val token = remember(who) { Any() }
+    DisposableEffect(on, token) {
+        if (on) keepingOn += token else keepingOn -= token
         view.keepScreenOn = keepingOn.isNotEmpty()
         onDispose {
-            keepingOn -= who
+            keepingOn -= token
             view.keepScreenOn = keepingOn.isNotEmpty()
         }
     }
