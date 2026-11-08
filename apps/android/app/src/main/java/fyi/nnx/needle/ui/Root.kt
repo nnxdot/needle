@@ -53,7 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -272,7 +275,8 @@ fun NeedleRoot() {
                 ) {
                 if (wide) {
                     // Standing as a laptop, the side bar stays above the crease, as the pages do.
-                    Box(if (tabletop && hinge != null) Modifier.padding(bottom = (window.height - hinge.top).coerceAtLeast(0.dp)) else Modifier) {
+                    // Drawn over the page: on a TV the bar opens over it (SideBar.kt).
+                    Box((if (tabletop && hinge != null) Modifier.padding(bottom = (window.height - hinge.top).coerceAtLeast(0.dp)) else Modifier).zIndex(1f)) {
                         SideBar(tab, stack.last(), chooseTab, open, show)
                     }
                 }
@@ -280,7 +284,7 @@ fun NeedleRoot() {
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
                     if (inPage && !it.hasFocus && android.os.SystemClock.uptimeMillis() - lastKey > 250) toPage++
                     inPage = it.hasFocus
-                }.focusGroup()) {
+                }.focusRestorer().focusGroup()) {
                 CompositionLocalProvider(LocalPageWidth provides maxWidth) {
                 // The room the dock takes at the foot, with a little to spare, for the pages' lists.
                 // Standing as a laptop, the bar sits below the crease, not over the pages.
@@ -396,7 +400,24 @@ fun NeedleRoot() {
                                     exit = fadeOut(tween(150)),
                                 ) {
                                     CompositionLocalProvider(LocalAnimated provides this) {
-                                        FloatingPlayer({ playerOpen = true })
+                                        // With a remote: up from the player goes back into the page,
+                                        // to what had the focus there (Android's own search could
+                                        // take it to the side bar instead), and down goes nowhere.
+                                        Box(
+                                            Modifier
+                                                .focusProperties {
+                                                    onExit = {
+                                                        when (requestedFocusDirection) {
+                                                            androidx.compose.ui.focus.FocusDirection.Up -> runCatching { pageFocus.requestFocus() }
+                                                            androidx.compose.ui.focus.FocusDirection.Down -> cancelFocusChange()
+                                                            else -> {}
+                                                        }
+                                                    }
+                                                }
+                                                .focusGroup(),
+                                        ) {
+                                            FloatingPlayer({ playerOpen = true })
+                                        }
                                     }
                                 }
                             }
