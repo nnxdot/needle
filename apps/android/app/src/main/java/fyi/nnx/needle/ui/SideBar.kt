@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -119,9 +120,12 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
     // A place in the library opens as the Library tab's page; one open already is left be.
     val library: (Route) -> Unit = { r -> if (page != r) show(Tab.Library, r) }
 
+    OverPage(tv) {
     Column(
         Modifier
             .fillMaxHeight()
+            // Over the page on a TV: the bar's own colour.
+            .then(if (tv) Modifier.background(colors.surfaceContainerLowest) else Modifier)
             // Clear of the bars and a camera cut-out on its own side only.
             .windowInsetsPadding(
                 androidx.compose.foundation.layout.WindowInsets.systemBars
@@ -181,6 +185,20 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
             SideRow("Settings", Icons.Outlined.Settings, inSettings, words) { if (page != Route.Settings) open(Route.Settings) }
         }
     }
+    }
+}
+
+/**
+ * On a TV the side bar opens over the page, not beside it: it takes only its folded width, so
+ * the page keeps its width while the remote is in the bar. Pushed aside, the page changed its
+ * layout (Settings from two columns to one) each time the bar opened or folded, and the row the
+ * remote had just moved to was replaced, so its focus fell back to the search field: Settings
+ * could not be reached with a remote.
+ */
+@Composable
+private fun OverPage(tv: Boolean, bar: @Composable () -> Unit) {
+    if (!tv) return bar()
+    Box(Modifier.fillMaxHeight().width(Folded).wrapContentWidth(Alignment.Start, unbounded = true)) { bar() }
 }
 
 /** The list's edges fade where rows go on past them, so a row cut in half looks soft (a short TV). */

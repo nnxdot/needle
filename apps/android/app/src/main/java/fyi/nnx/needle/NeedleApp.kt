@@ -166,6 +166,8 @@ class NeedleApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Crashes in the app's own code become crash reports too (see CrashCatcher).
+        CrashCatcher.install(this, File(filesDir, "needle"))
         NativeBridge.initAndroid(this)
         core = Needle.newQuiet(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
