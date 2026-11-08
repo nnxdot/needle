@@ -65,6 +65,8 @@ final class Store {
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
+    /// An update downloading and installing now (Settings shows its progress).
+    private(set) var updating = false
     /// The core's sleep timer, while it runs (its seconds left change once a second here).
     private(set) var sleep: SleepTimerState?
     /// The speed and pitch the music plays at.
@@ -1126,7 +1128,9 @@ final class Store {
     func installUpdate() {
         guard let update else { return }
         notify("Downloading Needle \(update.version) and checking it…")
+        updating = true
         Task {
+            defer { updating = false }
             if await ask({ try $0.installMacUpdate() }) != nil {
                 core.shutdownDesktop()
                 NSApp.terminate(nil)

@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -118,8 +119,28 @@ fun UpdatesRow() {
     var found by remember { mutableStateOf<Update?>(null) }
     var status by remember { mutableStateOf("You have Needle ${core.version()}.") }
     var busy by remember { mutableStateOf(false) }
+    // While an update downloads: a bar and what it is doing, read from the core four times a
+    // second, so a slow network shows that something is happening.
+    var downloading by remember { mutableStateOf<String?>(null) }
+    var progress by remember { mutableStateOf<fyi.nnx.needle.core.UpdateProgress?>(null) }
+    LaunchedEffect(downloading) {
+        while (downloading != null) {
+            progress = runCatching { core.updateProgress() }.getOrNull()
+            kotlinx.coroutines.delay(250)
+        }
+        progress = null
+    }
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(status, style = MaterialTheme.typography.bodyLarge)
+        val version = downloading
+        val p = progress
+        Text(if (version != null && p != null) updateWords(version, p) else status, style = MaterialTheme.typography.bodyLarge)
+        if (version != null) {
+            if (p != null && p.stage == "download" && p.total > 0uL) {
+                androidx.compose.material3.LinearProgressIndicator(progress = { (p.done.toDouble() / p.total.toDouble()).toFloat() }, modifier = Modifier.fillMaxWidth())
+            } else {
+                androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val update = found
             if (update == null) {
@@ -148,12 +169,14 @@ fun UpdatesRow() {
                 Button(enabled = !busy, onClick = {
                     busy = true
                     status = "Downloading Needle ${update.version} and checking it…"
+                    downloading = update.version
                     NeedleApp.instance.scope.launch {
                         val result = runCatching {
                             val folder = File(context.cacheDir, "updates").apply { mkdirs() }
-                            core.downloadUpdate(folder.absolutePath)
+                            withContext(kotlinx.coroutines.Dispatchers.IO) { core.downloadUpdate(folder.absolutePath) }
                         }
                         busy = false
+                        downloading = null
                         result.onSuccess { path ->
                             status = "Checked. Android asks you to install it."
                             // Android's installer takes it from here, and asks the person.
@@ -176,5 +199,16 @@ fun UpdatesRow() {
                 }) { Text("Get Needle ${update.version}") }
             }
         }
+    }
+}
+
+/** What an update is doing, in words: "Downloading Needle 2.0.4 · 12.3 of 45.6 MB". */
+private fun updateWords(version: String, p: fyi.nnx.needle.core.UpdateProgress): String {
+    fun mb(bytes: ULong) = "%.1f".format(bytes.toDouble() / 1_000_000)
+    return when (p.stage) {
+        "download" -> if (p.total > 0uL) "Downloading Needle $version · ${mb(p.done)} of ${mb(p.total)} MB" else "Downloading Needle $version · ${mb(p.done)} MB"
+        "check" -> "Checking Needle $version…"
+        "install" -> "Installing Needle $version…"
+        else -> "Getting ready to download Needle $version…"
     }
 }

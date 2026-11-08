@@ -3,6 +3,7 @@
 //! kind of download: the installer on Windows; on Linux the .deb or .rpm, for the package
 //! system that installed Needle and this computer's processor.
 use anyhow::{Context, Result, bail};
+use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -284,6 +285,34 @@ pub(crate) fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// How far an update has got, for a progress bar: `stage` is "" (none running), "list" (the
+/// checksum list), "download", "check" (the checksum), or "install"; `done` and `total` count
+/// the installer's bytes (`total` 0 when the server did not say).
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct Progress {
+    pub stage: String,
+    pub done: u64,
+    pub total: u64,
+}
+
+static PROGRESS: std::sync::Mutex<Progress> = std::sync::Mutex::new(Progress {
+    stage: String::new(),
+    done: 0,
+    total: 0,
+});
+
+/// How far the update running now has got.
+pub fn progress() -> Progress {
+    PROGRESS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+fn set_progress(stage: &str, done: u64, total: u64) {
+    let mut p = PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
+    p.stage = stage.into();
+    p.done = done;
+    p.total = total;
+}
+
 /// Download the installer into a new folder of its own inside `directory` (the system's
 /// temporary folder) and check it. The release must list a checksum for it; an unchecked
 /// installer is never run. The folder is made fresh, with a random name, readable and
@@ -294,6 +323,7 @@ pub fn download(release: &Release, directory: &Path) -> Result<PathBuf> {
             "This copy of Needle cannot update itself. Download the new version from the release page."
         );
     }
+    set_progress("list", 0, 0);
     let client = crate::integrations::client()?;
     let list_url = release.checksums_url.as_ref().context("This release has no checksum list, so Needle will not install it by itself. Download it from the release page instead.")?;
     let list = client.get(list_url).send()?.error_for_status()?.text()?;
@@ -308,9 +338,22 @@ pub fn download(release: &Release, directory: &Path) -> Result<PathBuf> {
             .get(&release.installer_url)
             .send()?
             .error_for_status()?;
+        let total = response.content_length().unwrap_or(0);
+        set_progress("download", 0, total);
         let mut file = std::fs::File::create(&path)?;
-        std::io::copy(&mut response, &mut file)?;
+        let mut done = 0u64;
+        let mut chunk = vec![0u8; 64 * 1024];
+        loop {
+            let n = std::io::Read::read(&mut response, &mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            std::io::Write::write_all(&mut file, &chunk[..n])?;
+            done += n as u64;
+            set_progress("download", done, total);
+        }
         drop(file);
+        set_progress("check", done, total);
         let actual = sha256_file(&path)?;
         if actual != expected {
             let _ = std::fs::remove_file(&path);
@@ -322,6 +365,7 @@ pub fn download(release: &Release, directory: &Path) -> Result<PathBuf> {
     let fetched = fetch();
     if fetched.is_err() {
         let _ = std::fs::remove_dir_all(&folder);
+        set_progress("", 0, 0);
     }
     fetched
 }
@@ -363,6 +407,7 @@ fn system_tool(name: &str) -> Option<PathBuf> {
 /// the system asks for the password; once that worked, Needle starts again a moment after it
 /// closes. When the password is not given, nothing changes.
 pub fn install(release: &Release, installer: &Path) -> Result<()> {
+    set_progress("install", 0, 0);
     match release.package {
         Some(Package::WindowsInstaller) => {
             std::process::Command::new(installer)

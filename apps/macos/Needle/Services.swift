@@ -19,6 +19,7 @@ struct ServicesSettings: View {
             SettingRow(title: "Check for updates automatically", detail: "Once a day. You have Needle \(store.version).", icon: "arrow.down.circle") {
                 SettingSwitch(key: "check_updates", on: s.checkUpdates)
             }
+            if store.updating, let update = store.update { UpdateProgressRow(version: update.version) }
             HStack {
                 Button("Check now") { store.checkForUpdate(force: true) }
                 if let update = store.update {
@@ -828,5 +829,42 @@ private struct ScrobbleProblemsButton: View {
 
     private func when(_ seconds: Int64) -> String {
         seconds > 0 ? Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(.relative(presentation: .named)) : "some time ago"
+    }
+}
+
+/// An update on its way: a bar and what it is doing ("Downloading · 12.3 of 45.6 MB"), read from
+/// the core four times a second. On a slow network it shows that something is happening.
+private struct UpdateProgressRow: View {
+    private var store: Store { .shared }
+    let version: String
+    @State private var progress: UpdateProgress?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let p = progress, p.total > 0, p.stage == "download" {
+                ProgressView(value: Double(p.done), total: Double(p.total))
+            } else {
+                ProgressView().progressViewStyle(.linear)
+            }
+            Text(words).font(.needle(.caption)).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .padding(.vertical, 4)
+        .task {
+            while !Task.isCancelled {
+                progress = store.core.updateProgress()
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    private var words: String {
+        guard let p = progress else { return "Getting ready to download Needle \(version)…" }
+        let mb = { (bytes: UInt64) in String(format: "%.1f", Double(bytes) / 1_000_000) }
+        switch p.stage {
+        case "download": return p.total > 0 ? "Downloading Needle \(version) · \(mb(p.done)) of \(mb(p.total)) MB" : "Downloading Needle \(version) · \(mb(p.done)) MB"
+        case "check": return "Checking Needle \(version)…"
+        case "install": return "Installing Needle \(version)…"
+        default: return "Getting ready to download Needle \(version)…"
+        }
     }
 }
