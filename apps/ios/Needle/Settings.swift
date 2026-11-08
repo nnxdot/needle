@@ -643,7 +643,8 @@ struct ScrobblingView: View {
                                 await reload()
                             }
                         }
-                        Button("Cancel", role: .cancel) { waitingForBrowser = false; connecting.remove("lastfm") }
+                        // A check still under way then saves nothing.
+                        Button("Cancel", role: .cancel) { waitingForBrowser = false; connecting.remove("lastfm"); store.core.lastfmStopWaiting() }
                     } else if connecting.contains("lastfm") {
                         if !a.lastfmKeyBuiltIn {
                             TextField("API key", text: $apiKey).textInputAutocapitalization(.never).autocorrectionDisabled()

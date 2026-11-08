@@ -503,6 +503,12 @@ impl Needle {
         qr_modules(&text)
     }
 
+    /// Cancel on a Last.fm sign-in: the sign-in waiting is forgotten, so a check still under
+    /// way (a TV asks every few seconds) finds it gone and saves nothing.
+    pub fn lastfm_stop_waiting(&self) {
+        *PENDING.lock().unwrap() = None;
+    }
+
     /// Finishes signing in to Last.fm once the listener allowed Needle in the browser.
     pub fn lastfm_complete(&self) -> Result<String> {
         // Read, not taken out: a TV asks every few seconds while a new code may be made, and

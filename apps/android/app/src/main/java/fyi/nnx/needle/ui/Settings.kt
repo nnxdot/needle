@@ -1393,7 +1393,11 @@ private fun ScrobblingSettings() {
         } else {
             SettingRow(Icons.Rounded.MusicNote, "Last.fm", if (waitingForBrowser) "Waiting for Last.fm" else "Not connected") {
                 if (connectingLastfm || waitingForBrowser) {
-                    TextButton(onClick = { connectingLastfm = false; waitingForBrowser = false; qrPage = null }) { Text("Cancel") }
+                    TextButton(onClick = {
+                        connectingLastfm = false; waitingForBrowser = false; qrPage = null
+                        // A check still under way then saves nothing.
+                        runCatching { core.lastfmStopWaiting() }
+                    }) { Text("Cancel") }
                 } else {
                     FilledTonalButton(enabled = !busy, onClick = {
                         // With Needle's own key there is nothing to fill in: straight to Last.fm.
