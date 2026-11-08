@@ -143,6 +143,9 @@ pub struct AppSettings {
     /// bit-perfect mixer where it cannot.
     #[uniffi(default = false)]
     pub usb_bit_perfect: bool,
+    /// Keep the screen on while the player shows, lyrics or not (a TV playing to a room).
+    #[uniffi(default = false)]
+    pub keep_screen_on_player: bool,
 }
 
 impl Default for AppSettings {
@@ -181,6 +184,7 @@ impl Default for AppSettings {
             moving_covers_on_mobile_data: false,
             server_mark: true,
             usb_bit_perfect: false,
+            keep_screen_on_player: false,
         }
     }
 }

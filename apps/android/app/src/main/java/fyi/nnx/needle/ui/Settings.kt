@@ -1107,6 +1107,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Swipe the cover to skip", "Left for next, right for back", app.swipeCover, icon = Icons.Rounded.Swipe) { on ->
             update { it.copy(swipeCover = on) }
         }
+        Divider()
+        SwitchRow("Keep the screen on", "While the player shows, lyrics or not", app.keepScreenOnPlayer, icon = Icons.Rounded.LightMode) { on ->
+            update { it.copy(keepScreenOnPlayer = on) }
+        }
     }
     Group("Backdrop") {
         SwitchRow(

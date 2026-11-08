@@ -468,6 +468,9 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
         withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.isFavorite(song.id) }.getOrNull() }?.let { favorite = it }
     }
     val hearts = androidx.compose.runtime.rememberCoroutineScope()
+    // Settings › Appearance › Player › Keep the screen on: while the player shows, lyrics or not.
+    val keepOn by NeedleApp.instance.app.collectAsState()
+    KeepScreenOn("player", keepOn.keepScreenOnPlayer)
     val toggleFavorite: () -> Unit = {
         // One at a time: two taps at once would each read the old state, and the second undo nothing.
         if (!hearting) {
@@ -1504,11 +1507,7 @@ private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = f
         if (app.liveLyrics && now >= 0) state.animateScrollToItem((now - 1).coerceAtLeast(0))
     }
     // Keeps the screen on while the lyrics show, when that is on.
-    val view = LocalView.current
-    DisposableEffect(app.keepScreenOnLyrics) {
-        view.keepScreenOn = app.keepScreenOnLyrics
-        onDispose { view.keepScreenOn = false }
-    }
+    KeepScreenOn("lyrics", app.keepScreenOnLyrics)
     when {
         lyricsLoad.loading -> Text("Loading lyrics…", color = Color.White.copy(alpha = 0.6f))
         lyricsLoad.failed -> Unit // The load failure offers Retry above this page.
@@ -1779,4 +1778,24 @@ private fun SwipeSpace(swipe: Boolean, haptics: (Boolean) -> Unit) {
             },
         ),
     )
+}
+
+/** Who keeps the screen on now (the lyrics, the player, the visualizer): it stays on while one does. */
+private val keepingOn = mutableSetOf<String>()
+
+/**
+ * Keeps the screen on while this shows and [on] holds. Several can ask at once (the player and
+ * its lyrics): one going away does not turn the screen off under another.
+ */
+@Composable
+fun KeepScreenOn(who: String, on: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(on) {
+        if (on) keepingOn += who else keepingOn -= who
+        view.keepScreenOn = keepingOn.isNotEmpty()
+        onDispose {
+            keepingOn -= who
+            view.keepScreenOn = keepingOn.isNotEmpty()
+        }
+    }
 }
