@@ -1,3 +1,15 @@
+# 2.0.4
+A genre cloud and bubbles, a new Fix my library, and fixes for TVs.
+! **Genre cloud and bubbles.** The genre map has two new views: every genre as a word, or as a circle grouped by family, as big as its songs or its plays.
+- **Fix my library, at a glance.** It opens with how much of your library is in good shape, and a card for each thing to fix.
+- **Why scrobbles failed.** Settings › Scrobbling shows why listens did not reach Last.fm or ListenBrainz, when some did not.
+- **Keep the screen on with the player.** Settings › Appearance › Player, for a TV playing to a room.
+- **Last.fm on a TV.** Signing in shows a code to scan with your phone; the TV signs in by itself.
+- On a TV, Settings is easy to reach with the remote, and holding up or down moves faster through long lists.
+- Settings › Sound no longer closes Needle on Android 8 to 13.
+- Updating shows a progress bar, and warns on mobile data.
+- Crashes in the app are sent as crash reports too, when crash reports are on.
+
 # 2.0.3
 Fixes for the quick scroll and covers.
 - Dragging or grabbing the quick scroll in Library no longer closes Needle.
