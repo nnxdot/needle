@@ -370,7 +370,7 @@ final class Store {
     /// again, away from the window, then the pages show the new albums.
     func setAlbumRule(grouping: String? = nil, compilations: Bool? = nil) {
         Task {
-            let done = await ask { core in
+            let done: Void? = await ask { core in
                 var choices = try core.libraryChoices()
                 if let grouping { choices.albumGrouping = grouping }
                 if let compilations { choices.compilationsVarious = compilations }
@@ -425,8 +425,11 @@ final class Store {
             reloadCurrent(started: now.current != before?.current)
         }
         if now.queueVersion != queueVersion {
+            let first = queueVersion == .max
             queueVersion = now.queueVersion
-            queue = core.queueEntries(offset: 0, limit: 400)
+            let next = core.queueEntries(offset: 0, limit: 400)
+            // Rows come, go, and move into place (still with Reduce motion, and the first time).
+            withAnimation(motion && !first ? .smooth(duration: 0.3) : nil) { queue = next }
             queueSeconds = core.queueSeconds()
         }
         if now.artwork != tintFor {

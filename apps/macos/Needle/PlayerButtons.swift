@@ -79,6 +79,8 @@ struct PlayerButton: View {
     var play: CGFloat = 30
     /// The volume's slider width (none: only its button).
     var volumeWidth: CGFloat = 64
+    /// Clicks on Shuffle, for its bounce (shuffling a view changes nothing it shows).
+    @State private var shuffles = 0
 
     var body: some View {
         let colors = store.colors
@@ -86,7 +88,7 @@ struct PlayerButton: View {
         let repeatMode = store.playback?.repeat ?? "off"
         switch name {
         case "shuffle":
-            Button { store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent) }
+            Button { shuffles += 1; store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent).bounce(on: shuffles) }
                 .buttonStyle(.borderless)
                 .help(store.shuffleHelp)
                 .accessibilityLabel("Shuffle")
@@ -116,6 +118,7 @@ struct PlayerButton: View {
             Button { store.cycleRepeat() } label: {
                 Image(systemName: repeatMode == "one" ? "repeat.1" : "repeat")
                     .foregroundStyle(repeatMode == "off" ? colors.ink2 : colors.accent)
+                    .bounce(on: repeatMode)
             }
             .buttonStyle(.borderless)
             .help(repeatMode == "off" ? "Repeat is off" : repeatMode == "all" ? "Repeating the queue" : "Repeating this track")
@@ -282,5 +285,15 @@ extension View {
     @ViewBuilder
     func lit(_ on: Bool, _ color: Color) -> some View {
         if on { foregroundStyle(color) } else { self }
+    }
+}
+
+extension View {
+    /// A small bounce of the symbol each time `value` changes (a click on Shuffle, Repeat, or
+    /// the heart); none with Reduce motion.
+    @MainActor
+    func bounce<V: Equatable>(on value: V) -> some View {
+        symbolEffect(.bounce, options: .nonRepeating, value: value)
+            .symbolEffectsRemoved(!Store.shared.motion)
     }
 }

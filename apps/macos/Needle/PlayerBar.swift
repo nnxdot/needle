@@ -508,6 +508,8 @@ struct Transport: View {
     var bare = false
     /// The size of the signs, when not the usual.
     var icons: CGFloat?
+    /// Clicks on Shuffle, for its bounce.
+    @State private var shuffles = 0
 
     var body: some View {
         let colors = store.colors
@@ -515,7 +517,7 @@ struct Transport: View {
         let repeatMode = store.playback?.repeat ?? "off"
         HStack(spacing: bare ? (icons ?? 16) * 0.85 : compact ? 4 : 10) {
             if !compact {
-                Button { store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent) }
+                Button { shuffles += 1; store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent).bounce(on: shuffles) }
                     .help(store.shuffleHelp)
                     .accessibilityLabel("Shuffle")
                     .accessibilityValue(store.settings.shuffleStays ? (store.shuffleOn ? "On" : "Off") : "")
@@ -548,6 +550,7 @@ struct Transport: View {
                 Button { store.cycleRepeat() } label: {
                     Image(systemName: repeatMode == "one" ? "repeat.1" : "repeat")
                         .foregroundStyle(repeatMode == "off" ? (light ? .white.opacity(0.8) : colors.ink2) : colors.accent)
+                        .bounce(on: repeatMode)
                 }
                 .help(repeatMode == "off" ? "Repeat is off" : repeatMode == "all" ? "Repeating the queue" : "Repeating this track")
                 .accessibilityLabel("Repeat")

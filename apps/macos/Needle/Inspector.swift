@@ -291,8 +291,10 @@ struct QueuePanel: View {
                 Spacer()
             } else {
                 List {
-                    ForEach(Array(store.queue.enumerated()), id: \.offset) { index, entry in
-                        QueueRow(entry: entry, index: index)
+                    // Each row keeps its id while others come, go, and move, so the rows slide
+                    // to their new places (see `QueueItem`).
+                    ForEach(QueueItem.list(store.queue)) { item in
+                        QueueRow(entry: item.entry, index: item.index)
                     }
                     .onMove { from, to in
                         guard let first = from.first else { return }
@@ -309,6 +311,23 @@ struct QueuePanel: View {
                     return true
                 }
             }
+        }
+    }
+}
+
+/// A song up next with an id of its own: the song's, and which time it is queued (a song can
+/// be queued twice). Taking one out or moving one keeps the others' ids.
+struct QueueItem: Identifiable {
+    let id: String
+    let index: Int
+    let entry: QueueEntry
+
+    static func list(_ queue: [QueueEntry]) -> [QueueItem] {
+        var seen: [String: Int] = [:]
+        return queue.enumerated().map { index, entry in
+            let n = seen[entry.id, default: 0]
+            seen[entry.id] = n + 1
+            return QueueItem(id: "\(entry.id)#\(n)", index: index, entry: entry)
         }
     }
 }

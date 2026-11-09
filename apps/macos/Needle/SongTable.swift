@@ -331,20 +331,18 @@ struct Heart: View {
     let on: Bool
     var size: CGFloat = 12
     let action: () -> Void
-    @State private var pop = false
+    /// Clicks, for the heart's bounce (at the click, not when the library says so).
+    @State private var clicks = 0
 
     var body: some View {
         Button {
-            if !on && store.motion {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.45)) { pop = true }
-                Task { try? await Task.sleep(for: .milliseconds(260)); pop = false }
-            }
+            clicks += 1
             action()
         } label: {
             Image(systemName: on ? "heart.fill" : "heart")
                 .font(.system(size: size))
                 .foregroundStyle(on ? store.colors.accent : store.colors.ink3)
-                .scaleEffect(pop ? 1.35 : 1)
+                .bounce(on: clicks)
         }
         .buttonStyle(.borderless)
         .help(on ? "Remove from favorites" : "Add to favorites")

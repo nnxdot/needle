@@ -139,7 +139,7 @@ enum TestRenders {
         try? await Task.sleep(for: .seconds(3))
         if let add {
             lines.append("folder readable: \(FileManager.default.isReadableFile(atPath: add))")
-            let added = await store.ask { try $0.addFolder(path: add) }
+            let added: Void? = await store.ask { try $0.addFolder(path: add) }
             lines.append("addFolder: \(added == nil ? "failed" : "ok")")
             try? await Task.sleep(for: .seconds(3))
         }
