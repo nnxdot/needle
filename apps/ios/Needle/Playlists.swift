@@ -44,28 +44,39 @@ struct PlaylistView: View {
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .selectionDisabled()
-            ForEach(Array(songs.enumerated()), id: \.offset) { i, song in
-                SongRow(song: song) { store.play(songs, from: i) }
-                    .tag(song.id)
+            // Each row keeps its own id (a song can be in a playlist twice), so the row taken
+            // out or moved is that one.
+            ForEach(Array(Store.rowIDs(songs).enumerated()), id: \.element.id) { i, row in
+                SongRow(song: row.song) { store.play(songs, from: i) }
+                    .tag(row.song.id)
             }
             .onDelete(perform: smart ? nil : { rows in
                 guard let detail else { return }
                 // From the end, so the places before stay right.
-                for row in rows.sorted(by: >) {
-                    let at = detail.positions[row]
-                    let song = detail.songs[row].id
-                    store.run { try $0.removeFromPlaylist(id: detail.id, index: at, song: song) }
+                let gone = rows.sorted(by: >).map { (detail.positions[$0], detail.songs[$0].id) }
+                let id = detail.id
+                // Gone from the screen at once; the playlist is read again once the core is done.
+                withMotion(.snappy) {
+                    self.detail?.songs.remove(atOffsets: rows)
+                    self.detail?.positions = Self.positions(detail.positions, without: rows)
                 }
-                Task { try? await Task.sleep(for: .milliseconds(200)); await reload() }
+                Task {
+                    _ = await store.ask { core in
+                        for (at, song) in gone { try core.removeFromPlaylist(id: id, index: at, song: song) }
+                    }
+                    await reload()
+                }
             })
             .onMove(perform: smart ? nil : { from, to in
                 guard let detail, let first = from.first else { return }
                 let target = to > first ? to - 1 : to
                 let (a, b) = (detail.positions[first], detail.positions[min(target, detail.positions.count - 1)])
-                let song = detail.songs[first].id
-                store.run { try $0.moveInPlaylist(id: detail.id, from: a, to: b, song: song) }
+                let (id, song) = (detail.id, detail.songs[first].id)
                 self.detail?.songs.move(fromOffsets: from, toOffset: to)
-                Task { try? await Task.sleep(for: .milliseconds(200)); await reload() }
+                Task {
+                    _ = await store.ask { try $0.moveInPlaylist(id: id, from: a, to: b, song: song) }
+                    await reload()
+                }
             })
         }
         .listStyle(.plain)
@@ -134,6 +145,15 @@ struct PlaylistView: View {
         }
         // Stars too: a smart playlist's rule can be by them.
         .task(id: "\(store.libraryVersion)|\(store.ratingVersion)") { await reload() }
+    }
+
+    /// The playlist's places of the rows left when `rows` are taken out: those after a row taken
+    /// out move up one.
+    private static func positions(_ positions: [UInt32], without rows: IndexSet) -> [UInt32] {
+        let removed = rows.map { positions[$0] }
+        return positions.enumerated().filter { !rows.contains($0.offset) }.map { _, at in
+            at - UInt32(removed.filter { $0 < at }.count)
+        }
     }
 
     private func reload() async {

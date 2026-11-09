@@ -4,73 +4,76 @@ import SwiftUI
 import Translation
 
 /// The song playing, on the tab bar: tap it for the full player. When the tab bar is small
-/// (scrolled down), only the song's name and play or pause are left. With Lyrics under the
-/// mini player on, the line being sung shows under the song's name in place of its artist.
+/// (scrolled down), only the song's name and play or pause are left. With Lyrics in the mini
+/// player on, the line being sung shows under the song's name in place of its artist.
 struct MiniPlayer: View {
     @Environment(Store.self) private var store
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
-    /// The playing song's timed lines, while Lyrics under the mini player is on.
+    /// Opens the full player.
+    let open: () -> Void
+    /// The playing song's timed lines, while Lyrics in the mini player is on.
     @State private var lines: [LyricLine] = []
+    /// Presses of Play/Pause here: the buzz is for them, not for a song that ends.
+    @State private var presses = 0
 
     var body: some View {
         let song = store.playback?.current
-        let playing = store.playback?.playing == true
+        let playing = store.isPlaying
         HStack(spacing: 10) {
-            Artwork(path: song?.artwork, seed: (song?.album ?? "") + (song?.artist ?? ""), size: 120)
-                .frame(width: 34, height: 34)
-                .clipShape(.circle)
-                .overlay(alignment: .bottomTrailing) {
-                    if store.onComputer {
-                        Image(systemName: "laptopcomputer").font(.system(size: 9, weight: .bold))
-                            .padding(3).background(.tint, in: .circle).offset(x: 4, y: 4)
+            Button(action: open) {
+                HStack(spacing: 10) {
+                    Artwork(path: song?.artwork, seed: (song?.album ?? "") + (song?.artist ?? ""), size: 120)
+                        .frame(width: 34, height: 34)
+                        .clipShape(.rect(cornerRadius: Corner.smallCover, style: .continuous))
+                        .overlay(alignment: .bottomTrailing) {
+                            if store.onComputer {
+                                Image(systemName: "laptopcomputer").font(.system(size: 9, weight: .bold))
+                                    .padding(3).background(.tint, in: .circle).offset(x: 4, y: 4)
+                            }
+                        }
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(song?.title ?? "Not Playing").font(.needle(.subheadline).weight(.semibold)).lineLimit(1)
+                        if placement != .inline, let song {
+                            if store.app.miniPlayerLyrics, !lines.isEmpty {
+                                MiniLyricLine(lines: lines)
+                            } else {
+                                Text(store.onComputer ? "On your computer" : song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            VStack(alignment: .leading, spacing: 0) {
-                Text(song?.title ?? "Not Playing").font(.needle(.subheadline).weight(.semibold)).lineLimit(1)
-                if placement != .inline, let song {
-                    if let sung {
-                        // Fades in at each new line; a faint ♪ while none is sung.
-                        Text(sung.text.isEmpty ? "♪" : sung.text)
-                            .font(.needle(.caption).weight(.medium))
-                            .foregroundStyle(sung.text.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
-                            .lineLimit(1)
-                            .id(sung.index)
-                            .transition(.opacity)
-                    } else {
-                        Text(store.onComputer ? "On your computer" : song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
+                .contentShape(.rect)
             }
-            .animation(.easeOut(duration: 0.35), value: sung?.index)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Button { store.toggle() } label: {
+            .disabled(song == nil)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(song.map { "\($0.title), \($0.artist)" } ?? "Not Playing")
+            .accessibilityHint("Opens the player")
+            Button {
+                presses += 1
+                store.toggle()
+            } label: {
                 Image(systemName: playing ? "pause.fill" : "play.fill")
                     .font(.needle(.title3))
                     .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 36, height: 36)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
             }
             .disabled(song == nil)
-            .sensoryFeedback(.impact(weight: .light), trigger: playing) { _, _ in store.app.haptics }
+            .accessibilityLabel(playing ? "Pause" : "Play")
+            .sensoryFeedback(.impact(weight: .light), trigger: presses) { _, _ in store.app.haptics }
             if placement != .inline {
                 Button { store.next() } label: {
-                    Image(systemName: "forward.fill").font(.needle(.title3)).frame(width: 36, height: 36)
+                    Image(systemName: "forward.fill").font(.needle(.title3)).frame(width: 44, height: 44).contentShape(.rect)
                 }
                 .disabled(song == nil)
+                .accessibilityLabel("Next")
             }
         }
         .buttonStyle(.plain)
         .padding(.leading, 6)
-        .padding(.trailing, 4)
-        .task(id: "\(store.playback?.current?.id ?? "")|\(store.lyricsVersion)|\(store.app.miniPlayerLyrics)") { await loadLines() }
-    }
-
-    /// The line being sung (-1 before the first), when the song has timed lyrics and the
-    /// setting is on.
-    private var sung: (index: Int, text: String)? {
-        guard store.app.miniPlayerLyrics, !lines.isEmpty else { return nil }
-        let position = store.playback?.position ?? 0
-        guard let i = lines.lastIndex(where: { $0.time <= position + 0.2 }) else { return (-1, "") }
-        return (i, lines[i].text.trimmingCharacters(in: .whitespaces))
+        .padding(.trailing, 2)
+        .task(id: "\(store.playingID ?? "")|\(store.lyricsVersion)|\(store.app.miniPlayerLyrics)") { await loadLines() }
     }
 
     private func loadLines() async {
@@ -85,6 +88,28 @@ struct MiniPlayer: View {
         }
         guard !Task.isCancelled, song.id == store.playback?.current?.id, let found, !found.instrumental else { return }
         lines = found.lines
+    }
+}
+
+/// The line being sung, under the song's name in the mini player: apart, so only it follows
+/// the time. Fades in at each new line; a faint ♪ while none is sung.
+private struct MiniLyricLine: View {
+    @Environment(Store.self) private var store
+    let lines: [LyricLine]
+
+    var body: some View {
+        let position = store.position
+        let index = lines.lastIndex(where: { $0.time <= position + 0.2 }) ?? -1
+        let text = index >= 0 ? lines[index].text.trimmingCharacters(in: .whitespaces) : ""
+        ZStack(alignment: .leading) {
+            Text(text.isEmpty ? "♪" : text)
+                .font(.needle(.caption).weight(.medium))
+                .foregroundStyle(text.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                .lineLimit(1)
+                .id(index)
+                .transition(.opacity)
+        }
+        .animation(Motion.fade(.easeOut(duration: 0.35)), value: index)
     }
 }
 
@@ -111,6 +136,12 @@ struct NowPlayingView: View {
     }
     @State private var favorite = false
     @State private var favoriteTaps = 0
+    /// Presses of the player's own buttons: each buzzes (and bounces) for the press only, not
+    /// when a song ends or headphones pause the music.
+    @State private var playPresses = 0
+    @State private var lookPresses = 0
+    @State private var shufflePresses = 0
+    @State private var repeatPresses = 0
     /// A loop just set, shown until the core plays it (a moment later).
     @State private var pendingLoop: [Double]?
 
@@ -362,18 +393,21 @@ struct NowPlayingView: View {
         let next = looks[((looks.firstIndex(of: now) ?? 0) + 1) % looks.count]
         return Button {
             hasLyrics = true
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) { store.updateChoices { $0.bigLook = next } }
+            lookPresses += 1
+            withFade(.easeInOut(duration: 0.35)) { store.updateChoices { $0.bigLook = next } }
         } label: {
             Image(systemName: icons[now] ?? "photo")
                 .font(.body.weight(.semibold))
-                .frame(width: 34, height: 34)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 44, height: 44)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(.circle)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(.plain)
         .accessibilityLabel("Look")
         .accessibilityValue(names[now] ?? "Cover")
         .accessibilityHint("Shows the player as \(names[next] ?? "")")
-        .sensoryFeedback(.selection, trigger: now) { _, _ in store.app.haptics }
+        .sensoryFeedback(.selection, trigger: lookPresses) { _, _ in store.app.haptics }
     }
 
     /// The song's menu, a plain sign beside its name.
@@ -393,25 +427,18 @@ struct NowPlayingView: View {
             Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
         } label: {
             Image(systemName: "ellipsis").font(.needle(.title3).weight(.semibold))
-                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
                 .contentShape(.circle)
         }
         .foregroundStyle(.white)
+        .accessibilityLabel("More")
     }
 
     /// A-B loop: repeat part of the song.
-    @ViewBuilder
     private func loopMenu(_ song: Song) -> some View {
-        Menu {
-            // Not in the song's last second: the part would have no length.
-            let at = min(store.playback?.position ?? 0, max(0, song.duration - 1))
-            Button("Start here (\(clock(at)))") { setLoop(at, loop.count == 2 ? max(loop[1], at + 1) : min(song.duration, at + 30)) }
-            if loop.count == 2 {
-                Button("End here (\(clock(at)))") { setLoop(loop[0], max(loop[0] + 1, at)) }
-                Button("Stop repeating", role: .destructive) { store.core.setLoop(start: nil, end: nil); pendingLoop = nil }
-            }
-        } label: {
-            Label(loop.count == 2 ? "Repeating \(clock(loop[0]))–\(clock(loop[1]))" : "Repeat a part", systemImage: "repeat")
+        LoopMenu(song: song, loop: loop, set: setLoop) {
+            store.core.setLoop(start: nil, end: nil)
+            pendingLoop = nil
         }
     }
 
@@ -431,19 +458,20 @@ struct NowPlayingView: View {
                 // The moving cover (Moving covers on) plays in the square or the record too,
                 // cropped to it, while the cover pane shows.
                 .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion && pane == .cover) }
-                .clipShape(round ? AnyShape(.circle) : AnyShape(.rect(cornerRadius: 18)))
+                .clipShape(round ? AnyShape(.circle) : AnyShape(.soft(Corner.player)))
                 .overlay { if round { Circle().fill(.black).frame(width: 26).overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2)) } }
         }
         .shadow(color: .black.opacity(0.5), radius: 30, y: 20)
-        .scaleEffect(playing || round ? 1 : 0.84)
-        .offset(x: swipe)
+        // Smaller while paused, as Apple Music's; with Reduce motion it stays its size.
+        .scaleEffect(playing || round || reduceMotion ? 1 : 0.84)
+        .offset(x: reduceMotion ? 0 : swipe)
         .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.62), value: playing)
         .frame(maxHeight: 360)
         .gesture(store.app.swipeCover ? DragGesture(minimumDistance: 20)
             .onChanged { g in if abs(g.translation.width) > abs(g.translation.height) { swipe = g.translation.width * 0.6 } }
             .onEnded { g in
                 if g.translation.width < -80 { store.next() } else if g.translation.width > 80 { store.previous() }
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) { swipe = 0 }
+                withMotion(.spring(response: 0.4, dampingFraction: 0.75)) { swipe = 0 }
             } : nil)
     }
 
@@ -504,12 +532,13 @@ struct NowPlayingView: View {
                 }
             }
         } label: {
-            // A plain sign, as Apple Music's.
-            Image(systemName: favorite ? "star.fill" : "star").font(.needle(.title3).weight(.semibold))
+            // A plain sign, as Apple Music's: the heart, as on every system.
+            Image(systemName: favorite ? "heart.fill" : "heart").font(.needle(.title3).weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
                 .contentShape(.circle)
                 .contentTransition(.symbolEffect(.replace))
+                .pressBounce(favoriteTaps)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(favorite ? "Unfavorite" : "Favorite")
@@ -517,18 +546,21 @@ struct NowPlayingView: View {
         .sensoryFeedback(.success, trigger: favoriteTaps) { _, _ in store.app.haptics }
     }
 
-    /// The song, small, above the lyrics or the queue.
+    /// The song, small, above the lyrics or the queue; above the lyrics, Translate beside it (it
+    /// sat in the foot, and pushed the buttons there aside when the lyrics opened).
     private func small(_ song: Song?, seed: String) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             Artwork(path: song?.artwork, seed: seed, size: 240)
                 .frame(width: 72, height: 72)
-                .clipShape(.rect(cornerRadius: 10))
+                .clipShape(.soft(Corner.cover))
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                .padding(.trailing, 4)
             VStack(alignment: .leading, spacing: 2) {
                 Text(song?.title ?? "").font(.needle(.title3).weight(.semibold)).lineLimit(1)
                 artistButton(song).font(.needle(.body))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if pane == .lyrics { translateButton }
             if !(song?.onComputer ?? false), chosen.contains("favorite") { favoriteButton(song) }
             moreMenu(song)
         }
@@ -540,8 +572,9 @@ struct NowPlayingView: View {
     private var chosen: [String] { PlayerButtons.chosen(store.choices.playerButtons) }
 
     private var controls: some View {
-        // One container, so the glass a held button shows is drawn with the others'.
-        GlassEffectContainer {
+        // One container, so the glass a held button shows is drawn with the others'; its spacing
+        // under the gap between them, so two held at once never melt into one.
+        GlassEffectContainer(spacing: 4) {
             HStack {
                 Spacer()
                 ForEach(chosen.filter { PlayerButtons.transport.contains($0) }, id: \.self) { name in
@@ -567,18 +600,18 @@ struct NowPlayingView: View {
             else { BigButton(symbol: "forward.fill", size: 34) { store.next() }.accessibilityLabel("Next") }
         case "shuffle":
             let stays = store.choices.shuffleStays && !store.onComputer
-            BigButton(symbol: "shuffle", size: 22) { store.shuffleButton() }
+            BigButton(symbol: "shuffle", size: 22, bounce: shufflePresses) { shufflePresses += 1; store.shuffleButton() }
                 .opacity(stays ? (store.shuffleOn ? 1 : 0.55) : 0.8)
                 .accessibilityLabel(stays ? "Shuffle" : "Shuffle up next")
                 .accessibilityValue(stays ? (store.shuffleOn ? "On" : "Off") : "")
         case "repeat":
-            BigButton(symbol: repeatMode == .one ? "repeat.1" : "repeat", size: 22) { store.cycleRepeat() }
+            BigButton(symbol: repeatMode == .one ? "repeat.1" : "repeat", size: 22, bounce: repeatPresses) { repeatPresses += 1; store.cycleRepeat() }
                 .opacity(repeatMode == .off ? 0.55 : 1)
                 .accessibilityLabel("Repeat")
                 .accessibilityValue(repeatMode == .off ? "Off" : repeatMode == .all ? "All" : "One")
         default:
-            BigButton(symbol: playing ? "pause.fill" : "play.fill", size: 46) { store.toggle() }
-                .sensoryFeedback(.impact(weight: .medium), trigger: playing) { _, _ in store.app.haptics }
+            BigButton(symbol: playing ? "pause.fill" : "play.fill", size: 46) { playPresses += 1; store.toggle() }
+                .sensoryFeedback(.impact(weight: .medium), trigger: playPresses) { _, _ in store.app.haptics }
                 .accessibilityLabel(playing ? "Pause" : "Play")
         }
     }
@@ -587,7 +620,7 @@ struct NowPlayingView: View {
     /// the lyrics open, Translate beside them.
     private var bottom: some View {
         let foot = chosen.filter { PlayerButtons.foot.contains($0) }
-        return GlassEffectContainer {
+        return GlassEffectContainer(spacing: 4) {
             HStack {
                 ForEach(Array(foot.enumerated()), id: \.element) { i, name in
                     if i > 0 { Spacer() }
@@ -607,35 +640,27 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func footButton(_ name: String) -> some View {
         switch name {
-        case "lyrics":
-            HStack {
-                paneButton(.lyrics, symbol: "quote.bubble")
-                if pane == .lyrics { translateButton }
-            }
+        case "lyrics": paneButton(.lyrics, symbol: "quote.bubble")
         case "queue": paneButton(.queue, symbol: "list.bullet")
         default: RoutePicker().frame(width: 44, height: 44).opacity(0.75)
         }
     }
 
-    /// Beside the lyrics while they are open: each line in your language under it.
+    /// Beside the song over the lyrics: each line in your language under it.
     private var translateButton: some View {
-        HStack {
-            if pane == .lyrics {
-                Button {
-                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { translateLyrics.toggle() }
-                } label: {
-                    Image(systemName: "translate")
-                        .font(.needle(.title3).weight(translateLyrics ? .semibold : .regular))
-                        .foregroundStyle(.white.opacity(translateLyrics ? 1 : 0.7))
-                        .frame(width: 44, height: 44)
-                        .litGlass(translateLyrics, id: "translate", in: footGlass, tint: store.coverColor)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(translateLyrics ? "Hide the translation" : "Translate the lyrics")
-                .accessibilityAddTraits(translateLyrics ? .isSelected : [])
-            }
+        Button {
+            withFade(.smooth(duration: 0.3)) { translateLyrics.toggle() }
+        } label: {
+            Image(systemName: "translate")
+                .font(.needle(.title3).weight(translateLyrics ? .semibold : .regular))
+                .foregroundStyle(.white.opacity(translateLyrics ? 1 : 0.7))
+                .frame(width: 44, height: 44)
+                .glassEffect(translateLyrics ? .regular.tint((store.coverColor ?? .clear).opacity(0.35)) : .identity, in: .circle)
+                .contentShape(.circle)
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(translateLyrics ? "Hide the translation" : "Translate the lyrics")
+        .accessibilityAddTraits(translateLyrics ? .isSelected : [])
     }
 
     private func paneButton(_ which: Pane, symbol: String) -> some View {
@@ -653,6 +678,29 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(which == .lyrics ? "Lyrics" : "Up Next")
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// Repeat a part of the song (A-B): apart from the player, so only it follows the time.
+private struct LoopMenu: View {
+    @Environment(Store.self) private var store
+    let song: Song
+    let loop: [Double]
+    let set: (Double, Double) -> Void
+    let stop: () -> Void
+
+    var body: some View {
+        Menu {
+            // Not in the song's last second: the part would have no length.
+            let at = min(store.position, max(0, song.duration - 1))
+            Button("Start here (\(clock(at)))") { set(at, loop.count == 2 ? max(loop[1], at + 1) : min(song.duration, at + 30)) }
+            if loop.count == 2 {
+                Button("End here (\(clock(at)))") { set(loop[0], max(loop[0] + 1, at)) }
+                Button("Stop repeating", role: .destructive, action: stop)
+            }
+        } label: {
+            Label(loop.count == 2 ? "Repeating \(clock(loop[0]))–\(clock(loop[1]))" : "Repeat a part", systemImage: "repeat")
+        }
     }
 }
 
@@ -701,6 +749,8 @@ struct BigButton: View {
     @Environment(Store.self) private var store
     let symbol: String
     let size: CGFloat
+    /// Goes up with each press that should bounce the sign (Shuffle, Repeat).
+    var bounce = 0
     let action: () -> Void
     @State private var held = false
     /// The player on a short screen (a phone on its side): a little smaller.
@@ -712,7 +762,8 @@ struct BigButton: View {
             Image(systemName: symbol)
                 .font(.system(size: size))
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: size * 1.9, height: size * 1.9)
+                .pressBounce(bounce)
+                .frame(width: max(44, size * 1.9), height: max(44, size * 1.9))
                 .glassEffect(held ? .regular.tint((store.coverColor ?? .clear).opacity(0.3)) : .identity, in: .circle)
                 .contentShape(.circle)
         }
@@ -723,10 +774,11 @@ struct BigButton: View {
         @Binding var held: Bool
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
-                .scaleEffect(configuration.isPressed ? 1.12 : 1)
-                .animation(.spring(response: 0.3, dampingFraction: 0.55), value: configuration.isPressed)
+                // Grows a little while held; with Reduce motion only the glass shows.
+                .scaleEffect(configuration.isPressed && !Motion.reduced ? 1.12 : 1)
+                .animation(Motion.of(.spring(response: 0.3, dampingFraction: 0.55)), value: configuration.isPressed)
                 .onChange(of: configuration.isPressed) { _, now in
-                    withAnimation(.easeOut(duration: 0.2)) { held = now }
+                    withFade(.easeOut(duration: 0.2)) { held = now }
                 }
         }
     }
@@ -743,7 +795,7 @@ struct SeekBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotionSystem
 
     var body: some View {
-        let position = dragged ?? store.playback?.position ?? 0
+        let position = dragged ?? store.position
         let part = duration > 0 ? min(1, max(0, position / duration)) : 0
         VStack(spacing: 6) {
             GeometryReader { geo in
@@ -785,7 +837,7 @@ struct SeekBar: View {
                 )
             }
             .frame(height: store.choices.seekStyle != "shape" ? 28 : shape.isEmpty ? 20 : 32)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: dragged == nil)
+            .motion(.spring(response: 0.3, dampingFraction: 0.7), value: dragged == nil)
             .accessibilityElement()
             .accessibilityLabel("Position")
             .accessibilityValue("\(clock(position)) of \(clock(duration))")
@@ -815,7 +867,7 @@ struct SeekBar: View {
             while !Task.isCancelled {
                 let found = await Waveforms.heights(song.id, store: store)
                 if !found.isEmpty {
-                    if !Task.isCancelled { withAnimation(.easeOut(duration: 0.3)) { shape = found } }
+                    if !Task.isCancelled { withFade(.easeOut(duration: 0.3)) { shape = found } }
                     return
                 }
                 // A server song's shape is measured once its whole file is here: the plain line
@@ -929,7 +981,7 @@ struct LineSlider: View {
                 .onEnded { _ in held = false; done() })
         }
         .frame(height: 34)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: held)
+        .motion(.spring(response: 0.3, dampingFraction: 0.7), value: held)
         .accessibilityElement()
         .accessibilityLabel("Volume")
         .accessibilityValue("\(Int((value * 100).rounded())) percent")
@@ -1206,21 +1258,41 @@ struct LyricsPane: View {
 
     private func plain(_ text: String) -> some View {
         ScrollView {
-            Text(text).font(stage ? .system(size: 30, weight: .heavy) : .needle(.title3).weight(.semibold))
+            Text(text).font(stage ? .scaled(30, relativeTo: .title, weight: .heavy) : .needle(.title3).weight(.semibold))
                 .multilineTextAlignment(stage ? .center : .leading)
                 .frame(maxWidth: .infinity, alignment: stage ? .center : .leading)
                 .padding(.vertical, 20)
         }
-        .mask(fade)
-    }
-
-    /// The lyrics fade out at the top and the foot as they scroll.
-    private var fade: LinearGradient {
-        LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08), .init(color: .black, location: 0.8), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+        .mask(LyricsFade())
     }
 
     private func timed(_ lines: [LyricLine]) -> some View {
-        let position = store.playback?.position ?? 0
+        TimedLyrics(lines: lines, stage: stage, translations: translate ? translations : [:]) { card = CardLine(text: $0) }
+    }
+}
+
+/// The lyrics fade out at the top and the foot as they scroll.
+private struct LyricsFade: View {
+    var body: some View {
+        LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08), .init(color: .black, location: 0.8), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+    }
+}
+
+/// Timed lyrics: the line being sung lit, and scrolled to. Apart from the pane, so only this
+/// follows the time; the line being sung lights its words from a clock of its own (see
+/// `KaraokeLine`).
+private struct TimedLyrics: View {
+    @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    let lines: [LyricLine]
+    let stage: Bool
+    /// Each line in your language, by its place (Translate on).
+    let translations: [Int: String]
+    let share: (String) -> Void
+
+    var body: some View {
+        let reduce = systemReduceMotion || store.app.reduceMotion
+        let position = store.position
         let current = lines.lastIndex { $0.time <= position + 0.2 } ?? -1
         return ScrollViewReader { reader in
             ScrollView(showsIndicators: false) {
@@ -1230,50 +1302,63 @@ struct LyricsPane: View {
                         VStack(alignment: stage ? .center : .leading, spacing: 4) {
                             Group {
                                 if i == current && !line.words.isEmpty {
-                                    karaoke(line, at: position)
+                                    KaraokeLine(line: line)
                                 } else {
                                     Text(line.text.isEmpty ? "♪" : line.text)
                                 }
                             }
-                            .font(.system(size: stage ? 38 : 28, weight: .heavy))
+                            .font(.scaled(stage ? 38 : 28, relativeTo: .title, weight: .heavy))
                             .multilineTextAlignment(stage ? .center : .leading)
                             // The line in your language, under it (Translate on).
-                            if translate, let translated = translations[i] {
-                                Text(translated).font(.system(size: stage ? 24 : 19, weight: .semibold)).opacity(0.62)
+                            if let translated = translations[i] {
+                                Text(translated).font(.scaled(stage ? 24 : 19, relativeTo: .title3, weight: .semibold)).opacity(0.62)
                                     .multilineTextAlignment(stage ? .center : .leading)
                             }
                         }
                         .opacity(i == current ? 1 : 0.32)
-                        .blur(radius: i == current ? 0 : 1)
+                        .blur(radius: i == current || reduce ? 0 : 1)
                         // Room for the playing line to grow without going past the edge.
                         .padding(.horizontal, stage ? 8 : 0)
                         .padding(.trailing, stage ? 0 : 16)
-                        .scaleEffect(i == current ? 1.03 : 1, anchor: stage ? .center : .leading)
+                        .scaleEffect(i == current && !reduce ? 1.03 : 1, anchor: stage ? .center : .leading)
                         .frame(maxWidth: .infinity, alignment: stage ? .center : .leading)
                         .id(i)
                         .onTapGesture { store.seek(line.time) }
                         .contextMenu {
                             if !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
-                                Button("Share as Card", systemImage: "square.and.arrow.up") { card = CardLine(text: line.text) }
+                                Button("Share as Card", systemImage: "square.and.arrow.up") { share(line.text) }
                             }
                         }
                     }
                     Color.clear.frame(height: 200)
                 }
-                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: current)
+                .animation(reduce ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.8), value: current)
             }
             .onChange(of: current, initial: true) { _, now in
                 guard now >= 0 else { return }
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: UnitPoint(x: stage ? 0.5 : 0, y: stage ? 0.4 : 0.25)) }
+                withMotion(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: UnitPoint(x: stage ? 0.5 : 0, y: stage ? 0.4 : 0.25)) }
             }
         }
-        .mask(fade)
+        .mask(LyricsFade())
     }
+}
 
-    /// The line playing, its words lit one by one as they are sung.
-    private func karaoke(_ line: LyricLine, at position: Double) -> Text {
-        line.words.reduce(Text("")) { text, word in
-            Text("\(text)\(Text(word.text).foregroundStyle(word.time <= position ? Color.white : Color.white.opacity(0.4)))")
+/// The line being sung, its words lit one by one as they are sung. The core says where the
+/// song is four times a second; between, the place is worked out from the clock each frame, so
+/// the words light on time and one at a time, not late and in bursts.
+private struct KaraokeLine: View {
+    @Environment(Store.self) private var store
+    let line: LyricLine
+
+    var body: some View {
+        let clock = store.clock
+        // Read here so the line starts again from the core's place at each of its reports.
+        let _ = clock.position
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: clock.rate == 0)) { context in
+            let position = clock.estimate(at: context.date)
+            line.words.reduce(Text("")) { text, word in
+                Text("\(text)\(Text(word.text).foregroundStyle(word.time <= position ? Color.white : Color.white.opacity(0.4)))")
+            }
         }
     }
 }
@@ -1281,17 +1366,20 @@ struct LyricsPane: View {
 /// The songs up next: tap one to play it, swipe to take it out, drag to move it.
 struct QueuePane: View {
     @Environment(Store.self) private var store
+    /// Presses of Shuffle and Repeat, to bounce their signs.
+    @State private var shuffles = 0
+    @State private var repeats = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            GlassEffectContainer(spacing: 12) {
+            GlassEffectContainer(spacing: 4) {
                 HStack(spacing: 12) {
-                    Button { store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn) }
+                    Button { shuffles += 1; store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn, bounce: shuffles) }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Shuffle")
                         .accessibilityValue(store.choices.shuffleStays && !store.onComputer ? (store.shuffleOn ? "On" : "Off") : "")
-                    Button { store.cycleRepeat() } label: {
-                        Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off)
+                    Button { repeats += 1; store.cycleRepeat() } label: {
+                        Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off, bounce: repeats)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Repeat")
@@ -1321,11 +1409,14 @@ private struct QueueList: View {
                 ContentUnavailableView("Nothing up next", systemImage: "list.bullet").frame(maxHeight: .infinity)
             } else {
                 List {
-                    ForEach(Array(store.upNext.enumerated()), id: \.offset) { i, song in
+                    // Each row keeps its own id (the song, and which time it is in the list), so a
+                    // row taken out or moved is that row, never the one after it.
+                    ForEach(Array(Store.rowIDs(store.upNext).enumerated()), id: \.element.id) { i, row in
+                        let song = row.song
                         Button { store.jump(i) } label: {
                             HStack(spacing: 14) {
                                 Artwork(path: song.artwork, seed: song.album + song.artist, size: 150)
-                                    .frame(width: 50, height: 50).clipShape(.rect(cornerRadius: 6))
+                                    .frame(width: 50, height: 50).clipShape(.soft(Corner.cover))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(song.title).lineLimit(1)
                                     Text(song.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
@@ -1355,10 +1446,12 @@ struct Pill: View {
     @Environment(Store.self) private var store
     let symbol: String
     let on: Bool
+    var bounce = 0
 
     var body: some View {
         Image(systemName: symbol)
             .font(.needle(.body).weight(.semibold))
+            .pressBounce(bounce)
             .foregroundStyle(on ? Color.black.opacity(0.8) : .white)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
@@ -1550,21 +1643,19 @@ struct TimingView: View {
     /// The song, where it is, and how far along.
     private func header(_ thisSong: Bool) -> some View {
         let colors = store.colors
-        let position = thisSong ? store.playback?.position ?? 0 : 0
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
-                    .frame(width: 48, height: 48).clipShape(.rect(cornerRadius: 8))
+                    .frame(width: 48, height: 48).clipShape(.soft(Corner.cover))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.title).font(.needle(.headline)).lineLimit(1)
                     Text(song.artist).font(.needle(.subheadline)).foregroundStyle(colors.muted).lineLimit(1)
                 }
                 Spacer()
-                Text("\(clock(position)) / \(clock(song.duration))")
-                    .font(.system(size: 13, design: .monospaced)).foregroundStyle(colors.muted)
+                TimingClock(duration: song.duration, playing: thisSong, progress: false)
             }
             if thisSong {
-                ProgressView(value: min(position, song.duration), total: max(song.duration, 1)).tint(colors.accent)
+                TimingClock(duration: song.duration, playing: true, progress: true)
             } else {
                 Button("Play it from the start", systemImage: "play.fill") { store.play([song]) }
                     .buttonStyle(.glass)
@@ -1695,7 +1786,7 @@ struct TimingView: View {
 
     private func tap() {
         guard let timer, store.playback?.current?.id == song.id else { return }
-        timer.tap(position: store.playback?.position ?? 0)
+        timer.tap(position: store.position)
         taps += 1
         changed()
     }
@@ -1719,6 +1810,26 @@ struct TimingView: View {
             } else {
                 store.message = "Tap at least one line before saving."
             }
+        }
+    }
+}
+
+/// Where the song is, in the lyrics timer: the time, or a line of how far along. Apart, so
+/// only it follows the time.
+private struct TimingClock: View {
+    @Environment(Store.self) private var store
+    let duration: Double
+    /// The song timed is the one playing.
+    let playing: Bool
+    let progress: Bool
+
+    var body: some View {
+        let position = playing ? store.position : 0
+        if progress {
+            ProgressView(value: min(position, duration), total: max(duration, 1)).tint(store.colors.accent)
+        } else {
+            Text("\(clock(position)) / \(clock(duration))")
+                .font(.scaled(13, relativeTo: .footnote).monospaced()).foregroundStyle(store.colors.muted)
         }
     }
 }
