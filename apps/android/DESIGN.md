@@ -35,10 +35,14 @@ plays and the one main button.
     (Haze, RenderEffect) and the fill is see-through; before that, the fill is solid. A phone
     with little memory is solid too, and so are the big panes on a TV.
   - The edge light: a 1 dp line, brighter along the top and fading down the sides, and a faint
-    outline. No flat line round it.
+    outline. No flat line round it. On light glass (Day) a white line would not show: there it
+    is a soft dark line round the edge with the white light just inside it.
+  - A sheet's edge runs its whole real height, top and sides; a sheet has no line along its
+    bottom, which is the screen's.
   - A soft shadow under it.
   - The dock and the floating player take the playing cover's colour from the left, with
-    "Mini player in the song's colour" on.
+    "Mini player in the song's colour" on. A song's, an album's, and a playlist's sheet take
+    that cover's colour faintly from the left, always. Dialogs and menus stay neutral.
 - Where it is used:
   - The dock and the floating player: blurred glass over the page.
   - The side pane (lyrics, Up next): dark glass in the cover's colour over the page, so its
@@ -47,8 +51,10 @@ plays and the one main button.
     window is under it, so its fill is solid.
   - Sheets and dialogs (`GlassSheet`, `GlassAlertDialog`) are their own windows, which the
     page's blur does not reach. The system blurs what is behind their window (Android 12 and
-    newer, where it is turned on; not on a TV), and their fill turns a little see-through.
-    Elsewhere they keep the solid fill. Both have the edge light.
+    newer, where it is turned on; not on a TV), set once as the window opens, at its full
+    radius; only the fill animates: it turns a little see-through as the window opens, and solid
+    again as a sheet leaves, so the page never shows sharp through it. Elsewhere they keep the
+    solid fill. Both have the edge light.
   - Menus (`GlassMenu`): a solid fill with the edge light. The system's blur behind a small
     menu would blur the whole screen.
   - The top of a page: what scrolls up blurs and fades into the page under the status bar

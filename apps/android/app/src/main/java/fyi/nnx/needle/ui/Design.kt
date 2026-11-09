@@ -230,7 +230,7 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
         acted = true
         scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
     }
-    GlassSheet(onDismissRequest = onDismiss, sheetState = state) {
+    GlassSheet(onDismissRequest = onDismiss, sheetState = state, art = song.artwork) {
         // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
@@ -384,7 +384,7 @@ fun ActionSheet(
             scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
         }
     }
-    GlassSheet(onDismissRequest = onDismiss, sheetState = state) {
+    GlassSheet(onDismissRequest = onDismiss, sheetState = state, art = art) {
         // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {

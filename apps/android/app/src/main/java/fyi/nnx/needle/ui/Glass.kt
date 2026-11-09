@@ -31,7 +31,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -43,6 +42,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -103,44 +103,81 @@ internal fun darkPage(): Boolean = MaterialTheme.colorScheme.background.luminanc
 /**
  * Glass's edge, as on the computer: a 1 dp line, brighter along the top and fading down the
  * sides, and a faint outline the rest of the way round. Drawn inside `shape`, over the content.
- * `dark`: the glass is dark (a dark page, or the side pane's dark glass in any theme).
+ * `dark`: the glass is dark (a dark page, or the side pane's dark glass in any theme). On light
+ * glass a white line alone would not show, so there it is a soft dark line with the white light
+ * just inside it.
  */
 fun Modifier.edgeLight(shape: Shape, dark: Boolean): Modifier = drawWithCache {
-    val outline = shape.createOutline(size, layoutDirection, this)
-    val path = Path().apply { addOutline(outline) }
-    val top = if (dark) Color.White.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.9f)
-    val faint = if (dark) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.08f)
-    // The light runs down about 28 dp, so short bars and tall panes look alike.
-    val reach = if (size.height > 0f) (28.dp.toPx() / size.height).coerceIn(0.05f, 1f) else 1f
-    val brush = Brush.verticalGradient(0f to top, reach to faint, 1f to faint)
-    // Twice as wide, half of it clipped away: the line sits just inside the edge.
-    val stroke = Stroke(2.dp.toPx())
+    val draw = edgeLightOf(shape, dark, size, foot = true)
     onDrawWithContent {
         drawContent()
-        clipPath(path) { drawPath(path, brush, style = stroke) }
+        draw()
     }
 }
 
 /**
- * The edge light's top alone (see [edgeLight]), for a part that sits at the top of a taller
- * glass shape: a sheet's drag handle row, whose sheet runs on below it. `shape` is the sheet's.
+ * The edge light (see [edgeLight]) for a glass shape `glass` big whose top-left is this node's:
+ * a 1 dp line just inside the edge. `foot`: also along the bottom; a sheet's bottom is the
+ * screen's, and has none.
  */
-fun Modifier.topLight(shape: Shape, dark: Boolean): Modifier = drawWithCache {
-    val tall = androidx.compose.ui.geometry.Size(size.width, size.height + 400.dp.toPx())
-    val path = Path().apply { addOutline(shape.createOutline(tall, layoutDirection, this@drawWithCache)) }
-    val top = if (dark) Color.White.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.9f)
-    val faint = if (dark) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.08f)
-    val brush = Brush.verticalGradient(0f to top, (28.dp.toPx() / tall.height) to faint, 1f to faint, endY = tall.height)
-    val stroke = Stroke(2.dp.toPx())
-    onDrawWithContent {
-        drawContent()
-        clipPath(path) { drawPath(path, brush, style = stroke) }
+private fun androidx.compose.ui.draw.CacheDrawScope.edgeLightOf(
+    shape: Shape,
+    dark: Boolean,
+    glass: androidx.compose.ui.geometry.Size,
+    foot: Boolean,
+): androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit {
+    val line = 1.dp.toPx()
+    val outer = Path().apply { addOutline(shape.createOutline(glass, layoutDirection, this@edgeLightOf)) }
+    // The light runs down about 28 dp, so short bars and tall panes look alike.
+    val reach = if (glass.height > 0f) (28.dp.toPx() / glass.height).coerceIn(0.03f, 1f) else 1f
+    // Twice as wide, half of it clipped away: the line sits just inside the edge.
+    val stroke = Stroke(line * 2)
+    // Without a foot, the lines stop short of the bottom, where the side lines would turn.
+    val bottom = if (foot) glass.height else glass.height - line * 3
+    if (dark) {
+        val brush = Brush.verticalGradient(0f to Color.White.copy(alpha = 0.24f), reach to Color.White.copy(alpha = 0.07f), 1f to Color.White.copy(alpha = 0.07f), endY = glass.height)
+        return { clipRect(right = glass.width, bottom = bottom) { clipPath(outer) { drawPath(outer, brush, style = stroke) } } }
+    }
+    // Light glass: a soft dark line round the edge, and the white light 1 dp inside it.
+    val inset = androidx.compose.ui.geometry.Size((glass.width - line * 2).coerceAtLeast(0f), (glass.height - line * 2).coerceAtLeast(0f))
+    val inner = Path().apply {
+        addOutline(shape.createOutline(inset, layoutDirection, this@edgeLightOf))
+        translate(androidx.compose.ui.geometry.Offset(line, line))
+    }
+    val dim = Color.Black.copy(alpha = 0.12f)
+    val light = Brush.verticalGradient(0f to Color.White.copy(alpha = 0.95f), reach to Color.White.copy(alpha = 0.5f), 1f to Color.White.copy(alpha = 0.35f), endY = glass.height)
+    return {
+        clipRect(right = glass.width, bottom = bottom) {
+            clipPath(outer) { drawPath(outer, dim, style = stroke) }
+            clipPath(inner) { drawPath(inner, light, style = stroke) }
+        }
     }
 }
 
-/** The cover's colour for glass, from the left: stronger on a dark page, where it shows less. */
-private fun coverBrush(cover: Color, dark: Boolean): Brush =
-    Brush.horizontalGradient(0f to cover.copy(alpha = cover.alpha * if (dark) 0.42f else 0.3f), 0.8f to cover.copy(alpha = 0f))
+/**
+ * A sheet's glass, drawn from its drag handle's row, the first thing in the sheet, which moves
+ * with it as it slides: the cover's colour from the left behind what the sheet holds (`cover`,
+ * faint), and the edge light along its top and down its sides. Both are drawn `reach` below
+ * the row, past the sheet's foot, and the sheet's own outline cuts them where it ends, so the
+ * sides run the sheet's whole height, however tall it is; no line is drawn along the bottom.
+ */
+private fun Modifier.sheetGlass(shape: Shape, dark: Boolean, cover: Color?, reach: Dp): Modifier = drawWithCache {
+    val glass = androidx.compose.ui.geometry.Size(size.width, size.height + reach.toPx())
+    val edge = edgeLightOf(shape, dark, glass, foot = false)
+    val tint = cover?.takeIf { it.alpha > 0f }?.let { coverBrush(it, dark, strength = 0.6f) }
+    onDrawWithContent {
+        if (tint != null) drawRect(tint, size = glass)
+        drawContent()
+        edge()
+    }
+}
+
+/**
+ * The cover's colour for glass, from the left: stronger on a dark page, where it shows less.
+ * `strength` makes it fainter (a sheet's).
+ */
+private fun coverBrush(cover: Color, dark: Boolean, strength: Float = 1f): Brush =
+    Brush.horizontalGradient(0f to cover.copy(alpha = cover.alpha * strength * if (dark) 0.42f else 0.3f), 0.8f to cover.copy(alpha = 0f))
 
 /**
  * Frosted glass (the dock, a tablet's player and side bar): the page behind it blurred and tinted
@@ -274,37 +311,33 @@ fun TopEdge(solid: Dp, fade: Dp, modifier: Modifier = Modifier) {
 /**
  * The system's blur of what is behind this window (a sheet's or a dialog's), for glass in it:
  * Android 12 and newer, where the system has it turned on (not in battery saver, not on a TV or a
- * phone with little memory). It comes in as the window opens and goes as `shown` turns false.
- * Returns whether it is on, so the glass can be clearer.
+ * phone with little memory). Set once, at its full radius, as the window first composes, so it
+ * is there from the first frame; it goes with the window. Returns whether it is on, so the glass
+ * can be clearer.
  */
 @Composable
-fun windowBlur(shown: Boolean = true): Boolean {
+fun windowBlur(): Boolean {
     val allowed = blurAllowed(large = true)
     val view = LocalView.current
     val window = remember(view) {
         generateSequence(view.parent) { it.parent }.filterIsInstance<DialogWindowProvider>().firstOrNull()?.window
     }
     if (!allowed || window == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
-    return windowBlur31(window, shown)
+    return windowBlur31(window)
 }
 
 @RequiresApi(Build.VERSION_CODES.S)
 @Composable
-private fun windowBlur31(window: android.view.Window, shown: Boolean): Boolean {
+private fun windowBlur31(window: android.view.Window): Boolean {
     val manager = remember(window) { window.windowManager }
     var enabled by remember { mutableStateOf(manager.isCrossWindowBlurEnabled) }
-    DisposableEffect(manager) {
-        val listener = java.util.function.Consumer<Boolean> { enabled = it }
-        manager.addCrossWindowBlurEnabledListener(listener)
-        onDispose { manager.removeCrossWindowBlurEnabledListener(listener) }
-    }
-    val radius = with(LocalDensity.current) { 22.dp.toPx() }
-    // Read only by the window below, so its frames do not compose the sheet or dialog again.
-    val amount = animateFloatAsState(if (enabled && shown) 1f else 0f, tween(if (shown) 260 else 180), label = "window blur")
-    val flags = android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND or android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND
+    val radius = with(LocalDensity.current) { 22.dp.roundToPx() }
     // How the window dimmed the page before (a dialog does; a sheet draws its own shade).
     val plain = remember(window) { window.attributes.let { (it.flags and android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND != 0) to it.dimAmount } }
-    LaunchedEffect(window, enabled) {
+    // Once as the window opens, and again only if the system turns its blur on or off (battery
+    // saver) meanwhile: never at each frame.
+    DisposableEffect(window, enabled) {
+        val flags = android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND or android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND
         val (dimmed, dim) = plain
         window.attributes = window.attributes.apply {
             if (enabled) {
@@ -313,53 +346,71 @@ private fun windowBlur31(window: android.view.Window, shown: Boolean): Boolean {
                 // dialog's plain dim.
                 this.flags = this.flags or flags
                 dimAmount = if (dimmed) minOf(dim, 0.3f) else 0.04f
+                blurBehindRadius = radius
             } else {
                 this.flags = if (dimmed) this.flags and android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv() else this.flags and flags.inv()
                 dimAmount = dim
+                blurBehindRadius = 0
             }
         }
-        snapshotFlow { amount.value }.collect { a ->
-            window.attributes = window.attributes.apply { blurBehindRadius = (a * radius).toInt() }
-        }
+        onDispose {}
+    }
+    DisposableEffect(manager) {
+        val listener = java.util.function.Consumer<Boolean> { enabled = it }
+        manager.addCrossWindowBlurEnabledListener(listener)
+        onDispose { manager.removeCrossWindowBlurEnabledListener(listener) }
     }
     return enabled
 }
 
-/** How see-through a sheet's or a dialog's glass is, over the blurred page; solid without it. */
+/**
+ * How see-through a sheet's or a dialog's glass is, over the blurred page; solid without it.
+ * It clears as the window opens, and turns solid again as it goes (`shown` false), so a closing
+ * sheet never shows the page sharp through it. The only thing here that animates.
+ */
 @Composable
-private fun windowFill(base: Color, blurred: Boolean): Color {
-    val alpha by animateFloatAsState(if (blurred) (if (darkPage()) 0.84f else 0.88f) else 1f, tween(200), label = "glass fill")
+private fun windowFill(base: Color, blurred: Boolean, shown: Boolean = true): Color {
+    val clear = blurred && shown
+    val alpha by animateFloatAsState(if (clear) (if (darkPage()) 0.84f else 0.88f) else 1f, tween(if (clear) 220 else 120), label = "glass fill")
     return base.copy(alpha = alpha)
 }
 
 /**
  * A sheet from the bottom on glass: the page behind it blurred where the system allows (see
- * [windowBlur]), the sheet's fill clear enough to show it, and the edge light along its top.
- * Elsewhere, the sheet's usual solid fill with the edge light.
+ * [windowBlur]), the sheet's fill clear enough to show it, and the edge light along its top and
+ * down its sides. Elsewhere, the sheet's usual solid fill with the edge light. A song's, an
+ * album's, or a playlist's sheet passes its cover (`art`): its colour comes in faintly from the
+ * left, as the dock's does (DESIGN.md › Glass).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlassSheet(
     onDismissRequest: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(),
+    art: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var blurred by remember { mutableStateOf(false) }
     val shape = BottomSheetDefaults.ExpandedShape
+    val shown = sheetState.targetValue != SheetValue.Hidden
+    val cover = glassCover(art).takeIf { art != null }
+    // Past the foot of the tallest sheet: the screen's height.
+    val reach = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val dark = darkPage()
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         shape = shape,
-        containerColor = windowFill(MaterialTheme.colorScheme.surfaceContainerLow, blurred),
-        // The edge light along the sheet's top, drawn with the handle: the sheet's own outer box
-        // is not where the sheet shows as it slides.
+        containerColor = windowFill(MaterialTheme.colorScheme.surfaceContainerLow, blurred, shown),
+        // The glass's tint and edge light are drawn from the handle's row, which moves with the
+        // sheet: the sheet's own outer box is not where the sheet shows as it slides.
         dragHandle = {
-            Box(Modifier.fillMaxWidth().topLight(shape, darkPage()), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(Modifier.fillMaxWidth().sheetGlass(shape, dark, cover, reach), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 BottomSheetDefaults.DragHandle()
             }
         },
     ) {
-        val on = windowBlur(sheetState.targetValue != SheetValue.Hidden)
+        val on = windowBlur()
         SideEffect { blurred = on }
         content()
     }
