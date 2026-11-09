@@ -740,6 +740,11 @@ impl AppView {
             self.skeleton(cx).into_any_element()
         } else if self.page.is_grid() && !self.groups.is_empty() {
             self.grid(width, cx).into_any_element()
+        } else if matches!(&self.page, Page::Playlist(id) if !self.playlists.iter().any(|p| &p.id == id))
+        {
+            // The playlist left the library: the page is about to go (`leave_gone_playlist`).
+            // It is not empty, so it does not say so.
+            div().into_any_element()
         } else if self.tracks.is_empty() {
             let search = self.search_text(cx);
             let (title, detail, steps): (String, String, &[Step]) = match &self.page {

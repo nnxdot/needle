@@ -738,6 +738,9 @@ pub struct AppView {
     /// others), so the page's soft top edge knows when it is scrolled. Back to the top on
     /// each new page.
     page_scroll: ScrollHandle,
+    /// The open playlist was seen in the library, and whether it is a server's: if it then
+    /// goes, its page is left (`leave_gone_playlist`).
+    playlist_seen: Option<bool>,
     /// Where each Home row is scrolled to, for its arrows.
     shelf_scrolls: Vec<ScrollHandle>,
     recent: Vec<Listen>,
@@ -1400,6 +1403,7 @@ impl AppView {
             artist_view: Default::default(),
             artist_scroll: ScrollHandle::new(),
             page_scroll: ScrollHandle::new(),
+            playlist_seen: None,
             // One for each of Home's rows (it has five at most).
             shelf_scrolls: (0..5).map(|_| ScrollHandle::new()).collect(),
             recent: vec![],
@@ -2054,6 +2058,9 @@ impl AppView {
             }
         }
         self.follow_playlist_art();
+        if self.leave_gone_playlist(window, cx) {
+            events = true;
+        }
         // Slow loops on screen (bouncing bars, the full screen drift) move on this timer.
         if motion::take_slow_loops() {
             events = true;
@@ -2267,6 +2274,37 @@ impl AppView {
             self.forward.clear();
         }
         self.open(page, window, cx);
+    }
+    /// The open playlist left the library (a sync removed it, or its source signed out):
+    /// leave its page, Back (past any other page of it) or Home, with a short notice, rather
+    /// than call it empty. Returns whether it left.
+    fn leave_gone_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Page::Playlist(id) = &self.page else {
+            self.playlist_seen = None;
+            return false;
+        };
+        if let Some(found) = self.playlists.iter().find(|p| &p.id == id) {
+            self.playlist_seen = Some(found.server.is_some());
+            return false;
+        }
+        // Not seen on this page yet (it may still be on its way in): nothing to leave.
+        let Some(server) = self.playlist_seen.take() else {
+            return false;
+        };
+        let gone = Page::Playlist(id.clone());
+        self.back.retain(|page| *page != gone);
+        if self.back.is_empty() {
+            self.open(Page::Home, window, cx);
+        } else {
+            self.go_back(window, cx);
+        }
+        self.forward.retain(|page| *page != gone);
+        self.notify(if server {
+            "That playlist is no longer on your music server."
+        } else {
+            "That playlist is no longer in your library."
+        });
+        true
     }
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(page) = self.back.pop() {
