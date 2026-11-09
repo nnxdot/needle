@@ -745,7 +745,10 @@ impl Needle {
                     .map(|(id, ms)| {
                         let address =
                             Speaker::from_device_name(&id).map_or(String::new(), |s| s.address);
-                        (address, ms.clamp(0, 2000))
+                        // As early as `set_speaker_delay` allows (a speaker moved earlier while
+                        // the group played keeps that when the group is set again), and as
+                        // late as "Line them up" always could.
+                        (address, ms.clamp(-1000, 2000))
                     })
                     .collect();
                 Some(
