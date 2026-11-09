@@ -199,6 +199,7 @@ final class Store {
         reloadPlaylists()
         reloadPlugins()
         reloadThemes()
+        if let sound = try? core.soundSettings() { soundOn = Self.soundLit(sound) }
         nowPlaying.start(self)
         if settings.welcomed { sendCrashReports() }
         schedule(Self.fast)
@@ -545,6 +546,8 @@ final class Store {
     /// Sends sound settings to the player one at a time, in order; while one is on its way,
     /// only the newest waiting goes next (a slider being dragged sends many).
     func setSound(_ value: SoundSettings) {
+        let lit = Self.soundLit(value)
+        if lit != soundOn { soundOn = lit }
         soundNext.put(value)
         let (core, next) = (core, soundNext)
         soundQueue.async {
@@ -557,6 +560,17 @@ final class Store {
             }
         }
     }
+
+    /// A sound tool is on (the equalizer, mono, crossfeed, or a balance off the middle): the
+    /// player's sound button is lit. Read at the start, and kept with each change sent.
+    private(set) var soundOn = false
+
+    static func soundLit(_ s: SoundSettings) -> Bool {
+        s.eq || s.mono || s.crossfeed || abs(s.balance) > 0.001
+    }
+
+    /// The film grain while its slider is dragged: shown at once, saved when let go.
+    var grainPreview: Float?
 
     @ObservationIgnored private let soundQueue = DispatchQueue(label: "fyi.nnx.Needle.sound")
     @ObservationIgnored private let soundNext = Latest<SoundSettings>()

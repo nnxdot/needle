@@ -771,20 +771,15 @@ enum VolumeWheel {
 /// Opens the equalizer and sound tools (lit while any is on).
 struct SoundButton: View {
     private var store: Store { .shared }
-    @State private var on = false
 
     var body: some View {
+        // Lit from the store, which follows each change of the sound settings at once.
         Button { store.navigate(.sound) } label: {
-            Image(systemName: "slider.vertical.3").foregroundStyle(on ? store.colors.accent : store.colors.ink2)
+            Image(systemName: "slider.vertical.3").foregroundStyle(store.soundOn ? store.colors.accent : store.colors.ink2)
         }
         .buttonStyle(.borderless)
         .help("Equalizer and sound tools")
         .accessibilityLabel("Equalizer and sound tools")
-        .task(id: store.libraryVersion) {
-            if let s = try? store.core.soundSettings() {
-                on = s.eq || s.mono || s.crossfeed || abs(s.balance) > 0.001
-            }
-        }
     }
 }
 

@@ -8,6 +8,8 @@ struct AppearanceSettings: View {
     private var store: Store { .shared }
     @State private var editing: ThemeFile?
     @State private var newTheme = false
+    /// The film grain's slider is held.
+    @State private var grainHeld = false
 
     var body: some View {
         let s = store.settings
@@ -85,9 +87,21 @@ struct AppearanceSettings: View {
             }
             SettingRow(title: "Film grain", detail: "A fine texture over the window.", icon: "circle.dotted") {
                 HStack {
-                    Slider(value: Binding(get: { Double(s.grain) }, set: { store.set(["grain": $0]) }), in: 0...1).frame(width: 160)
-                        .accessibilityLabel("Film grain")
-                    Text(s.grain <= 0.001 ? "Off" : "\(Int(s.grain * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing).foregroundStyle(.secondary)
+                    // Shown at once while dragged, saved once when let go (saving at each step
+                    // lagged); a step from the keyboard is saved at once.
+                    let grain = store.grainPreview ?? s.grain
+                    Slider(value: Binding(get: { Double(grain) }, set: { value in
+                        if grainHeld { store.grainPreview = Float(value) } else { store.set(["grain": value]) }
+                    }), in: 0...1) { editing in
+                        grainHeld = editing
+                        if !editing, let value = store.grainPreview {
+                            store.set(["grain": Double(value)])
+                            store.grainPreview = nil
+                        }
+                    }
+                    .frame(width: 160)
+                    .accessibilityLabel("Film grain")
+                    Text(grain <= 0.001 ? "Off" : "\(Int(grain * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing).foregroundStyle(.secondary)
                 }
             }
         } header: {
