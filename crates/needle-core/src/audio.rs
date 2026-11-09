@@ -3884,8 +3884,16 @@ mod tests {
             assert_eq!(rig.worker.playing, playing);
             assert_eq!(rig.state().playing, playing);
             assert_eq!(current(rig).as_deref(), Some("b"), "after {opened} opened");
-            assert!((rig.worker.position() - 20.0).abs() < 2.0, "{}", rig.worker.position());
-            assert!((rig.state().position - 20.0).abs() < 2.0, "{}", rig.state().position);
+            assert!(
+                (rig.worker.position() - 20.0).abs() < 2.0,
+                "{}",
+                rig.worker.position()
+            );
+            assert!(
+                (rig.state().position - 20.0).abs() < 2.0,
+                "{}",
+                rig.state().position
+            );
             assert_eq!(ids(rig.state().queue.iter()), ["c"]);
             assert_eq!(rig.worker.queue.cycle.len(), 3);
             assert!(rig.state().error.is_none());

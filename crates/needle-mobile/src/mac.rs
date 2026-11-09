@@ -2216,6 +2216,9 @@ mod quality_tests {
         assert_eq!(text, "FLAC 24/48");
         assert_eq!(text, crate::Song::from(&track).quality);
         assert_eq!(super::track_quality("DSF".into(), 1, 2_822_400, 0), "DSD64");
-        assert_eq!(super::track_quality("MP3".into(), 0, 44_100, 320), "MP3 320");
+        assert_eq!(
+            super::track_quality("MP3".into(), 0, 44_100, 320),
+            "MP3 320"
+        );
     }
 }
