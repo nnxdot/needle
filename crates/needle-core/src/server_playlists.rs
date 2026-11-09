@@ -250,21 +250,26 @@ fn sync_one(
     let mut playlist = local.clone();
     if here && !there {
         // Songs from elsewhere (files on this computer, another server) cannot be on the
-        // server's playlist: the whole list is kept as the person's own as well.
-        let (mine, others): (Vec<&String>, Vec<&String>) = local
-            .track_ids
-            .iter()
-            .partition(|t| server_id(library, plugin, t).is_some());
-        let ids: Vec<String> = mine
-            .iter()
-            .filter_map(|t| server_id(library, plugin, t))
-            .collect();
+        // server's playlist: the whole list is kept as the person's own as well. Songs no
+        // longer in the library at all just go.
+        let (mut mine, mut ids, mut others) = (vec![], vec![], false);
+        for id in &local.track_ids {
+            if let Some(track) = library.track(id)? {
+                match track.source() {
+                    Some((owner, song)) if owner == plugin => {
+                        mine.push(id.clone());
+                        ids.push(song);
+                    }
+                    _ => others = true,
+                }
+            }
+        }
         match server.save_playlist(&remote.id, &local.name, &ids) {
             Ok(()) => {
-                if !others.is_empty() {
+                if others {
                     keep_copy(library, local, report, "songs that are not on the server")?;
                 }
-                playlist.track_ids = mine.into_iter().cloned().collect();
+                playlist.track_ids = mine;
                 playlist.server = Some(ServerPlaylist {
                     name: playlist.name.clone(),
                     songs: playlist.track_ids.clone(),
@@ -403,15 +408,6 @@ fn add_songs(
         ids.push(track.id);
     }
     Ok(ids)
-}
-
-/// A library song's id on this source's server; `None` for a song from anywhere else.
-fn server_id(library: &Library, plugin: &str, track_id: &str) -> Option<String> {
-    let track = library.track(track_id).ok()??;
-    match track.source() {
-        Some((owner, id)) if owner == plugin => Some(id),
-        _ => None,
-    }
 }
 
 /// After signing out: the source's playlists leave Needle (they stay on the server). One
