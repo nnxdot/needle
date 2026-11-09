@@ -20,7 +20,9 @@ struct SettingsWindow: View {
                 ForEach(Self.tabs, id: \.0) { name, icon in
                     // Solid icons, as in the main window's sidebar (SidebarLabel): the glass ones
                     // vanished in Mission Control.
-                    Label(name, systemImage: icon).labelStyle(SidebarLabel(rail: false)).tag(name)
+                    Label(name, systemImage: icon)
+                        .labelStyle(SidebarLabel(rail: false, ink: store.plainColors.ink2, selected: tab == name))
+                        .tag(name)
                 }
             }
             .listItemTint(.fixed(store.playerAccent))
