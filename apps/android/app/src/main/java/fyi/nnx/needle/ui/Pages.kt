@@ -48,6 +48,8 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radio
+import androidx.compose.material.icons.rounded.Contrast
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
@@ -806,6 +808,7 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
             edgeToEdge(Edge) {
                 ArtistHero(art, logo, shown, albums?.size, songs.size, { state.headerScroll() }) {
                     if (songs.isNotEmpty()) ArtistButtons(
+                        name = name,
                         onShuffle = { play(songs.shuffled(), 0) },
                         onPlay = { play(songs, 0) },
                         onRadio = {
@@ -959,9 +962,9 @@ private fun rememberDarkLogo(path: String): Boolean {
     return dark
 }
 
-/** Play and Shuffle pills, and a round Radio, as on the album pages. */
+/** Play and Shuffle pills, a round Radio, and a Blend with another artist, as on the Mac. */
 @Composable
-private fun ArtistButtons(onShuffle: () -> Unit, onPlay: () -> Unit, onRadio: () -> Unit) {
+private fun ArtistButtons(name: String, onShuffle: () -> Unit, onPlay: () -> Unit, onRadio: () -> Unit) {
     Row(
         Modifier.padding(top = 6.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -970,6 +973,41 @@ private fun ArtistButtons(onShuffle: () -> Unit, onPlay: () -> Unit, onRadio: ()
         PlayPill(Modifier.firstFocus(), onPlay)
         ShufflePill(onClick = onShuffle)
         RoundAction(Icons.Rounded.Radio, "Artist radio", onRadio)
+        BlendButton(name)
+    }
+}
+
+/**
+ * A blend: songs from this artist and another (one of the nearest by sound) that flow from one to
+ * the other, as the Mac's. The artists are read as the menu opens.
+ */
+@Composable
+private fun BlendButton(name: String) {
+    var open by remember { mutableStateOf(false) }
+    var similar by remember(name) { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(open, name) {
+        if (open && similar == null) similar = withContext(Dispatchers.IO) { runCatching { core.similarArtists(name) }.getOrDefault(emptyList()) }
+    }
+    Box {
+        RoundAction(Icons.Rounded.Contrast, "Blend with another artist") { open = true }
+        GlassMenu(open, { open = false }) {
+            val list = similar
+            when {
+                list == null -> DropdownMenuItem(text = { Text("Listening for similar artists…") }, onClick = {}, enabled = false)
+                list.isEmpty() -> DropdownMenuItem(text = { Text("No other artists are measured yet.") }, onClick = {}, enabled = false)
+                else -> list.forEach { other ->
+                    DropdownMenuItem(text = { Text(other) }, onClick = {
+                        open = false
+                        showMessage("Tuning in…")
+                        NeedleApp.instance.scope.launch(Dispatchers.IO) {
+                            runCatching { core.startBlend(name, other) }
+                                .onSuccess { showMessage("$name × $other: ${count(it.toInt(), "song")}.") }
+                                .onFailure { showMessage(it.message ?: "Could not start the blend") }
+                        }
+                    })
+                }
+            }
+        }
     }
 }
 
