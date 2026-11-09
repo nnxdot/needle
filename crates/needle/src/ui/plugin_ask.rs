@@ -290,7 +290,11 @@ impl AppView {
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| this.reply_to_ask(false, cx)),
                     )
-                    .child(card.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())),
+                    .child(super::motion::dialog_in(
+                        card.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
+                        "plugin-ask-card",
+                        cx,
+                    )),
             )
             .with_priority(3),
         )

@@ -570,6 +570,7 @@ impl AppView {
             .id("doctor")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
             .pb(self.foot_room())
             .child(
                 div()
@@ -633,7 +634,7 @@ impl AppView {
                     .id(id)
                     .w(px(220.))
                     .p_4()
-                    .rounded(px(12.))
+                    .rounded(px(super::glass::MEDIUM))
                     .bg(p.raised)
                     .cursor_pointer()
                     .hover(|s| s.bg(p.raised_hover))
@@ -875,7 +876,7 @@ impl AppView {
                         .gap_3()
                         .px_2()
                         .py_1()
-                        .rounded(px(6.))
+                        .rounded(px(super::glass::SMALL))
                         .cursor_pointer()
                         .when(kept, |el| el.bg(p.accent_soft))
                         .hover(|s| s.bg(p.raised))
@@ -929,7 +930,7 @@ impl AppView {
             list = list.child(
                 div()
                     .p_3()
-                    .rounded(px(10.))
+                    .rounded(px(super::glass::MEDIUM))
                     .border_1()
                     .border_color(p.line_soft)
                     .flex()
@@ -1110,7 +1111,7 @@ impl AppView {
                     .gap_3()
                     .px_2()
                     .py(px(6.))
-                    .rounded(px(6.))
+                    .rounded(px(super::glass::SMALL))
                     .hover(|s| s.bg(p.raised.opacity(0.6)))
                     .child(
                         div()
@@ -1259,7 +1260,7 @@ impl AppView {
                         .gap_3()
                         .px_2()
                         .py(px(6.))
-                        .rounded(px(6.))
+                        .rounded(px(super::glass::SMALL))
                         .hover(|s| s.bg(p.raised.opacity(0.6)))
                         .child(Checkbox::new(("bulk-pick", i)).checked(m.chosen).on_click(
                             cx.listener(move |this, checked: &bool, _, cx| {

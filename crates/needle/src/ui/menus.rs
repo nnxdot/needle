@@ -566,14 +566,14 @@ impl AppView {
                         .id(("menu-row", i))
                         .h(px(30.))
                         .px_2()
-                        .rounded(px(5.))
+                        .rounded(px(super::glass::ROW_IN_PANE))
                         .flex()
                         .items_center()
                         .gap_2()
                         .cursor_pointer()
                         .text_size(px(13.))
-                        .when(active, |el| el.bg(p.raised_hover))
-                        .hover(|s| s.bg(p.raised_hover))
+                        .when(active, |el| el.bg(super::glass::active_fill(&p)))
+                        .map(|el| super::glass::hover_row(el, super::glass::ROW_IN_PANE, cx))
                         .child(glyph(icon).size(px(15.)).text_color(if active {
                             p.ink
                         } else {
@@ -632,14 +632,14 @@ impl AppView {
                         .id("menu-back")
                         .h(px(30.))
                         .px_2()
-                        .rounded(px(5.))
+                        .rounded(px(super::glass::ROW_IN_PANE))
                         .flex()
                         .items_center()
                         .gap_2()
                         .cursor_pointer()
                         .text_size(px(12.5))
                         .font_weight(FontWeight::MEDIUM)
-                        .hover(|s| s.bg(p.raised_hover))
+                        .map(|el| super::glass::hover_row(el, super::glass::ROW_IN_PANE, cx))
                         .child(glyph("chevron-left").size(px(14.)).text_color(p.ink_2))
                         .child(title)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -792,7 +792,7 @@ impl AppView {
             Entry::item(
                 "trash",
                 if confirm && playlist.server.is_some() {
-                    "Click again to delete it on the server too"
+                    "Delete here and on the server"
                 } else if confirm {
                     "Click again to delete"
                 } else {
@@ -811,21 +811,13 @@ impl AppView {
                         });
                         return;
                     }
-                    match this.library.delete_playlist(&delete.id) {
-                        Ok(()) => {
-                            this.playlists = this.library.playlists().unwrap_or_default();
-                            if this.page == Page::Playlist(delete.id.clone()) {
-                                this.back.clear();
-                                this.open(Page::Home, window, cx);
-                            }
-                            this.notify(if delete.server.is_some() {
-                                "Playlist deleted, here and on the server. The songs stay."
-                            } else {
-                                "Playlist deleted. Your music files are untouched."
-                            });
-                        }
-                        Err(e) => this.fail(e.to_string()),
-                    }
+                    this.delete_playlist_later(
+                        delete.id.clone(),
+                        delete.server.is_some(),
+                        Page::Home,
+                        window,
+                        cx,
+                    );
                 },
             ),
         ]
@@ -838,10 +830,16 @@ impl AppView {
             return None;
         }
         let rows = Self::menu_rows(&entries, None, cx);
+        // The server playlist's confirm line is longer than the others.
+        let wide = menu.confirm
+            && self
+                .playlists
+                .iter()
+                .any(|p| p.id == menu.id && p.server.is_some());
         let body = div()
             .id("playlist-menu")
             .occlude()
-            .w(px(220.))
+            .w(px(if wide { 240. } else { 220. }))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .flex()
@@ -1015,14 +1013,14 @@ impl AppView {
                         .id("group-menu-back")
                         .h(px(30.))
                         .px_2()
-                        .rounded(px(5.))
+                        .rounded(px(super::glass::ROW_IN_PANE))
                         .flex()
                         .items_center()
                         .gap_2()
                         .cursor_pointer()
                         .text_size(px(12.5))
                         .font_weight(FontWeight::MEDIUM)
-                        .hover(|s| s.bg(p.raised_hover))
+                        .map(|el| super::glass::hover_row(el, super::glass::ROW_IN_PANE, cx))
                         .child(glyph("chevron-left").size(px(14.)).text_color(p.ink_2))
                         .child("Add to playlist")
                         .on_click(cx.listener(|this, _, _, cx| {

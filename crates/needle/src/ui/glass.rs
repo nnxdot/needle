@@ -24,15 +24,24 @@ pub enum Material {
     Clear,
     /// macOS: the system backdrop, with the sidebar and the player on glass.
     Liquid,
+    /// Linux: Needle's own glass, the cover's glow behind panes in an opaque window. Safe on
+    /// every desktop; the default there.
+    Painted,
 }
 
 impl Material {
-    /// Linux: the settings value, name, and line of each choice (no Mica there).
-    pub const LINUX: [(&'static str, &'static str, &'static str); 3] = [
+    /// Linux: the settings value, name, and line of each choice. No Mica there: its value,
+    /// the default, is the cover's glow, which every desktop can show.
+    pub const LINUX: [(&'static str, &'static str, &'static str); 4] = [
+        (
+            "mica",
+            "Cover glow",
+            "Panes of glass over the playing cover's colours.",
+        ),
         (
             "acrylic",
             "Blur",
-            "Frosted glass where the desktop blurs (KDE); elsewhere the cover's colours.",
+            "Frosted glass: a blur of what is behind the window.",
         ),
         ("clear", "Clear", "See straight through, with no blur."),
         ("solid", "Solid", "No glass."),
@@ -73,8 +82,9 @@ impl Material {
             "solid" => Self::Solid,
             "acrylic" => Self::Acrylic,
             "clear" => Self::Clear,
-            // Linux has no Mica: the default "mica" is its blur.
-            _ if cfg!(target_os = "linux") => Self::Acrylic,
+            // Linux has no Mica: the default "mica" is the cover's glow, in a solid window,
+            // so a profile that never chose stays opaque.
+            _ if cfg!(target_os = "linux") => Self::Painted,
             _ => Self::Mica,
         }
     }
@@ -162,17 +172,20 @@ pub fn probe(
     .size_full()
 }
 
-/// Windows 11 is build 22000 and later.
+/// Windows 11 is build 22000 and later. Read once.
 pub fn windows_11() -> bool {
     #[cfg(windows)]
     {
-        read_string(
-            windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-            "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-            "CurrentBuildNumber",
-        )
-        .and_then(|b| b.trim().parse::<u32>().ok())
-        .is_some_and(|b| b >= 22000)
+        static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *FOUND.get_or_init(|| {
+            read_string(
+                windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+                "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                "CurrentBuildNumber",
+            )
+            .and_then(|b| b.trim().parse::<u32>().ok())
+            .is_some_and(|b| b >= 22000)
+        })
     }
     #[cfg(not(windows))]
     false
@@ -249,7 +262,8 @@ pub fn apply(
     window.set_dark_appearance(Some(dark));
     window.set_background_appearance(match material {
         Material::Clear | Material::Liquid => A::Transparent,
-        // Linux: blur only where the desktop does it; elsewhere Needle paints the glass.
+        // Windows 10's Acrylic, and Linux's blur where the compositor offers it (`material`
+        // falls back to Painted elsewhere).
         Material::Acrylic if !win11 && system_blur() => A::Blurred,
         _ => A::Opaque,
     });
@@ -297,29 +311,43 @@ pub fn liquid_on(cx: &App) -> bool {
     cfg!(target_os = "macos") && super::theme::pal(cx).back.a < 0.01
 }
 
-/// Linux: the desktop can blur what is behind the window. KWin offers this on Wayland
-/// (`org_kde_kwin_blur`, which the patched GPUI asks for with `Blurred`); other desktops show
-/// the window's see-through parts unblurred, so Needle keeps its window solid there and paints
-/// the cover's glow itself.
+/// Linux: what the desktop can do, asked of the compositor when the window first applies
+/// its glass: (blurs what is behind a window, shows see-through parts at all).
+#[cfg(target_os = "linux")]
+static DESKTOP: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+
+/// Linux: ask the compositor, once, whether it blurs (KWin's `org_kde_kwin_blur`, which the
+/// patched GPUI asks for with `Blurred`) and whether it composites see-through windows (always
+/// on Wayland; on X11 only with a compositing manager). Elsewhere nothing to ask.
+pub fn probe_desktop(
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] window: &Window,
+) {
+    #[cfg(target_os = "linux")]
+    DESKTOP.get_or_init(|| {
+        (
+            window.system_blur_available(),
+            window.transparency_available(),
+        )
+    });
+}
+
+/// The desktop blurs what is behind the window. On Linux, only where the compositor said so
+/// (until it is asked, no); Windows and macOS always can.
 pub fn system_blur() -> bool {
     #[cfg(target_os = "linux")]
     {
-        static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *FOUND.get_or_init(|| {
-            let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
-                || std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t == "wayland");
-            let kde = [
-                "XDG_CURRENT_DESKTOP",
-                "XDG_SESSION_DESKTOP",
-                "DESKTOP_SESSION",
-            ]
-            .iter()
-            .any(|key| {
-                std::env::var(key)
-                    .is_ok_and(|v| v.to_ascii_lowercase().contains("kde") || v.contains("plasma"))
-            });
-            wayland && kde
-        })
+        DESKTOP.get().is_some_and(|d| d.0)
+    }
+    #[cfg(not(target_os = "linux"))]
+    true
+}
+
+/// See-through parts of the window show the desktop. On Linux, only with a compositor (else
+/// they would be black); Windows and macOS always.
+pub fn see_through() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        DESKTOP.get().is_some_and(|d| d.1)
     }
     #[cfg(not(target_os = "linux"))]
     true
@@ -351,50 +379,23 @@ pub fn edge_colors(p: &super::theme::Palette) -> (Hsla, Hsla) {
     match (p.dark, p.glass) {
         (true, true) => (white(0.2), white(0.08)),
         (true, false) => (white(0.12), white(0.07)),
-        (false, true) => (white(0.95), gpui::hsla(0., 0., 0., 0.09)),
+        // Light glass panes are a touch grey (`tinted`), so the white line still reads.
+        (false, true) => (white(1.), gpui::hsla(0., 0., 0., 0.09)),
         (false, false) => (white(0.9), gpui::hsla(0., 0., 0., 0.1)),
     }
 }
 
-/// How far a part floats: panes over the page float highest.
-#[derive(Clone, Copy, PartialEq)]
-pub enum Lift {
-    /// A see-through page: the edge light only, no shadow (GPUI would draw it under the page).
-    Flat,
-    /// The page sheet: a faint shadow.
-    Low,
-    /// The sidebar, the side panel, the floating player.
-    Mid,
-    /// Menus, dialogs, the palette, messages.
-    High,
-}
+/// How far a part floats: panes over the page float highest. The toolkit's own popovers use
+/// the same helper, so every glass part shares one edge.
+pub use gpui_component::EdgeLift as Lift;
 
 /// The edge light, for every glass part off the Mac: a faint outline, a 1 px bright line on
-/// the top edge (a shadow one pixel above the part, so it follows the round corners), and a
-/// soft shadow under it. It sets the part's whole shadow list.
+/// the top edge (part of the pane, thinning out along the round corners), and a soft shadow
+/// under it. It sets the part's whole shadow list.
 pub fn edge<E: Styled>(el: E, lift: Lift, cx: &App) -> E {
     let p = super::theme::pal(cx);
     let (top, outline) = edge_colors(&p);
-    let (alpha, y, blur) = match lift {
-        Lift::Flat => (0., 0., 0.),
-        Lift::Low => (if p.dark { 0.22 } else { 0.06 }, 2., 10.),
-        Lift::Mid => (if p.dark { 0.3 } else { 0.1 }, 8., 24.),
-        Lift::High => (if p.dark { 0.42 } else { 0.16 }, 12., 32.),
-    };
-    el.border_1().border_color(outline).shadow(vec![
-        gpui::BoxShadow {
-            color: gpui::hsla(0., 0., 0., alpha),
-            offset: point(px(0.), px(y)),
-            blur_radius: px(blur),
-            spread_radius: px(0.),
-        },
-        gpui::BoxShadow {
-            color: top,
-            offset: point(px(0.), px(-1.)),
-            blur_radius: px(0.),
-            spread_radius: px(0.),
-        },
-    ])
+    gpui_component::glass_edge(el, lift, top, outline, p.dark)
 }
 
 /// A pane's fill off the Mac: the raised surface tinted a little with the music's colour, at
@@ -407,7 +408,10 @@ pub fn tinted(p: &super::theme::Palette, alpha: f32) -> Hsla {
     let base = match (p.dark, p.glass) {
         (true, true) => p.raised,
         (true, false) => mix(p.raised, p.raised_hover, 0.5),
-        (false, _) => gpui::hsla(0., 0., 1., 1.),
+        // Light glass: a touch grey, so the white edge light reads on it and the pane does
+        // not wash out over a pale page (GLASS-POLISH 11).
+        (false, true) => gpui::hsla(0., 0., 0.965, 1.),
+        (false, false) => gpui::hsla(0., 0., 1., 1.),
     };
     let tint = if p.glass { 0.08 } else { 0.035 };
     let floor = if p.dark { 0.8 } else { 0.86 };
@@ -453,6 +457,173 @@ pub fn capsule(p: &super::theme::Palette, hover: bool) -> Hsla {
         (true, true) => gpui::hsla(0., 0., 1., 0.07),
         (false, false) => gpui::hsla(0., 0., 0., 0.08),
         (false, true) => gpui::hsla(0., 0., 0., 0.045),
+    }
+}
+
+/// A row's hover fill on glass, `capsule(p, true)`, or the plain look's raised fill.
+pub fn hover_fill(p: &super::theme::Palette) -> Hsla {
+    if p.glass {
+        capsule(p, true)
+    } else {
+        p.raised_hover
+    }
+}
+
+/// A chosen (or keyboard-marked) row's fill: the glass capsule, or the plain look's raised
+/// fill.
+pub fn active_fill(p: &super::theme::Palette) -> Hsla {
+    if p.glass {
+        capsule(p, false)
+    } else {
+        p.raised_hover
+    }
+}
+
+/// The corners of a row in a pane with 4 px of padding (menus, the palette, lists): the
+/// pane's corners less its padding, so the two curves run side by side.
+pub const ROW_IN_PANE: f32 = MEDIUM - 4.;
+
+/// Give a row its hover fill (`hover_fill`) as a capsule that fades in and out. Use it before
+/// the row's own children, in place of `.hover(|s| s.bg(..))`.
+pub fn hover_row<E: gpui::ParentElement + Styled>(el: E, radius: f32, cx: &App) -> E {
+    let p = super::theme::pal(cx);
+    el.relative()
+        .child(hover_capsule(hover_fill(&p), radius, cx))
+}
+
+/// How long a hover capsule takes to fade in or out.
+const HOVER_MS: f32 = 120.;
+
+/// A row's hover capsule that fades in under the pointer and out when it leaves, instead of
+/// snapping. Put it first in a `relative` row: it fills the row, under its content, with
+/// `radius` corners (a capsule when `radius` is half the row's height or more). It asks for
+/// frames only while it fades; with Reduce motion it shows and goes at once.
+pub fn hover_capsule(color: Hsla, radius: f32, cx: &App) -> HoverCapsule {
+    HoverCapsule {
+        color,
+        radius,
+        fade: super::motion::enabled(cx),
+    }
+}
+
+pub struct HoverCapsule {
+    color: Hsla,
+    radius: f32,
+    fade: bool,
+}
+
+/// Where a hover capsule's fade stands: the way it is going, and from how strong, since when.
+struct HoverFade {
+    hovered: bool,
+    from: f32,
+    since: std::time::Instant,
+}
+
+impl HoverFade {
+    fn strength(&self, fade: bool) -> f32 {
+        let target = if self.hovered { 1. } else { 0. };
+        if !fade {
+            return target;
+        }
+        let t = (self.since.elapsed().as_secs_f32() * 1000. / HOVER_MS).min(1.);
+        self.from + (target - self.from) * super::motion::ease_out(t)
+    }
+}
+
+impl IntoElement for HoverCapsule {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::Element for HoverCapsule {
+    type RequestLayoutState = ();
+    type PrepaintState = gpui::Hitbox;
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        Some("hover-capsule".into())
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, ()) {
+        let mut style = gpui::Style {
+            position: gpui::Position::Absolute,
+            ..Default::default()
+        };
+        style.inset = gpui::Edges::all(px(0.).into());
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        _: &mut App,
+    ) -> gpui::Hitbox {
+        window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal)
+    }
+
+    fn paint(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        _: &mut (),
+        hitbox: &mut gpui::Hitbox,
+        window: &mut Window,
+        _: &mut App,
+    ) {
+        let hovered = hitbox.is_hovered(window);
+        let fade = self.fade;
+        let Some(id) = id else {
+            return;
+        };
+        let strength = window.with_element_state::<HoverFade, _>(id, |state, _| {
+            let mut state = state.unwrap_or(HoverFade {
+                hovered: false,
+                from: 0.,
+                since: std::time::Instant::now(),
+            });
+            if state.hovered != hovered {
+                state = HoverFade {
+                    from: state.strength(fade),
+                    hovered,
+                    since: std::time::Instant::now(),
+                };
+            }
+            (state.strength(fade), state)
+        });
+        let target = if hovered { 1. } else { 0. };
+        if (strength - target).abs() > 0.001 {
+            window.request_animation_frame();
+        }
+        if strength > 0.001 {
+            let radius = self.radius.min(f32::from(bounds.size.height) / 2.);
+            window.paint_quad(
+                gpui::fill(bounds, self.color.opacity(self.color.a * strength))
+                    .corner_radii(px(radius)),
+            );
+        }
+        // Draw again when the pointer comes or goes.
+        let hitbox = hitbox.clone();
+        window.on_mouse_event(move |_: &gpui::MouseMoveEvent, phase, window, _| {
+            if phase == gpui::DispatchPhase::Capture && hitbox.is_hovered(window) != hovered {
+                window.refresh();
+            }
+        });
     }
 }
 

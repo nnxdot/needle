@@ -218,7 +218,7 @@ impl AppView {
             .flex_1()
             .min_w_0()
             .h(px(44.))
-            .rounded(px(10.))
+            .rounded(px(super::glass::MEDIUM))
             .bg(if p.dark {
                 hsla(0., 0., 1., 0.045)
             } else {

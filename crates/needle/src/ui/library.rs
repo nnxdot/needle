@@ -598,19 +598,32 @@ impl AppView {
                 .items_center()
                 .when(on_server, |el| {
                     let p = pal(cx);
+                    // The note gives way to the buttons: it shortens, they never move off.
                     el.child(
                         div()
+                            .flex_shrink()
+                            .min_w_0()
                             .flex()
                             .items_center()
                             .gap_1()
                             .text_size(px(12.))
                             .text_color(p.ink_2)
-                            .child(glyph("server").size(px(12.)).text_color(p.ink_3))
-                            .child("On your music server: changes here are saved there too"),
+                            .child(
+                                glyph("server")
+                                    .flex_shrink_0()
+                                    .size(px(12.))
+                                    .text_color(p.ink_3),
+                            )
+                            .child(
+                                div().min_w_0().truncate().child(
+                                    "On your music server: changes here are saved there too",
+                                ),
+                            ),
                     )
                 })
                 .child(
                     Button::new("export-playlist")
+                        .flex_shrink_0()
                         .small()
                         .ghost()
                         .label("Export M3U8")
@@ -635,11 +648,12 @@ impl AppView {
                 .child(div().flex_1())
                 .child(
                     Button::new("delete-playlist")
+                        .flex_shrink_0()
                         .small()
                         .ghost()
                         .when(self.confirm_delete, |b| b.danger())
                         .label(if self.confirm_delete && on_server {
-                            "Click again to delete it on the server too"
+                            "Delete here and on the server"
                         } else if self.confirm_delete {
                             "Click again to delete"
                         } else {
@@ -647,20 +661,13 @@ impl AppView {
                         })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if this.confirm_delete {
-                                match this.library.delete_playlist(&delete.id) {
-                                    Ok(()) => {
-                                        this.playlists =
-                                            this.library.playlists().unwrap_or_default();
-                                        this.back.clear();
-                                        this.open(Page::Songs, window, cx);
-                                        this.notify(if on_server {
-                                            "Playlist deleted, here and on the server. The songs stay."
-                                        } else {
-                                            "Playlist deleted. Your music files are untouched."
-                                        });
-                                    }
-                                    Err(e) => this.fail(e.to_string()),
-                                }
+                                this.delete_playlist_later(
+                                    delete.id.clone(),
+                                    on_server,
+                                    Page::Songs,
+                                    window,
+                                    cx,
+                                );
                             } else {
                                 this.confirm_delete = true;
                             }
@@ -725,6 +732,11 @@ impl AppView {
             self.skeleton(cx).into_any_element()
         } else if self.page.is_grid() && !self.groups.is_empty() {
             self.grid(width, cx).into_any_element()
+        } else if matches!(&self.page, Page::Playlist(id) if !self.playlists.iter().any(|p| &p.id == id))
+        {
+            // The playlist left the library: the page is about to go (`leave_gone_playlist`).
+            // It is not empty, so it does not say so.
+            div().into_any_element()
         } else if self.tracks.is_empty() {
             let search = self.search_text(cx);
             let (title, detail, steps): (String, String, &[Step]) = match &self.page {
@@ -1447,6 +1459,23 @@ impl AppView {
             .flex_col()
             .child(with_scrollbar(list, &self.grid_scroll))
             .children(self.letter_bar(columns, cx))
+            // Measure the grid on the sheet, so the A–Z bar's letters fit what is really
+            // there; draw again when it changed.
+            .child({
+                let room = self.letter_room.clone();
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, _| {
+                        let height = f32::from(bounds.size.height);
+                        if (room.get() - height).abs() > 0.5 {
+                            room.set(height);
+                            window.request_animation_frame();
+                        }
+                    },
+                )
+                .absolute()
+                .size_full()
+            })
             .into_any_element()
     }
 

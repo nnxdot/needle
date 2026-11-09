@@ -231,8 +231,10 @@ impl AppView {
             (_, side) => side,
         };
         let angle = self.record_angle();
+        // The record turns while the music plays; the Lyrics look lights its words as they
+        // are sung. Neither needs frames otherwise: the line changes come with playback.
         if big_look == "record" && self.playback.playing && self.motion_allowed()
-            || big_look == "lyrics"
+            || big_look == "lyrics" && self.words_lighting()
         {
             window.request_animation_frame();
         }

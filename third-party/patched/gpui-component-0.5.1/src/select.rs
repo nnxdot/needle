@@ -787,7 +787,6 @@ where
         let bounds = self.bounds;
         let allow_open = !(self.open || self.options.disabled);
         let outline_visible = self.open || is_focused && !self.options.disabled;
-        let popup_radius = cx.theme().radius.min(px(8.));
 
         self.list
             .update(cx, |list, cx| list.set_searchable(searchable, cx));
@@ -888,11 +887,10 @@ where
                                     v_flex()
                                         .occlude()
                                         .mt_1p5()
-                                        .bg(cx.theme().background)
-                                        .border_1()
-                                        .border_color(cx.theme().border)
-                                        .rounded(popup_radius)
-                                        .shadow_md()
+                                        // Needle patch: the list is a popover pane, as menus
+                                        // are. The window's background is see-through with
+                                        // glass on.
+                                        .popover_style(cx)
                                         .child(
                                             List::new(&self.list)
                                                 .when_some(

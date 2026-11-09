@@ -74,6 +74,8 @@ impl AppView {
                 )
             })
             .collect();
+        // The Mac's order: Jump back in, New in your library, On repeat, Favorites, then On
+        // this day, then the artists.
         let shelves: Vec<(String, String, Vec<Group>, bool, Page)> = [
             (
                 "Jump back in",
@@ -81,6 +83,13 @@ impl AppView {
                 album_groups(home.recent.clone()),
                 false,
                 Page::History,
+            ),
+            (
+                "New in your library",
+                "Added most recently",
+                album_groups(home.added.clone()),
+                false,
+                Page::Recent,
             ),
             (
                 "On repeat",
@@ -97,13 +106,6 @@ impl AppView {
                 Page::Favorites,
             ),
             (
-                "New in your library",
-                "Added most recently",
-                album_groups(home.added.clone()),
-                false,
-                Page::Recent,
-            ),
-            (
                 "Artists you play most",
                 "",
                 artist_groups(home.artists.clone()),
@@ -117,9 +119,9 @@ impl AppView {
         })
         .enumerate()
         .flat_map(|(i, shelf)| {
-            // On this day comes right after Jump back in.
+            // On this day comes right after Favorites, as on the Mac.
             let mut out = vec![shelf];
-            if i == 0 {
+            if i == 3 {
                 out.extend(days.clone());
             }
             out
@@ -130,6 +132,7 @@ impl AppView {
             .id("home")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
             .pb(px(40.) + self.foot_room())
             .child(
                 div()

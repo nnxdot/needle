@@ -110,13 +110,7 @@ impl AppView {
     fn save_wrapped_playlist(&mut self, cx: &mut Context<Self>) {
         let Some(wrapped) = &self.wrapped else { return };
         // Saving again refreshes the same playlist instead of making another.
-        match self.library.save_year_playlist(wrapped.year) {
-            Ok(playlist) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.notify(format!("Saved “{}”.", playlist.name));
-            }
-            Err(e) => self.fail(e.to_string()),
-        }
+        self.save_year_playlist_later(wrapped.year);
         cx.notify();
     }
 
@@ -447,6 +441,7 @@ impl AppView {
                 .id("wrapped")
                 .size_full()
                 .overflow_y_scroll()
+                .track_scroll(&self.page_scroll)
                 .child(
                     div()
                         .px_8()

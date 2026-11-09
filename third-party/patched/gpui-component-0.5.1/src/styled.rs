@@ -208,27 +208,61 @@ pub fn popover_border(cx: &App) -> Hsla {
     }
 }
 
-/// Needle patch: the shadow of popovers, menus and tooltips, with a 1 px light along the top
-/// edge (a line one pixel above, so it follows the round corners) when the theme has one.
+/// Needle patch: how far a pane of glass floats. Panes over the page float highest.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EdgeLift {
+    /// A see-through page: the edge light only, no shadow (it would show through the page).
+    Flat,
+    /// The page sheet: a faint shadow.
+    Low,
+    /// The sidebar, the side panel, the floating player.
+    Mid,
+    /// Menus, dialogs, the palette, messages, tooltips, dropdown lists.
+    High,
+}
+
+/// Needle patch: the edge of a pane of glass, for every glass part: a faint `outline`, a 1 px
+/// light along the top edge in `light` (drawn as part of the pane, not as a shadow, so it
+/// follows the round corners and nothing shows under a see-through pane), and a soft shadow
+/// for `lift`. It sets the element's whole shadow list. Needle's own panes and the toolkit's
+/// popovers, menus, tooltips and dialogs all use this one helper.
+pub fn glass_edge<E: Styled>(el: E, lift: EdgeLift, light: Hsla, outline: Hsla, dark: bool) -> E {
+    let (alpha, y, blur) = match lift {
+        EdgeLift::Flat => (0., 0., 0.),
+        EdgeLift::Low => (if dark { 0.22 } else { 0.06 }, 2., 10.),
+        EdgeLift::Mid => (if dark { 0.3 } else { 0.1 }, 8., 24.),
+        EdgeLift::High => (if dark { 0.42 } else { 0.16 }, 12., 32.),
+    };
+    let shadow = if alpha > 0. {
+        vec![BoxShadow {
+            color: gpui::hsla(0., 0., 0., alpha),
+            offset: point(px(0.), px(y)),
+            blur_radius: px(blur),
+            spread_radius: px(0.),
+        }]
+    } else {
+        Vec::new()
+    };
+    el.border_1()
+        .border_color(outline)
+        .edge_light(light)
+        .shadow(shadow)
+}
+
+/// Needle patch: the edge and shadow of popovers, menus and tooltips: the glass edge when the
+/// theme has an edge light, else the toolkit's own shadow.
 pub fn popover_shadow<E: Styled>(el: E, cx: &App) -> E {
-    let edge = cx.theme().popover_edge;
-    if edge.a <= 0. {
+    let theme = cx.theme();
+    if theme.popover_edge.a <= 0. {
         return el.shadow_lg();
     }
-    el.shadow(vec![
-        BoxShadow {
-            color: gpui::hsla(0., 0., 0., 0.24),
-            offset: point(px(0.), px(8.)),
-            blur_radius: px(24.),
-            spread_radius: px(0.),
-        },
-        BoxShadow {
-            color: edge,
-            offset: point(px(0.), px(-1.)),
-            blur_radius: px(0.),
-            spread_radius: px(0.),
-        },
-    ])
+    glass_edge(
+        el,
+        EdgeLift::High,
+        theme.popover_edge,
+        popover_border(cx),
+        theme.is_dark(),
+    )
 }
 
 /// A size for elements.

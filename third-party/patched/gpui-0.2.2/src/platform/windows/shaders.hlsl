@@ -878,6 +878,13 @@ float4 shadow_fragment_unmasked(ShadowFragmentInput input) {
     float2 point0 = input.position.xy - center;
     float corner_radius = pick_corner_radius(point0, shadow.corner_radii);
 
+    // Needle patch: a shadow with no blur is a sharp rounded box, as in the Metal shader. The
+    // blur below divides by the blur radius, which gives NaN when it is 0.
+    if (shadow.blur_radius <= 0.) {
+        float distance = quad_sdf(input.position.xy, shadow.bounds, shadow.corner_radii);
+        return input.color * float4(1., 1., 1., saturate(0.5 - distance));
+    }
+
     // The signal is only non-zero in a limited range, so don't waste samples
     float low = point0.y - half_size.y;
     float high = point0.y + half_size.y;

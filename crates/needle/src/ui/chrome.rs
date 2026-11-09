@@ -191,19 +191,15 @@ impl AppView {
                 cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
             );
         }
+        // The rows' corners: capsules on glass, else the small size.
+        let radius = if capsule { 17. } else { super::glass::SMALL };
         div()
             .id(id)
             .flex_shrink_0()
             .h(px(34.))
             .mx_2()
             .px(px(10.))
-            .map(|el| {
-                if capsule {
-                    el.rounded_full()
-                } else {
-                    el.rounded(px(6.))
-                }
-            })
+            .rounded(px(radius))
             .flex()
             .items_center()
             .gap(px(10.))
@@ -220,15 +216,12 @@ impl AppView {
             })
             .when(!active, |el| {
                 // On glass, grey text over a see-through layer loses its edges: use full ink
-                // and a touch more weight there so labels stay crisp.
-                let hover = if capsule {
-                    super::glass::capsule(&p, true)
-                } else {
-                    p.raised.opacity(0.6)
-                };
+                // and a touch more weight there so labels stay crisp. The hover capsule
+                // fades in.
                 el.text_color(if glass { p.ink } else { p.ink_2 })
                     .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
-                    .hover(move |s| s.bg(hover).text_color(p.ink))
+                    .hover(move |s| s.text_color(p.ink))
+                    .map(|el| super::glass::hover_row(el, radius, cx))
             })
             .child(picture.unwrap_or_else(|| {
                 glyph(glyph_name)
@@ -280,14 +273,14 @@ impl AppView {
                 div()
                     .id("add-collection")
                     .size(px(20.))
-                    .rounded(px(5.))
+                    .rounded_full()
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
                     .opacity(0.)
                     .group_hover("collections-head", |s| s.opacity(1.))
-                    .hover(|s| s.bg(p.raised_hover))
+                    .map(|el| super::glass::hover_row(el, 10., cx))
                     .child(glyph("plus").size(px(13.)).text_color(p.ink_2))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new("Add a collection").build(window, cx)
@@ -319,7 +312,10 @@ impl AppView {
         } else {
             width
         };
-        div()
+        // Folding or unfolding (Ctrl+B), it moves from the width it had to the new one.
+        let (fold, from, since) = self.sidebar_fold;
+        self.sidebar_drawn.set(width);
+        let element = div()
             .w(px(width))
             .flex_shrink_0()
             // As a pane it stretches to the row's height, less its margin.
@@ -583,8 +579,18 @@ impl AppView {
                                 .mb_1()
                                 .px(px(10.))
                                 .py_2()
-                                .rounded(px(6.))
-                                .bg(p.raised)
+                                // On glass a soft capsule, as the rows; the pane's corners
+                                // less its inset.
+                                .rounded(px(if p.glass {
+                                    super::glass::LARGE - 8.
+                                } else {
+                                    super::glass::SMALL
+                                }))
+                                .bg(if p.glass {
+                                    super::glass::capsule(&p, false)
+                                } else {
+                                    p.raised
+                                })
                                 .flex()
                                 .items_center()
                                 .gap_2()
@@ -637,14 +643,21 @@ impl AppView {
                                 .h(px(34.))
                                 .mx_2()
                                 .px(px(10.))
-                                .rounded(px(6.))
+                                .rounded(px(if p.glass { 17. } else { super::glass::SMALL }))
                                 .flex()
                                 .items_center()
                                 .gap(px(10.))
                                 .cursor_pointer()
                                 .text_size(px(13.5))
                                 .text_color(p.ink_2)
-                                .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                                .hover(|s| s.text_color(p.ink))
+                                .map(|el| {
+                                    super::glass::hover_row(
+                                        el,
+                                        if p.glass { 17. } else { super::glass::SMALL },
+                                        cx,
+                                    )
+                                })
                                 .child(glyph("folder").size(px(17.)).text_color(p.ink_3))
                                 .child("Add music folder")
                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -667,7 +680,15 @@ impl AppView {
                         Page::Settings,
                         cx,
                     )),
-            )
+            );
+        // Only just after the fold: a sidebar drawn again later (after the big player) does
+        // not move again.
+        if fold == 0 || since.elapsed() > std::time::Duration::from_millis(300) {
+            return element.into_any_element();
+        }
+        super::motion::animate(element, ("sidebar-fold", fold), 220, cx, move |el, t| {
+            el.w(px(from + (width - from) * t))
+        })
     }
 
     pub(super) fn signal_path(&self, cx: &App) -> (String, String, bool) {
@@ -1676,11 +1697,8 @@ impl AppView {
                                 if self.on_glass() {
                                     el.rounded(px(16.)).glass()
                                 } else {
-                                    el.rounded(px(8.)).bg(p.raised.opacity(if p.back.a < 1. {
-                                        0.75
-                                    } else {
-                                        1.
-                                    }))
+                                    el.rounded(px(super::glass::MEDIUM))
+                                        .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
                                 }
                             })
                             .flex()
@@ -1907,16 +1925,27 @@ impl AppView {
                             icon_button("dismiss-toast", "close", "Dismiss")
                                 .xsmall()
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toast = None;
+                                    this.dismiss_toast(cx);
                                     cx.notify();
                                 })),
                         )
-                        .with_animation(
-                            ElementId::Name(format!("toast-{:?}", toast.shown).into()),
-                            Animation::new(std::time::Duration::from_millis(180))
-                                .with_easing(ease_out_quint()),
-                            |el, t| el.opacity(t).mt(px(8. * (1. - t))),
-                        ),
+                        .map(|el| match toast.leaving {
+                            // It fades out where it is.
+                            Some(_) => super::motion::animate(
+                                el,
+                                ElementId::Name(format!("toast-out-{:?}", toast.shown).into()),
+                                super::TOAST_OUT_MS,
+                                cx,
+                                |el, t| el.opacity(1. - t),
+                            ),
+                            None => super::motion::animate(
+                                el,
+                                ElementId::Name(format!("toast-{:?}", toast.shown).into()),
+                                180,
+                                cx,
+                                |el, t| el.opacity(t).mt(px(8. * (1. - t))),
+                            ),
+                        }),
                 ),
         )
     }
@@ -1959,7 +1988,7 @@ fn rail_item(
             el.rounded_full()
                 .when(active, |el| el.bg(super::glass::capsule(&p, false)))
                 .when(!active, |el| {
-                    el.hover(move |s| s.bg(super::glass::capsule(&p, true)))
+                    el.map(|el| super::glass::hover_row(el, 20., cx))
                 })
         })
         .when(!p.glass, |el| {

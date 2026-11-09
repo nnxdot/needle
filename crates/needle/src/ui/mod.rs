@@ -38,6 +38,7 @@ mod player2;
 mod player_tools;
 mod playlist_art;
 mod playlist_editor;
+mod playlist_saves;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
@@ -371,7 +372,15 @@ pub struct Toast {
     text: String,
     error: bool,
     shown: Instant,
+    /// It is fading out, since then; it goes once the fade is over.
+    leaving: Option<Instant>,
 }
+
+/// How long the side panel takes to slide out.
+const PANEL_OUT_MS: u64 = 180;
+
+/// How long a message takes to fade out.
+const TOAST_OUT_MS: u64 = 180;
 
 #[derive(Default)]
 pub struct Selection {
@@ -402,6 +411,8 @@ enum Event {
     /// The sound outputs, listed on another thread (`list_output_devices`).
     OutputDevices(Vec<String>),
     /// The online services' state (`refresh_services`).
+    /// Whether the fanart.tv key in use is the person's own, read with the services' state.
+    FanartOwn(bool),
     Services(
         Box<integrations::ServiceStatus>,
         Option<integrations::ScrobbleSummary>,
@@ -482,6 +493,8 @@ enum Event {
 
 pub struct AppView {
     library: Library,
+    /// Playlist saves, made off this thread one at a time in order (see `playlist_saves`).
+    playlist_saves: playlist_saves::PlaylistSaves,
     player: Player,
     playback: PlaybackState,
     settings: Settings,
@@ -545,6 +558,12 @@ pub struct AppView {
     /// there until the page changes.
     details_here: bool,
     panel_serial: u64,
+    /// The side panel's openings so far, and when the last one was.
+    panel_opened: (u64, Instant),
+    /// The side panel is sliding out (the opening it closes).
+    panel_closing: Option<u64>,
+    /// The last song moved up in the queue, for its rows' slide.
+    queue_move: Option<panel::QueueMove>,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     group_menu: Option<menus::GroupMenu>,
@@ -604,6 +623,13 @@ pub struct AppView {
     list_scroll: UniformListScrollHandle,
     /// How far the header above the list was folded when last drawn, from 0 to 1.
     header_fold: std::cell::Cell<f32>,
+    /// The height of the grid beside the A–Z bar, as last drawn (0 before), so the bar holds
+    /// as many letters as fit on the sheet.
+    letter_room: std::rc::Rc<std::cell::Cell<f32>>,
+    /// The sidebar's folds (Ctrl+B) so far, and the width the last one moves from, since when.
+    sidebar_fold: (u64, f32, Instant),
+    /// The sidebar's width as last drawn.
+    sidebar_drawn: std::cell::Cell<f32>,
     /// The window's content height at the last frame, for parts that must fit it.
     window_height: f32,
     grid_scroll: UniformListScrollHandle,
@@ -692,6 +718,8 @@ pub struct AppView {
     big_tint: (Hsla, Hsla, usize),
     looks: ambient::Looks,
     fade: ambient::Fade,
+    /// The whole-window cover glow, fading from one cover to the next.
+    glow_fade: ambient::GlowFade,
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
     media_keys: Option<media_keys::MediaKeys>,
@@ -727,6 +755,13 @@ pub struct AppView {
     artist_images: std::collections::HashMap<String, Option<String>>,
     artist_view: artist::ArtistView,
     artist_scroll: ScrollHandle,
+    /// The scroll of the pages that keep no handle of their own (Home, Search, Sound, and
+    /// others), so the page's soft top edge knows when it is scrolled. Back to the top on
+    /// each new page.
+    page_scroll: ScrollHandle,
+    /// The open playlist was seen in the library, and whether it is a server's: if it then
+    /// goes, its page is left (`leave_gone_playlist`).
+    playlist_seen: Option<bool>,
     /// Where each Home row is scrolled to, for its arrows.
     shelf_scrolls: Vec<ScrollHandle>,
     recent: Vec<Listen>,
@@ -766,6 +801,9 @@ pub struct AppView {
     search_focused: bool,
     groups: Vec<library::Group>,
     service_status: Option<integrations::ServiceStatus>,
+    /// The fanart.tv key in use is the person's own (Settings › Artwork and lyrics).
+    fanart_own: bool,
+    fanart_key: Entity<InputState>,
     scrobble_summary: Option<integrations::ScrobbleSummary>,
     /// Settings › Scrobbling › Details: why listens did not reach that service.
     scrobble_problems: Option<(&'static str, integrations::ScrobbleProblems)>,
@@ -1238,6 +1276,7 @@ impl AppView {
             genre_view: 0,
             genre_by_plays: false,
             genre_art: None,
+            playlist_saves: playlist_saves::PlaylistSaves::new(library.clone()),
             library,
             player,
             playback,
@@ -1252,6 +1291,9 @@ impl AppView {
             panel_shown: None,
             details_here: false,
             panel_serial: 0,
+            panel_opened: (0, Instant::now()),
+            panel_closing: None,
+            queue_move: None,
             menu: None,
             playlist_menu: None,
             group_menu: None,
@@ -1306,6 +1348,9 @@ impl AppView {
             focus,
             list_scroll: UniformListScrollHandle::new(),
             header_fold: std::cell::Cell::new(0.),
+            letter_room: Default::default(),
+            sidebar_fold: (0, 0., Instant::now()),
+            sidebar_drawn: std::cell::Cell::new(0.),
             window_height: 800.,
             grid_scroll: UniformListScrollHandle::new(),
             scroll_memory: Default::default(),
@@ -1364,6 +1409,7 @@ impl AppView {
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
+            glow_fade: ambient::GlowFade::default(),
             grain_file: None,
             media_keys,
             hotkeys: Some(hotkeys),
@@ -1387,6 +1433,8 @@ impl AppView {
             artist_images: Default::default(),
             artist_view: Default::default(),
             artist_scroll: ScrollHandle::new(),
+            page_scroll: ScrollHandle::new(),
+            playlist_seen: None,
             // One for each of Home's rows (it has five at most).
             shelf_scrolls: (0..5).map(|_| ScrollHandle::new()).collect(),
             recent: vec![],
@@ -1406,6 +1454,8 @@ impl AppView {
             search_focused: false,
             groups: vec![],
             service_status: None,
+            fanart_own: false,
+            fanart_key: secret("fanart.tv key", window, cx),
             scrobble_summary: None,
             scrobble_problems: None,
             service_busy: false,
@@ -1481,7 +1531,8 @@ impl AppView {
                     .await;
                 match view.update_in(cx, |view, window, cx| {
                     view.poll(window, cx);
-                    view.playback.playing && motion::enabled(cx)
+                    // Quick while playing (the seek bar glides) and while playlist saves wait.
+                    view.playback.playing && motion::enabled(cx) || view.playlist_saves.pending()
                 }) {
                     Ok(fast) => every = if fast { 40 } else { 150 },
                     Err(_) => break,
@@ -1508,13 +1559,23 @@ impl AppView {
             text: text.into(),
             error: false,
             shown: Instant::now(),
+            leaving: None,
         });
+    }
+    /// Let the message go: it fades out (at once with Reduce motion).
+    fn dismiss_toast(&mut self, cx: &App) {
+        if !motion::enabled(cx) {
+            self.toast = None;
+        } else if let Some(toast) = &mut self.toast {
+            toast.leaving.get_or_insert_with(Instant::now);
+        }
     }
     fn fail(&mut self, text: impl Into<String>) {
         self.toast = Some(Toast {
             text: without_repeats(&text.into()),
             error: true,
             shown: Instant::now(),
+            leaving: None,
         });
     }
 
@@ -1526,6 +1587,7 @@ impl AppView {
             let status = integrations::secret_status();
             let summary = integrations::scrobble_summary(&library).ok();
             let _ = sender.send(Event::Services(Box::new(status), summary));
+            let _ = sender.send(Event::FanartOwn(integrations::fanart_key_is_own()));
         });
     }
 
@@ -1543,6 +1605,11 @@ impl AppView {
     }
     fn toggle_sidebar(&mut self) {
         self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
+        self.sidebar_fold = (
+            self.sidebar_fold.0 + 1,
+            self.sidebar_drawn.get(),
+            Instant::now(),
+        );
         self.persist_settings();
     }
     fn persist_settings(&mut self) {
@@ -1648,8 +1715,17 @@ impl AppView {
         }
         if let Some(toast) = &self.toast {
             let life = if toast.error { 14 } else { 6 };
-            if toast.shown.elapsed() > Duration::from_secs(life) {
-                self.toast = None;
+            match toast.leaving {
+                Some(at) if at.elapsed() > Duration::from_millis(TOAST_OUT_MS + 20) => {
+                    self.toast = None;
+                    events = true;
+                }
+                Some(_) => {}
+                None if toast.shown.elapsed() > Duration::from_secs(life) => {
+                    self.dismiss_toast(cx);
+                    events = true;
+                }
+                None => {}
             }
         }
         while let Ok(event) = self.events.try_recv() {
@@ -1774,6 +1850,7 @@ impl AppView {
                 Event::Update(result, asked) => self.update_checked(result, asked),
                 Event::UpdateStarted(result) => self.update_started(result, cx),
                 Event::OutputDevices(devices) => self.output_devices = devices,
+                Event::FanartOwn(own) => self.fanart_own = own,
                 Event::Services(status, summary) => {
                     self.service_status = Some(*status);
                     self.scrobble_summary = summary;
@@ -2022,6 +2099,12 @@ impl AppView {
             }
         }
         self.follow_playlist_art();
+        if self.drain_playlist_saves(window, cx) {
+            events = true;
+        }
+        if self.leave_gone_playlist(window, cx) {
+            events = true;
+        }
         // Slow loops on screen (bouncing bars, the full screen drift) move on this timer.
         if motion::take_slow_loops() {
             events = true;
@@ -2236,6 +2319,37 @@ impl AppView {
         }
         self.open(page, window, cx);
     }
+    /// The open playlist left the library (a sync removed it, or its source signed out):
+    /// leave its page, Back (past any other page of it) or Home, with a short notice, rather
+    /// than call it empty. Returns whether it left.
+    fn leave_gone_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Page::Playlist(id) = &self.page else {
+            self.playlist_seen = None;
+            return false;
+        };
+        if let Some(found) = self.playlists.iter().find(|p| &p.id == id) {
+            self.playlist_seen = Some(found.server.is_some());
+            return false;
+        }
+        // Not seen on this page yet (it may still be on its way in): nothing to leave.
+        let Some(server) = self.playlist_seen.take() else {
+            return false;
+        };
+        let gone = Page::Playlist(id.clone());
+        self.back.retain(|page| *page != gone);
+        if self.back.is_empty() {
+            self.open(Page::Home, window, cx);
+        } else {
+            self.go_back(window, cx);
+        }
+        self.forward.retain(|page| *page != gone);
+        self.notify(if server {
+            "That playlist is no longer on your music server."
+        } else {
+            "That playlist is no longer in your library."
+        });
+        true
+    }
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(page) = self.back.pop() {
             self.remember_scroll();
@@ -2268,6 +2382,7 @@ impl AppView {
         self.details_here = false;
         self.page = page;
         self.page_serial += 1;
+        self.page_scroll.set_offset(point(px(0.), px(0.)));
         self.pending_scroll = None;
         self.scroll_on_load = true;
         self.confirm_delete = false;
@@ -2744,21 +2859,29 @@ impl AppView {
         let count = new.len();
         playlist.track_ids.extend(new);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist_changes(&opened, &playlist) {
-            Ok(_) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.notify(format!(
-                    "Added {} to “{}”.",
-                    if count == 1 {
-                        "1 track".to_string()
-                    } else {
-                        format!("{count} tracks")
-                    },
-                    playlist.name
-                ));
-            }
-            Err(e) => self.fail(e.to_string()),
-        }
+        let (old, name) = (playlist.id.clone(), playlist.name.clone());
+        self.save_playlist_later(
+            Some(opened),
+            playlist,
+            move |this, saved, window, cx| match saved {
+                Ok(id) => {
+                    this.notify(format!(
+                        "Added {} to “{name}”.",
+                        if count == 1 {
+                            "1 track".to_string()
+                        } else {
+                            format!("{count} tracks")
+                        },
+                    ));
+                    this.follow_saved_playlist(&old, &id, window, cx);
+                    this.refresh(cx);
+                }
+                Err(e) => {
+                    this.fail(e);
+                    this.refresh(cx);
+                }
+            },
+        );
     }
 
     /// The playlist of picked songs this page shows, when its own order is shown (no search,
@@ -2819,13 +2942,18 @@ impl AppView {
             .unwrap_or(playlist.track_ids.len());
         playlist.track_ids.splice(at..at, ids);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist_changes(opened, &playlist) {
-            Ok(_) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.refresh(cx);
-            }
-            Err(e) => self.fail(e.to_string()),
-        }
+        let old = playlist.id.clone();
+        self.save_playlist_later(
+            Some(opened.clone()),
+            playlist,
+            move |this, saved, window, cx| {
+                match saved {
+                    Ok(id) => this.follow_saved_playlist(&old, &id, window, cx),
+                    Err(e) => this.fail(e),
+                }
+                this.refresh(cx);
+            },
+        );
         cx.notify();
     }
 
@@ -2842,23 +2970,25 @@ impl AppView {
         playlist.track_ids.retain(|id| !ids.contains(id));
         let removed = before - playlist.track_ids.len();
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist_changes(&opened, &playlist) {
-            Ok(_) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.selection = Selection::default();
-                self.notify(format!(
-                    "Took {} out of “{}”.",
-                    if removed == 1 {
-                        "1 song".to_string()
-                    } else {
-                        format!("{removed} songs")
-                    },
-                    playlist.name
-                ));
-                self.refresh(cx);
+        let (old, name) = (playlist.id.clone(), playlist.name.clone());
+        self.selection = Selection::default();
+        self.save_playlist_later(Some(opened), playlist, move |this, saved, window, cx| {
+            match saved {
+                Ok(id) => {
+                    this.notify(format!(
+                        "Took {} out of “{name}”.",
+                        if removed == 1 {
+                            "1 song".to_string()
+                        } else {
+                            format!("{removed} songs")
+                        },
+                    ));
+                    this.follow_saved_playlist(&old, &id, window, cx);
+                }
+                Err(e) => this.fail(e),
             }
-            Err(e) => self.fail(e.to_string()),
-        }
+            this.refresh(cx);
+        });
         cx.notify();
     }
 
@@ -3265,6 +3395,30 @@ impl Render for AppView {
             && (self.page.is_tracks() || self.panel != Panel::Details || self.details_here);
         let shown = show_panel.then_some(self.panel);
         if shown != self.panel_shown {
+            // Opening, the pane slides in; closing, it slides out over the page, then goes.
+            match (self.panel_shown, shown) {
+                (None, Some(_)) => {
+                    self.panel_opened = (self.panel_opened.0 + 1, Instant::now());
+                    self.panel_closing = None;
+                }
+                (Some(_), None) if motion::enabled(cx) => {
+                    let serial = self.panel_opened.0;
+                    self.panel_closing = Some(serial);
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(PANEL_OUT_MS + 20))
+                            .await;
+                        let _ = this.update(cx, |this, cx| {
+                            if this.panel_closing == Some(serial) {
+                                this.panel_closing = None;
+                                cx.notify();
+                            }
+                        });
+                    })
+                    .detach();
+                }
+                _ => {}
+            }
             self.panel_shown = shown;
             if shown.is_some() {
                 self.panel_serial += 1;
@@ -3289,7 +3443,7 @@ impl Render for AppView {
             self.page_backdrop(cx)
         };
         let grain = self.grain(window, cx);
-        let ambient_layer = self.ambient_layer(cx);
+        let ambient_layer = self.ambient_layer(window, cx);
         self.glide_lyrics(window, cx);
         if self.big != self.big_was {
             self.big_was = self.big;
@@ -3724,20 +3878,24 @@ impl Render for AppView {
                                                         .pb(px(PAGE_INSET))
                                                 })
                                                 .child(sheet)
-                                                .when(show_panel, |el| {
-                                                    el.child(
-                                                        div()
-                                                            .absolute()
-                                                            .top(px(6. + inset))
-                                                            .right(px(10. + inset))
-                                                            .bottom(px(10. + inset))
-                                                            .child(self.panel(
-                                                                panel_width,
-                                                                window,
-                                                                cx,
-                                                            )),
-                                                    )
-                                                })
+                                                .when(
+                                                    show_panel || self.panel_closing.is_some(),
+                                                    |el| {
+                                                        el.child(
+                                                            div()
+                                                                .absolute()
+                                                                .top(px(6. + inset))
+                                                                .right(px(10. + inset))
+                                                                .bottom(px(10. + inset))
+                                                                .child(self.panel_pane(
+                                                                    panel_width,
+                                                                    show_panel,
+                                                                    window,
+                                                                    cx,
+                                                                )),
+                                                        )
+                                                    },
+                                                )
                                                 .children(over.map(|player| {
                                                     div()
                                                         .absolute()
@@ -3793,7 +3951,12 @@ impl Render for AppView {
                                                         })),
                                                 )
                                                 .when(show_panel, |el| {
-                                                    el.child(self.panel(panel_width, window, cx))
+                                                    el.child(self.panel_pane(
+                                                        panel_width,
+                                                        true,
+                                                        window,
+                                                        cx,
+                                                    ))
                                                 }),
                                         )
                                         .children(below),

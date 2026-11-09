@@ -24,6 +24,33 @@ impl AppView {
         }
     }
 
+    /// The sung line lights word by word now (timed words, music playing, the line not yet
+    /// over): only then does the Lyrics look draw every frame.
+    pub(super) fn words_lighting(&self) -> bool {
+        let Some((id, Some(lyrics))) = &self.lyrics else {
+            return false;
+        };
+        if !self.playback.playing
+            || self
+                .playback
+                .current
+                .as_ref()
+                .is_none_or(|c| &c.track.id != id)
+        {
+            return false;
+        }
+        let Some(line) = self
+            .lyric_line
+            .and_then(|i| lyrics.lines.get(i).map(|l| (i, l)))
+        else {
+            return false;
+        };
+        let (i, line) = line;
+        let end = lyrics.lines.get(i + 1).map_or(line.time + 6., |l| l.time);
+        let position = self.playback.position + 0.1;
+        !line.words.is_empty() && position < end && line.word_at(position, end).is_some()
+    }
+
     pub(super) fn motion_allowed(&self) -> bool {
         !self.settings.reduce_motion && super::motion::system_allows_animation()
     }
