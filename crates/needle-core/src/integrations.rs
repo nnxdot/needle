@@ -674,6 +674,38 @@ pub fn lastfm_complete(pending: &LastfmPending) -> Result<String> {
     lastfm_save(pending, answer)
 }
 
+/// [`lastfm_complete`] for the sign-in an app keeps waiting in `waiting` (its one slot). The
+/// slot is read, not emptied, while Last.fm answers: a TV asks every few seconds, and a new
+/// sign-in may begin meanwhile. The answer is saved only while it is still the sign-in
+/// waiting, with the slot locked: after Cancel (the slot emptied) or a newer sign-in, nothing
+/// is saved. Until the person approves Needle, the error is
+/// [`ServiceError::NotYetAuthorized`] (see [`is_not_yet_authorized`]).
+pub fn lastfm_finish_waiting(waiting: &Mutex<Option<LastfmPending>>) -> Result<String> {
+    finish_waiting(waiting, lastfm_exchange, lastfm_save)
+}
+
+fn finish_waiting(
+    waiting: &Mutex<Option<LastfmPending>>,
+    exchange: impl FnOnce(&LastfmPending) -> Result<Value>,
+    save: impl FnOnce(&LastfmPending, Value) -> Result<String>,
+) -> Result<String> {
+    let pending = waiting
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .context("Start signing in to Last.fm first")?;
+    let answer = exchange(&pending)?;
+    let mut now = waiting.lock().unwrap_or_else(|e| e.into_inner());
+    match now.as_ref() {
+        None => bail!("Signing in to Last.fm was cancelled"),
+        Some(p) if p.token != pending.token => bail!("A newer sign-in to Last.fm has begun"),
+        Some(_) => {}
+    }
+    let user = save(&pending, answer)?;
+    *now = None;
+    Ok(user)
+}
+
 /// The first half of [`lastfm_complete`]: Last.fm's answer for an allowed token (its session),
 /// not saved yet. An app that can start a new sign-in meanwhile checks that this one is still
 /// the current one before [`lastfm_save`].
@@ -1275,6 +1307,61 @@ mod tests {
             signed(fields, "s3cret")["api_sig"],
             "23b39928ad1ac1db9c502baf51996fc4"
         );
+    }
+
+    #[test]
+    fn a_lastfm_sign_in_cancelled_or_replaced_meanwhile_saves_nothing() {
+        let pending = |token: &str| LastfmPending {
+            token: token.into(),
+            auth_url: String::new(),
+            api_key: "k".into(),
+            secret: "s".into(),
+        };
+        let waiting = Mutex::new(Some(pending("one")));
+        let saved = std::cell::Cell::new(0);
+        // Cancel pressed while Last.fm answers.
+        let result = finish_waiting(
+            &waiting,
+            |_| {
+                *waiting.lock().unwrap() = None;
+                Ok(json!({}))
+            },
+            |_, _| {
+                saved.set(saved.get() + 1);
+                Ok("me".into())
+            },
+        );
+        assert!(result.is_err());
+        // A newer sign-in begun while Last.fm answers.
+        *waiting.lock().unwrap() = Some(pending("one"));
+        let result = finish_waiting(
+            &waiting,
+            |_| {
+                *waiting.lock().unwrap() = Some(pending("two"));
+                Ok(json!({}))
+            },
+            |_, _| {
+                saved.set(saved.get() + 1);
+                Ok("me".into())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(waiting.lock().unwrap().as_ref().unwrap().token, "two");
+        assert_eq!(saved.get(), 0);
+        // Still the one waiting: saved, and the slot is empty.
+        let result = finish_waiting(
+            &waiting,
+            |_| Ok(json!({})),
+            |_, _| {
+                saved.set(saved.get() + 1);
+                Ok("me".into())
+            },
+        );
+        assert_eq!(result.unwrap(), "me");
+        assert_eq!(saved.get(), 1);
+        assert!(waiting.lock().unwrap().is_none());
+        // Nothing waiting.
+        assert!(finish_waiting(&waiting, |_| Ok(json!({})), |_, _| Ok("me".into())).is_err());
     }
 
     #[test]

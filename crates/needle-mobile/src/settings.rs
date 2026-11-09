@@ -490,11 +490,9 @@ impl Needle {
     /// Why listens did not reach `service` ("lastfm" or "listenbrainz"), as JSON: `reasons`
     /// (`error`, `listens`, `failed`, `latest`) and the latest 20 listens held back (`title`,
     /// `artist`, `played`, `error`, `failed`, `attempts`).
-    pub fn scrobble_problems_json(&self, service: String) -> String {
-        needle_core::integrations::scrobble_problems(&self.library, &service, 20)
-            .ok()
-            .and_then(|p| serde_json::to_string(&p).ok())
-            .unwrap_or_else(|| "{\"reasons\":[],\"recent\":[]}".into())
+    pub fn scrobble_problems_json(&self, service: String) -> Result<String> {
+        let problems = needle_core::integrations::scrobble_problems(&self.library, &service, 20)?;
+        serde_json::to_string(&problems).map_err(|e| NeedleError::Failed(e.to_string()))
     }
 
     /// A QR code of `text` for a screen to show: on a TV, Last.fm's sign-in page, opened on a
@@ -511,27 +509,8 @@ impl Needle {
 
     /// Finishes signing in to Last.fm once the listener allowed Needle in the browser.
     pub fn lastfm_complete(&self) -> Result<String> {
-        // Read, not taken out: a TV asks every few seconds while a new code may be made, and
-        // putting an old one back after a slow answer replaced the new one.
-        let pending = PENDING
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or_else(|| NeedleError::Failed("Start signing in to Last.fm first".into()))?;
-        let answer = integrations::lastfm_exchange(&pending)?;
-        let user = {
-            // Saved only while it is still the sign-in waiting (a newer one may have begun during
-            // the slow answer), with the lock held so none begins while it is saved.
-            let mut waiting = PENDING.lock().unwrap();
-            if !waiting.as_ref().is_some_and(|p| p.token == pending.token) {
-                return Err(NeedleError::Failed(
-                    "A newer sign-in to Last.fm has begun".into(),
-                ));
-            }
-            let user = integrations::lastfm_save(&pending, answer)?;
-            *waiting = None;
-            user
-        };
+        // Saved only while it is still the sign-in waiting (not cancelled, no newer one).
+        let user = integrations::lastfm_finish_waiting(&PENDING)?;
         self.set_scrobbling(Some(true), None)?;
         Ok(user)
     }

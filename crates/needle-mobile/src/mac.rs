@@ -1759,15 +1759,10 @@ impl Needle {
 
     /// Finishes signing in to Last.fm once it is approved in the browser. Returns the user.
     pub fn lastfm_continue(&self) -> Result<String> {
-        let pending = DESK
-            .lastfm
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or_else(|| failed("Sign in to Last.fm again."))?;
-        match integrations::lastfm_complete(&pending) {
+        // Saved only while it is still the sign-in waiting: Cancel during the slow answer, or a
+        // newer sign-in, saves nothing (the phones' rule).
+        match integrations::lastfm_finish_waiting(&DESK.lastfm) {
             Ok(user) => {
-                *DESK.lastfm.lock().unwrap() = None;
                 self.save_settings_with(|s| s.lastfm_enabled = true)?;
                 DESK.discord_refresh.store(true, Ordering::SeqCst);
                 Ok(user)
