@@ -330,6 +330,15 @@ extension Store {
 
 }
 
+/// Needle's three corner sizes, always continuous: `small` for chips, fields, rows, and small
+/// buttons; `medium` for cards and boxes on a page and small windows; `large` for the panes
+/// that float (the side panel, the palette). Covers keep their own (6 to 8, 12 in the player).
+enum Radius {
+    static let small: CGFloat = 8
+    static let medium: CGFloat = 14
+    static let large: CGFloat = 22
+}
+
 /// How much of the page's right side the open side panel covers: pages that run a picture on
 /// under its glass keep their words this far from the edge.
 private struct PanelInset: EnvironmentKey {

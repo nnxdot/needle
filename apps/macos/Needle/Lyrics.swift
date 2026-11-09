@@ -229,7 +229,7 @@ struct SungLine: View {
     let center: Bool
 
     var body: some View {
-        let position = (store.playback?.position ?? 0) + 0.15
+        let position = store.playhead.position + 0.15
         var text = AttributedString()
         for (i, w) in line.words.enumerated() {
             let end = i + 1 < line.words.count ? line.words[i + 1].time : (next ?? w.time + 0.6)
@@ -331,7 +331,7 @@ struct TimingPage: View {
 
     private var list: some View {
         let colors = store.colors
-        let position = playingThis ? store.playback?.position : nil
+        let position = playingThis ? store.playhead.position : nil
         return ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
@@ -468,7 +468,7 @@ struct TimingPage: View {
 
     private func tap() {
         guard let timer, playingThis, next.line < lines.count else { return }
-        timer.tap(position: store.playback?.position ?? 0)
+        timer.tap(position: store.playhead.position)
         changed()
     }
 

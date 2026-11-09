@@ -121,7 +121,7 @@ struct SongTable: View {
         }
     }
 
-    private var playing: String? { store.playback?.current }
+    private var playing: String? { store.playingID }
 
     private var colors: Palette { store.colors }
 
@@ -316,7 +316,7 @@ struct NumberCell: View {
         let label = trackNumbers && row.number > 0 ? String(row.number) : (row.index + 1).formatted()
         ZStack(alignment: .trailing) {
             if playing {
-                Equalizer(color: store.colors.accent, playing: store.playback?.playing == true).frame(width: 14, height: 12)
+                Equalizer(color: store.colors.accent, playing: store.isPlaying).frame(width: 14, height: 12)
             } else {
                 Text(label).foregroundStyle(store.colors.ink3).monospacedDigit()
             }
@@ -376,17 +376,20 @@ struct Stars: View {
     }
 }
 
-/// Bouncing bars for the song playing.
+/// Bouncing bars for the song playing: still bars while paused, with Reduce motion, and while
+/// the window cannot be seen.
 struct Equalizer: View {
     let color: Color
     let playing: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 12, paused: !playing)) { context in
+        let store = Store.shared
+        let moving = playing && store.motion && store.mainVisible
+        TimelineView(.animation(minimumInterval: 1 / 12, paused: !moving)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             HStack(alignment: .bottom, spacing: 2) {
                 ForEach(0..<3, id: \.self) { i in
-                    let level = playing ? 0.35 + 0.65 * abs(sin(t * (3.1 + Double(i) * 1.7) + Double(i))) : 0.3
+                    let level = moving ? 0.35 + 0.65 * abs(sin(t * (3.1 + Double(i) * 1.7) + Double(i))) : playing ? [0.55, 0.9, 0.7][i] : 0.3
                     Capsule().fill(color).frame(width: 3).frame(height: 12 * level)
                 }
             }

@@ -153,7 +153,7 @@ enum TestRenders {
         for second in 1...10 {
             try? await Task.sleep(for: .seconds(1))
             guard let p = store.playback else { lines.append("\(second): no playback"); continue }
-            lines.append("\(second): “\(p.title)” \(p.format) playing \(p.playing) at \(String(format: "%.1f", p.position)) s, volume \(p.volume), output \(p.output) (\(p.outputDevice ?? "default"), \(p.outputRate) Hz), loading \(p.loading), error \(p.error ?? "none"), notice \(p.outputNotice ?? "none")")
+            lines.append("\(second): “\(p.title)” \(p.format) playing \(p.playing) at \(String(format: "%.1f", store.playhead.position)) s, volume \(p.volume), output \(p.output) (\(p.outputDevice ?? "default"), \(p.outputRate) Hz), loading \(p.loading), error \(p.error ?? "none"), notice \(p.outputNotice ?? "none")")
             write()
         }
         lines.append("done")
@@ -165,7 +165,7 @@ enum TestRenders {
         func pause() async { try? await Task.sleep(for: .milliseconds(1500)) }
         let song = {
             guard let p = store.playback else { return "no playback" }
-            return "“\(p.title)” playing \(p.playing) at \(Int(p.position)) s, \(p.queue) up next"
+            return "“\(p.title)” playing \(p.playing) at \(Int(store.playhead.position)) s, \(p.queue) up next"
         }
         let shuffled = { String(store.playback?.shuffle ?? false) }
         try? await Task.sleep(for: .seconds(6))

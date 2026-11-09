@@ -36,7 +36,7 @@ struct BigPlayer: View {
                                    animated: store.settings.animatedCovers && store.motion,
                                    alone: !(wide && (!store.immersive || immersiveSide != nil)))
                 } else if let p, p.hasSong {
-                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion)
+                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion && store.isPlaying)
                 } else {
                     store.colors.glow.opacity(0.3)
                 }

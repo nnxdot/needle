@@ -28,7 +28,19 @@ final class Store {
     private(set) var textFont = "system"
     /// Song rows in the compact height.
     private(set) var compactRows = false
+    /// What plays and how. It changes only when something other than the place in the song
+    /// does (the song, play or pause, repeat, the volume, the loop, the queue): its `position`
+    /// is where the song was then. The moving place is `playhead.position`, which only the seek
+    /// bars, the clocks, and the line being sung read, so the rest of the window does not
+    /// redraw ten times a second.
     private(set) var playback: MacPlayback?
+    /// Where the song is now, ten times a second while it plays.
+    @ObservationIgnored let playhead = Playhead()
+    /// The song playing, by id: song rows read this, which changes only with the song.
+    private(set) var playingID: String?
+    /// The main window shows on screen (not minimised, hidden, or covered): moving things rest
+    /// while it does not.
+    private(set) var mainVisible = true
     /// The song playing, with every field.
     private(set) var current: Track?
     /// The songs up next (the first few hundred), read again whenever the queue changes.
@@ -181,8 +193,14 @@ final class Store {
         reloadThemes()
         nowPlaying.start(self)
         if settings.welcomed { sendCrashReports() }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        schedule(Self.fast)
+        // A window shown, hidden, or covered: the pace of the timer, and whether moving
+        // things move, follow at once.
+        NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowsChanged() }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didUnhideNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowsChanged() }
         }
         maybeWelcome()
         #if DEBUG
@@ -213,13 +231,49 @@ final class Store {
 
     // MARK: - Following the core
 
+    /// Ten times a second while music plays or a window shows; once a second while nothing
+    /// plays and no window of Needle's can be seen (closed, minimised, hidden, or covered).
+    private static let fast: TimeInterval = 0.1
+    private static let slow: TimeInterval = 1
+
+    private func schedule(_ interval: TimeInterval) {
+        timer?.invalidate()
+        timerInterval = interval
+        let next = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        next.tolerance = interval * 0.2
+        RunLoop.main.add(next, forMode: .common)
+        timer = next
+    }
+
+    @ObservationIgnored private var timerInterval: TimeInterval = 0
+
+    /// The timer's pace for what plays and what shows now.
+    private func pace() {
+        let seen = NSApp?.windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) && !($0 is NSPanel) } ?? true
+        let wanted = isPlaying || seen ? Self.fast : Self.slow
+        if wanted != timerInterval { schedule(wanted) }
+    }
+
+    private func windowsChanged() {
+        let main = NSApp?.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }
+        let visible = main.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
+        if visible != mainVisible { mainVisible = visible }
+        pace()
+    }
+
     private func tick() {
         ticks += 1
         let now = core.macPlayback()
         // Slower while nothing plays: four times a second is plenty.
-        if now.playing || ticks % 3 == 0 || now != playback { follow(now) }
+        let slow = timerInterval >= Self.slow
+        if now.playing || slow || ticks % 3 == 0 || now != playback { follow(now) }
         followSleep()
-        guard ticks % 5 == 0 else { return }
+        // Music started while slow (a media key): fast at once. Otherwise once a second (a
+        // window closed sends no notice).
+        if (now.playing && slow) || ticks % 10 == 0 { pace() }
+        guard slow || ticks % 5 == 0 else { return }
         let pace = core.speedAndPitch()
         if pace != tempo { tempo = pace }
         let status = core.scanStatus()
@@ -334,7 +388,11 @@ final class Store {
 
     private func follow(_ now: MacPlayback) {
         let before = playback
-        playback = now
+        if now.position != playhead.position { playhead.position = now.position }
+        // Only a change other than the place in the song tells the views reading `playback`.
+        let moved = before.map { var same = $0; same.position = now.position; return same != now } ?? true
+        if moved { playback = now }
+        if now.current != playingID { playingID = now.current }
         if now.playing != isPlaying { isPlaying = now.playing }
         // A point A set on the last song is not this one's.
         if now.current != before?.current, loopStart != nil { loopStart = nil }
@@ -409,6 +467,8 @@ final class Store {
         libraryTask = Task {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
+            // A cover may have been saved again at its path (a cover fetched, one chosen).
+            Covers.forgetStamps()
             libraryVersion += 1
             reloadPlaylists()
             if let id = playback?.current { current = JSON.decode(Track.self, (try? core.trackJson(id: id)) ?? nil) }
@@ -890,7 +950,7 @@ final class Store {
 
     func seekBy(_ seconds: Double) {
         guard let p = playback, p.current != nil else { return }
-        seek(min(max(0, p.position + seconds), max(0, p.duration - 1)))
+        seek(min(max(0, playhead.position + seconds), max(0, p.duration - 1)))
     }
 
     func setVolume(_ value: Float, fromMute: Bool = false) {
@@ -935,7 +995,7 @@ final class Store {
             core.setLoop(start: nil, end: nil)
         } else if let a = loopStart {
             loopStart = nil
-            let b = p.position
+            let b = playhead.position
             if b > a + 0.5 {
                 core.setLoop(start: a, end: b)
                 notify("Looping \(clock(a)) – \(clock(b))")
@@ -943,8 +1003,8 @@ final class Store {
                 fail("Point B must come after point A.")
             }
         } else {
-            loopStart = p.position
-            notify("Point A set at \(clock(p.position)). Click the loop button again at point B.")
+            loopStart = playhead.position
+            notify("Point A set at \(clock(loopStart ?? 0)). Click the loop button again at point B.")
         }
     }
 
@@ -1238,4 +1298,12 @@ final class Latest<Value>: @unchecked Sendable {
         defer { value = nil; lock.unlock() }
         return value
     }
+}
+
+/// Where the song playing is, in its own seconds: the one value that changes ten times a
+/// second, kept apart from `Store` so only the views that show it (seek bars, clocks, the line
+/// being sung) redraw with it.
+@MainActor @Observable
+final class Playhead {
+    var position: Double = 0
 }

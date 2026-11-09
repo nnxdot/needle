@@ -8,7 +8,7 @@ import SwiftUI
 @Observable
 final class PictureChanges {
     nonisolated(unsafe) static let shared = PictureChanges()
-    var count = 0
+    var count = 0 { didSet { Covers.forgetStamps() } }
 }
 
 /// Covers, read from their files away from the window, made small for the size they show at,
@@ -22,11 +22,46 @@ enum Covers {
 
     /// The picture's path with its file's change time. An artist's own photo, wide picture,
     /// and logo are saved again at the same path when another is chosen: with the time in the
-    /// key, the new one is read, never the old one from a cache.
+    /// key, the new one is read, never the old one from a cache. The time is read from the disk
+    /// once per path (views ask at each redraw, and a sleeping drive made that slow), and again
+    /// after `forgetStamps` (a picture chosen, or the library changed).
     nonisolated static func stamp(_ path: String) -> String {
-        guard !path.hasPrefix("http://"), !path.hasPrefix("https://"),
-              let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return path }
-        return "\(path)#\(date.timeIntervalSince1970)"
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://") else { return path }
+        if let known = stamps.get(path) { return known }
+        let stamp = ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date)
+            .map { "\(path)#\($0.timeIntervalSince1970)" } ?? path
+        stamps.set(path, stamp)
+        return stamp
+    }
+
+    /// Reads the files' change times again from now on.
+    nonisolated static func forgetStamps() { stamps.clear() }
+
+    nonisolated private static let stamps = Stamps()
+
+    /// The change times read so far, by path; read from any thread.
+    private final class Stamps: @unchecked Sendable {
+        private let lock = NSLock()
+        private var known: [String: String] = [:]
+
+        func get(_ path: String) -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return known[path]
+        }
+
+        func set(_ path: String, _ stamp: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            if known.count > 20_000 { known.removeAll() }
+            known[path] = stamp
+        }
+
+        func clear() {
+            lock.lock()
+            defer { lock.unlock() }
+            known.removeAll()
+        }
     }
 
     nonisolated static func stamp(_ path: String?) -> String? { path.map { stamp($0) } }
@@ -471,7 +506,8 @@ struct CoverBackdrop: View {
             Group {
                 if let image {
                     // Blurred once (see `Covers.backdrop`); only turned here, a turn in 90 s.
-                    TimelineView(.animation(minimumInterval: 1 / 15, paused: !moving)) { context in
+                    // Still while the main window cannot be seen.
+                    TimelineView(.animation(minimumInterval: 1 / 15, paused: !moving || !Store.shared.mainVisible)) { context in
                         let angle = turned + (turning.map { max(0, context.date.timeIntervalSince($0)) } ?? 0) * 4
                         Image(nsImage: image)
                             .resizable()

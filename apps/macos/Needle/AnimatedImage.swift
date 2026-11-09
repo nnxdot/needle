@@ -15,7 +15,8 @@ struct AnimatedImage: View {
     var body: some View {
         Group {
             if let frames {
-                TimelineView(.animation(minimumInterval: frames.shortest)) { context in
+                // Still while the main window cannot be seen.
+                TimelineView(.animation(minimumInterval: frames.shortest, paused: !Store.shared.mainVisible)) { context in
                     if let image = frames.image(at: context.date.timeIntervalSinceReferenceDate) {
                         Image(decorative: image, scale: 1)
                             .resizable()
