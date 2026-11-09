@@ -389,8 +389,9 @@ fun NeedleRoot() {
                     Column(Modifier.align(androidx.compose.ui.Alignment.TopEnd)) {
                     AnimatedVisibility(
                         visible = shown != null && hasSong && !playerOpen,
-                        enter = fadeIn(tween(200)) + slideInHorizontally(tween(260)) { it / 3 },
-                        exit = fadeOut(tween(150)) + slideOutHorizontally(tween(200)) { it / 3 },
+                        // Reduce motion: a fade alone (Motion.kt).
+                        enter = if (reduce) fadeIn(tween(150)) else fadeIn(tween(200)) + slideInHorizontally(tween(260)) { it / 3 },
+                        exit = if (reduce) fadeOut(tween(150)) else fadeOut(tween(150)) + slideOutHorizontally(tween(200)) { it / 3 },
                     ) {
                         val bars = with(LocalDensity.current) { barHeight.toDp() }
                         // The last kind shown stays while the pane slides away.
@@ -423,7 +424,7 @@ fun NeedleRoot() {
                             } else {
                                 AnimatedVisibility(
                                     visible = hasSong && !playerOpen,
-                                    enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
+                                    enter = if (reduce) fadeIn(tween(150)) else fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
                                     exit = fadeOut(tween(150)),
                                 ) {
                                     CompositionLocalProvider(LocalAnimated provides this) {

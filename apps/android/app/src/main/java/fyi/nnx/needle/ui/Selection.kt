@@ -77,10 +77,12 @@ fun SelectionBar() {
     // What was chosen, kept while the bar slides away, so it does not read "0 songs" as it goes.
     var shown by remember { mutableStateOf(chosen) }
     if (chosen.isNotEmpty()) shown = chosen
+    val reduce = reduceMotion()
     AnimatedVisibility(
         chosen.isNotEmpty(),
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it },
+        // Reduce motion: a fade alone.
+        enter = if (reduce) fadeIn() else fadeIn() + slideInVertically { it },
+        exit = if (reduce) fadeOut() else fadeOut() + slideOutVertically { it },
     ) {
         val ids = shown.map { it.id }
         var more by remember { mutableStateOf(false) }

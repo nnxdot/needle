@@ -409,6 +409,8 @@ fun GlassSheet(
     // Past the foot of the tallest sheet: the screen's height.
     val reach = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
     val dark = darkPage()
+    // Reduce motion: the sheet comes and goes at once, with no slide; its shade still fades.
+    StillSheetMotion(reduceMotion()) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
@@ -426,6 +428,33 @@ fun GlassSheet(
         SideEffect { blurred = on }
         content()
     }
+    }
+}
+
+/**
+ * Material's sheet slides by the theme's motion (its spatial specs, and the fast effects spec for
+ * leaving). With Reduce motion, those are snaps, so it shows and goes without moving.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun StillSheetMotion(still: Boolean, content: @Composable () -> Unit) {
+    if (!still) return content()
+    val base = MaterialTheme.motionScheme
+    val scheme = remember(base) {
+        object : androidx.compose.material3.MotionScheme by base {
+            override fun <T> defaultSpatialSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = androidx.compose.animation.core.snap()
+            override fun <T> fastSpatialSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = androidx.compose.animation.core.snap()
+            override fun <T> slowSpatialSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = androidx.compose.animation.core.snap()
+            override fun <T> fastEffectsSpec(): androidx.compose.animation.core.FiniteAnimationSpec<T> = androidx.compose.animation.core.snap()
+        }
+    }
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme,
+        motionScheme = scheme,
+        shapes = MaterialTheme.shapes,
+        typography = MaterialTheme.typography,
+        content = content,
+    )
 }
 
 /**

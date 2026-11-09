@@ -44,7 +44,13 @@ fun Dock(
     // With a song in it, the glass takes the cover's colour from the left (Glass.kt).
     val cover = playingGlassCover()
     Column(modifier.fillMaxWidth().glass(DockShape, cover = if (showPlayer) cover else null)) {
-        androidx.compose.animation.AnimatedVisibility(showPlayer) {
+        // Reduce motion: the mini player fades in and out; the dock does not grow or shrink.
+        val reduce = reduceMotion()
+        androidx.compose.animation.AnimatedVisibility(
+            showPlayer,
+            enter = if (reduce) androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)) else androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+            exit = if (reduce) androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) else androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+        ) {
             CompositionLocalProvider(LocalAnimated provides (animated ?: this)) {
                 MiniPlayer(onOpen = onOpenPlayer, docked = true)
             }
