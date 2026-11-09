@@ -8,7 +8,10 @@ import UIKit
 @Observable
 final class PictureChanges {
     nonisolated(unsafe) static let shared = PictureChanges()
-    var count = 0
+    var count = 0 {
+        // The files' change times are read again: one of them was just saved anew.
+        didSet { Covers.forgetStamps() }
+    }
 }
 
 /// Covers, read from their files away from the screen, made small for the size they show at,
@@ -22,11 +25,25 @@ enum Covers {
 
     /// The picture's path with its file's change time. An artist's own photo, wide picture,
     /// and logo are saved again at the same path when another is chosen: with the time in the
-    /// key, the new one is read, never the old one from a cache.
+    /// key, the new one is read, never the old one from a cache. The time is read once per path
+    /// (a file's details are slow to ask for while a list is drawn), and again after
+    /// `PictureChanges` says a picture changed.
     nonisolated static func stamp(_ path: String) -> String {
-        guard !path.hasPrefix("http://"), !path.hasPrefix("https://"),
-              let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return path }
-        return "\(path)#\(date.timeIntervalSince1970)"
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://") else { return path }
+        if let known = stampLock.withLock({ stamps[path] }) { return known }
+        let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        let stamp = date.map { "\(path)#\($0.timeIntervalSince1970)" } ?? path
+        // A file not there yet (a cover still coming) is asked again next time.
+        if date != nil { stampLock.withLock { stamps[path] = stamp } }
+        return stamp
+    }
+
+    nonisolated(unsafe) private static var stamps: [String: String] = [:]
+    private static let stampLock = NSLock()
+
+    /// Reads the files' change times again (a picture was saved anew at the same path).
+    nonisolated static func forgetStamps() {
+        stampLock.withLock { stamps.removeAll() }
     }
 
     nonisolated static func stamp(_ path: String?) -> String? { path.map { stamp($0) } }
@@ -86,31 +103,57 @@ enum Covers {
 }
 
 /// A cover, or, when there is none, a picture made from the name: colours and a shape that
-/// stay the same for the same album.
+/// stay the same for the same album. A cover already read shows at once; one read now fades in
+/// over a quiet fill (the made-up picture showed for a moment before the real one), and a new
+/// cover in the same place (the next song) fades in over the last one.
 struct Artwork: View {
     let path: String?
     let seed: String
     var size: Int = 600
     @State private var image: UIImage?
+    /// The picture could not be read, or there is none: the made-up one shows.
+    @State private var missing: Bool
+
+    init(path: String?, seed: String, size: Int = 600) {
+        self.path = path
+        self.seed = seed
+        self.size = size
+        let hit = path.flatMap { Covers.cached($0, size: size) }
+        _image = State(initialValue: hit)
+        _missing = State(initialValue: path == nil)
+    }
 
     var body: some View {
         // The space the page gives sets the size, never the picture: a cover that is not square
         // (a Blu-ray's, say) fills it, its edges cut off, instead of making its tile taller.
         Color.clear
             .overlay {
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
-                } else {
-                    Placeholder(seed: seed)
+                ZStack {
+                    if let image {
+                        Image(uiImage: image).resizable().scaledToFill()
+                            .id(ObjectIdentifier(image))
+                            .transition(.opacity)
+                    } else if missing {
+                        Placeholder(seed: seed).transition(.opacity)
+                    } else {
+                        Rectangle().fill(.quaternary)
+                    }
                 }
             }
             .clipped()
-        .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
-            guard let path else { image = nil; return }
-            if let hit = Covers.cached(path, size: size) { image = hit; return }
+        .task(id: "\(path ?? "")|\(PictureChanges.shared.count)") {
+            guard let path else {
+                if image != nil || !missing { withFade { image = nil; missing = true } }
+                return
+            }
+            if let hit = Covers.cached(path, size: size) {
+                if hit !== image { withFade { image = hit; missing = false } }
+                return
+            }
             let found = await Covers.load(path, size: size)
             // Moved on to another cover while this one loaded: not this one.
-            if !Task.isCancelled { image = found }
+            guard !Task.isCancelled else { return }
+            withFade { image = found; missing = found == nil }
         }
     }
 }
@@ -369,7 +412,7 @@ struct CoverBackdrop: View {
         cache.countLimit = 12
         return cache
     }()
-    nonisolated(unsafe) private static let context = CIContext()
+    nonisolated private static let context = CIContext()
 
     var body: some View {
         GeometryReader { geo in

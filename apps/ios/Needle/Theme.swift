@@ -41,6 +41,29 @@ struct ThemeColors {
     ]
 }
 
+/// Needle's corners, as on the Mac (NEEDLE-2.0.md, rule 6): soft covers of 6 to 8 points, 12 in
+/// the player, and three sizes for panes and cards. All are continuous, as the system's own.
+enum Corner {
+    /// A cover in a list, a grid, or on a card.
+    static let cover: CGFloat = 8
+    /// A small cover (the mini player's, a row's thumbnail, 44 points or less).
+    static let smallCover: CGFloat = 6
+    /// The player's own cover.
+    static let player: CGFloat = 12
+    /// Panes and cards: small (a chip's box, a tile), middle (a tile, a card), and large (a
+    /// group of rows, a pane).
+    static let small: CGFloat = 8
+    static let middle: CGFloat = 14
+    static let large: CGFloat = 22
+}
+
+extension Shape where Self == RoundedRectangle {
+    /// A continuous rounded rectangle, for Needle's covers and panes (see `Corner`).
+    static func soft(_ radius: CGFloat) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+    }
+}
+
 extension Store {
     var colors: ThemeColors {
         let custom = ["night", "midnight", "day"].contains(app.theme) ? nil : themes.first { $0.id == app.theme }

@@ -251,7 +251,7 @@ struct SearchView: View {
     private func albumShelf(_ albums: [Album]) -> some View {
         if !albums.isEmpty {
             SectionTitle(title: "Albums")
-            Shelf { ForEach(albums) { AlbumTile(album: $0) } }
+            Shelf { ForEach(albums) { AlbumTile(album: $0, shelf: "albums") } }
         }
     }
 

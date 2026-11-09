@@ -264,7 +264,7 @@ struct NumbersView: View {
     private func shelf(_ title: String, _ total: UInt32, _ albums: [Album], detail: String? = nil) -> some View {
         if total > 0 {
             SectionTitle(title: "\(title) · \(Int(total).formatted())", detail: detail)
-            Shelf { ForEach(albums) { AlbumTile(album: $0) } }
+            Shelf { ForEach(albums) { AlbumTile(album: $0, shelf: title) } }
         }
     }
 
