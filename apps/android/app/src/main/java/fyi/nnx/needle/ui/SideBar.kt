@@ -121,6 +121,7 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
     )
     val words by animateFloatAsState(if (unfolded) 1f else 0f, tween(if (reduce) 0 else 180), label = "side bar words")
     val playlists by rememberLoaded { playlists() }
+    val serverMark = NeedleApp.instance.app.collectAsState().value.serverMark
     val inSettings = page == Route.Settings || page is Route.SettingsPage
     val colors = MaterialTheme.colorScheme
     // A place in the library opens as the Library tab's page; one open already is left be.
@@ -179,7 +180,6 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
                     )
                 }
             }
-            val serverMark = NeedleApp.instance.app.collectAsState().value.serverMark
             items(mine, key = { "p" + it.id }) { p ->
                 // By its id: a page opened before a rename still has the old name.
                 val here = page is Route.Playlist && page.id == p.id
