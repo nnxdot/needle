@@ -390,6 +390,9 @@ struct SoundView: View {
     @State private var naming = false
     @State private var newName = ""
     @State private var loadingFile = false
+    /// The equalizer written as a file, to save where the person chooses.
+    @State private var eqFile: URL?
+    @State private var savingFile = false
 
     var body: some View {
         Form {
@@ -427,6 +430,9 @@ struct SoundView: View {
                         Divider()
                         Button("Save as preset…", systemImage: "square.and.arrow.down") { newName = ""; naming = true }
                         Button("Headphone correction file…", systemImage: "headphones") { loadingFile = true }
+                        // As on the Mac: the equalizer as a "ParametricEQ.txt", which AutoEq and
+                        // other players read.
+                        Button("Save EQ file…", systemImage: "doc.badge.arrow.up") { saveFile() }
                     } label: {
                         LabeledContent("Preset", value: sound.preset.isEmpty ? "Your own" : sound.preset)
                     }
@@ -487,6 +493,9 @@ struct SoundView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .fileMover(isPresented: $savingFile, file: eqFile) { result in
+            if case .success = result { store.message = "Saved in the Equalizer APO format." }
+        }
         .fileImporter(isPresented: $loadingFile, allowedContentTypes: [.plainText, .text]) { result in
             guard case .success(let url) = result, let path = store.copyIn(url) else { return }
             Task {
@@ -502,6 +511,19 @@ struct SoundView: View {
             presets = await store.load { $0.eqPresets() } ?? []
             mine = await store.load { $0.myPresets() } ?? []
             effects = await store.load { $0.effects() } ?? []
+        }
+    }
+
+    private func saveFile() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("ParametricEQ.txt")
+        let path = url.path
+        Task {
+            if await store.ask({ try $0.saveEqFile(path: path) }) != nil {
+                eqFile = url
+                savingFile = true
+            }
         }
     }
 
@@ -1197,6 +1219,8 @@ struct AboutView: View {
     @Environment(\.openURL) private var openURL
     @State private var crashReports = false
     @State private var settings: PlaybackSettings?
+    /// The log file being written now, once it is there.
+    @State private var log: URL?
 
     var body: some View {
         Form {
@@ -1229,6 +1253,23 @@ struct AboutView: View {
                         .buttonStyle(.borderless)
                         .fixedSize()
                 }
+                // As on the Mac (Settings › Your data): the log to send, and an error report to
+                // paste in an email.
+                HStack {
+                    SettingLabel(title: "Log file", detail: "What Needle does and any errors, kept on this iPhone.", icon: "doc.text.fill", tint: .gray)
+                    Spacer(minLength: 8)
+                    if let log {
+                        ShareLink(item: log) { Text("Share…") }
+                            .buttonStyle(.borderless)
+                            .fixedSize()
+                    }
+                }
+                Button("Copy error report") {
+                    Task {
+                        UIPasteboard.general.string = await store.load { $0.errorReport() } ?? ""
+                        store.message = "Copied an error report, without file paths or your name. Paste it in an email to dot@nnx.fyi."
+                    }
+                }
             }
             Section("Privacy") {
                 Text("Needle has no account and no tracking. Your library stays on this iPhone. It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
@@ -1243,6 +1284,9 @@ struct AboutView: View {
         .task {
             crashReports = await store.load { $0.crashReports() } ?? false
             settings = await store.load { try $0.playbackSettings() }
+            if let path = await store.load({ $0.logFile() }), FileManager.default.fileExists(atPath: path) {
+                log = URL(fileURLWithPath: path)
+            }
         }
     }
 }
