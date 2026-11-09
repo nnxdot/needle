@@ -1,5 +1,8 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.DataSaverOn
 import androidx.compose.material.icons.rounded.DeleteSweep
@@ -11,6 +14,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import android.content.Context
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -197,7 +201,7 @@ enum class SettingsSection(val title: String, val summary: String, val icon: Ima
     Servers("Music servers", "Navidrome and Subsonic", Icons.Rounded.Dns, Color(0xFF8FC6E8)),
     Playback("Playback", "Crossfade and even loudness", Icons.Rounded.PlayCircle, Color(0xFF7FB8E8)),
     Sound("Sound", "Equalizer, balance, and headphones", Icons.Rounded.Equalizer, Color(0xFFB39DDB)),
-    Appearance("Appearance", "Colours, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
+    Appearance("Appearance", "Colors, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
     Scrobbling("Online services", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
     Discord("Discord", "Show what you play on your profile", Icons.Rounded.Forum, Color(0xFF8C9EFF)),
     Plugins("Plugins", "NetEase lyrics, effects, and commands", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
@@ -662,7 +666,7 @@ private fun PlaybackSettingsPage() {
         }
     }
     Group("When you choose a song") {
-        SwitchRow("Open the player", "Shown as soon as a song starts", app.openPlayerOnPlay, icon = Icons.Rounded.OpenInFull) { on ->
+        SwitchRow("Open the player on play", "Shown as soon as a song starts", app.openPlayerOnPlay, icon = Icons.Rounded.OpenInFull) { on ->
             NeedleApp.instance.updateApp { it.copy(openPlayerOnPlay = on) }
         }
         Divider()
@@ -737,6 +741,15 @@ private fun SoundSettingsPage() {
             mine = withContext(Dispatchers.IO) { core.myPresets() }
         }
     }
+    val saveEq = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        NeedleApp.instance.scope.launch(Dispatchers.IO) {
+            runCatching {
+                val text = core.eqFileText()
+                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) } ?: error("Could not save it")
+            }.onSuccess { showMessage("Saved in the Equalizer APO format.") }.onFailure { showMessage(it.message ?: "Could not save it") }
+        }
+    }
     val correction = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         pickedFile(context, uri, { core.loadEqFile(it) }) {
             showMessage("Loaded a correction with ${count(it.toInt(), "band")}")
@@ -798,8 +811,13 @@ private fun SoundSettingsPage() {
                     TextButton(onClick = { naming = true }) { Text("Save as a preset") }
                     if (s.preset in mine) TextButton(onClick = { background { core.deletePreset(s.preset) }; mine = mine - s.preset }) { Text("Delete ${s.preset}") }
                 }
-                TextButton(onClick = { tryOpen("file picker") { correction.launch(arrayOf("text/plain", "*/*")) } }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
-                    Text("Load a headphone correction…")
+                // Onto a second line with large text, rather than squeezed.
+                androidx.compose.foundation.layout.FlowRow(Modifier.padding(start = 8.dp, bottom = 8.dp)) {
+                    TextButton(onClick = { tryOpen("file picker") { correction.launch(arrayOf("text/plain", "*/*")) } }) {
+                        Text("Load a headphone correction…")
+                    }
+                    // As the Mac: the equalizer as a ParametricEQ.txt, which AutoEq and other players read.
+                    TextButton(onClick = { tryOpen("file picker") { saveEq.launch("ParametricEQ.txt") } }) { Text("Save EQ file…") }
                 }
             }
         }
@@ -977,7 +995,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     Group("Look") {
         LookCards(BuiltInLooks + themes.map(::lookCard), app.theme) { id -> update { it.copy(theme = id) } }
         Divider()
-        LinkRow("New theme", "Your own colours", Icons.Rounded.Add) { open(Route.ThemeEditor(null)) }
+        LinkRow("New theme", "Your own colors", Icons.Rounded.Add) { open(Route.ThemeEditor(null)) }
         Divider()
         LinkRow("Add a theme file", "From the desktop or needle.nnx.fyi/themes", Icons.Rounded.FileOpen) { tryOpen("file picker") { importTheme.launch(arrayOf("*/*")) } }
         if (themes.any { it.id == app.theme }) {
@@ -991,7 +1009,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         if (ownTheme) {
             SettingRow(Icons.Rounded.Palette, "Set by your theme", "Choose Night, Midnight, or Day to pick one")
         } else {
-            SettingRow(Icons.Rounded.Palette, "Accent", "Where no cover gives the colour")
+            SettingRow(Icons.Rounded.Palette, "Accent", "Where no cover gives the color")
             val swatches = listOf(
                 "" to Color(0xFFE2B46C), "#E5484D" to Color(0xFFE5484D), "#E93D82" to Color(0xFFE93D82),
                 "#8E4EC6" to Color(0xFF8E4EC6), "#3E63DD" to Color(0xFF3E63DD), "#0090FF" to Color(0xFF0090FF),
@@ -1026,15 +1044,15 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             }
         }
     }
-    Group("Colour") {
-        SwitchRow("Colours from covers", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
+    Group("Color") {
+        SwitchRow("Colors from covers", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
         Divider()
-        SwitchRow("Colours from the music", "The whole app takes the song's colours", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
+        SwitchRow("Colors from the music", "The whole app takes the song's colors", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
         Divider()
-        SwitchRow("Mini player in the song's colour", "Otherwise it matches the page", app.miniPlayerColored, icon = Icons.Rounded.SmartDisplay) { on -> update { it.copy(miniPlayerColored = on) } }
+        SwitchRow("Mini player in the song's color", "Otherwise it matches the page", app.miniPlayerColored, icon = Icons.Rounded.SmartDisplay) { on -> update { it.copy(miniPlayerColored = on) } }
         if (Build.VERSION.SDK_INT >= 31) {
             Divider()
-            SwitchRow("Colours from your wallpaper", "In place of Needle's amber", app.wallpaperColors, icon = Icons.Rounded.Wallpaper) { on -> update { it.copy(wallpaperColors = on) } }
+            SwitchRow("Colors from your wallpaper", "In place of Needle's amber", app.wallpaperColors, icon = Icons.Rounded.Wallpaper) { on -> update { it.copy(wallpaperColors = on) } }
         }
     }
     Group("Player") {
@@ -1100,7 +1118,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             }
         }
         Divider()
-        SwitchRow("Volume in the player", "A slider under the buttons", app.volumeSlider, icon = Icons.Rounded.VolumeUp) { on ->
+        SwitchRow("Volume slider", "A slider under the buttons", app.volumeSlider, icon = Icons.Rounded.VolumeUp) { on ->
             update { it.copy(volumeSlider = on) }
         }
         Divider()
@@ -1115,12 +1133,12 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     Group("Backdrop") {
         SwitchRow(
             "Cover behind the player",
-            if (Build.VERSION.SDK_INT < 31) "Its colour (Android 12 blurs it)" else if (app.immersiveCover) "Blurred, behind lyrics and the queue" else "Blurred, behind the player",
+            if (Build.VERSION.SDK_INT < 31) "Its color (Android 12 blurs it)" else if (app.immersiveCover) "Blurred, behind lyrics and the queue" else "Blurred, behind the player",
             app.coverBackdrop,
             icon = Icons.Rounded.BlurOn,
         ) { on -> update { it.copy(coverBackdrop = on) } }
         Divider()
-        SwitchRow("Moving backdrop", "The blurred cover turns slowly", app.movingBackdrop, icon = Icons.Rounded.Animation) { on -> update { it.copy(movingBackdrop = on) } }
+        SwitchRow("Moving cover", "The blurred cover turns slowly", app.movingBackdrop, icon = Icons.Rounded.Animation) { on -> update { it.copy(movingBackdrop = on) } }
         Divider()
         var blur by remember(app.backdropBlur) { mutableFloatStateOf(app.backdropBlur) }
         SliderRow("Softness", "${blur.toInt()}", blur, 20f..120f, summary = "How blurred the cover is", icon = Icons.Rounded.BlurLinear, onChange = { blur = it }, onDone = { update { it.copy(backdropBlur = blur) } })
@@ -1179,7 +1197,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Vibration", "A light tap on play, pause, and long presses", app.haptics, icon = Icons.Rounded.Vibration) { on -> update { it.copy(haptics = on) } }
     }
     Group("Lyrics") {
-        SwitchRow("Follow the song", "The line playing is lit and in view", app.liveLyrics, icon = Icons.Rounded.Lyrics) { on -> update { it.copy(liveLyrics = on) } }
+        SwitchRow("Live lyrics", "The line playing is lit and in view", app.liveLyrics, icon = Icons.Rounded.Lyrics) { on -> update { it.copy(liveLyrics = on) } }
         Divider()
         SwitchRow("Keep the screen on", "While the lyrics show", app.keepScreenOnLyrics, icon = Icons.Rounded.LightMode) { on -> update { it.copy(keepScreenOnLyrics = on) } }
         Divider()
@@ -1553,6 +1571,30 @@ private fun DiscordSettingsPage() {
 
 // ---------- About
 
+/**
+ * The log file being written, to Android's share sheet (an email, a chat, Files): copied where
+ * the share sheet may read it first, as lyric cards are.
+ */
+private fun shareLog(context: Context) {
+    NeedleApp.instance.scope.launch(Dispatchers.Main) {
+        val file = withContext(Dispatchers.IO) {
+            runCatching {
+                val log = File(core.logFile())
+                File(context.cacheDir, "logs").apply { mkdirs() }.resolve(log.name.ifBlank { "needle.log" }).also { log.copyTo(it, overwrite = true) }
+            }.getOrNull()
+        } ?: return@launch showMessage("There is no log yet")
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, "Needle log")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        tryOpen("app to share with") {
+            context.startActivity(Intent.createChooser(send, "Share the log file").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+}
+
 @Composable
 private fun AboutPage(open: (Route) -> Unit) {
     val context = LocalContext.current
@@ -1574,12 +1616,31 @@ private fun AboutPage(open: (Route) -> Unit) {
             }
         }
     }
-    Group("Privacy") {
+    Group("Privacy and help") {
         var crashes by remember { mutableStateOf(core.crashReports()) }
         SwitchRow("Send crash reports", "Without file paths or names", crashes, icon = Icons.Rounded.BugReport) { on ->
             crashes = on
             background { core.setCrashReports(on) }
         }
+        Divider()
+        // As the Mac's Settings › Your data: the log to share, and a report to paste in an email.
+        SettingRow(
+            Icons.Rounded.Description, "Log file", "What Needle does and any errors, kept on this phone",
+            Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) { shareLog(context) },
+        ) { Icon(Icons.Rounded.Share, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Divider()
+        SettingRow(
+            Icons.Rounded.ContentCopy, "Copy error report", "Without file paths or your name",
+            Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                NeedleApp.instance.scope.launch(Dispatchers.Main) {
+                    val report = withContext(Dispatchers.IO) { runCatching { core.errorReport() }.getOrNull() }
+                    if (report == null) return@launch showMessage("Could not make an error report")
+                    context.getSystemService(android.content.ClipboardManager::class.java)
+                        ?.setPrimaryClip(android.content.ClipData.newPlainText("Needle error report", report))
+                    showMessage("Copied an error report, without file paths or your name. Paste it in an email to dot@nnx.fyi.")
+                }
+            },
+        )
     }
     Group {
         LinkRow("Website", "needle.nnx.fyi", Icons.Rounded.Language) { visit("https://needle.nnx.fyi") }
@@ -1697,11 +1758,9 @@ private fun FanartKeyRow() {
  */
 @Composable
 private fun ScrobbleProblems(service: String, refresh: Int) {
-    var json by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    // A failure is told in the page's one message, not as a quiet nothing.
+    val json by rememberLoaded(service, refresh, cache = false) { org.json.JSONObject(scrobbleProblemsJson(service)) }
     var open by remember { mutableStateOf(false) }
-    LaunchedEffect(service, refresh) {
-        json = withContext(Dispatchers.IO) { runCatching { org.json.JSONObject(core.scrobbleProblemsJson(service)) }.getOrNull() }
-    }
     val reasons = json?.optJSONArray("reasons") ?: return
     if (reasons.length() == 0) return
     val recent = json?.optJSONArray("recent")

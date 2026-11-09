@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Radio
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Person
@@ -101,7 +102,7 @@ private val RowCorners = RoundedCornerShape(8.dp)
 
 /**
  * The side bar on tablets and TVs, as on the Mac and the computer: the search field at the top;
- * Home, Songs, Albums, Artists, and Folders; a grey "Collections" label with Favorites,
+ * Home, Radio, Songs, Albums, Artists, and Folders; a grey "Collections" label with Favorites,
  * Recently added, and Listening history; a grey "Playlists" label with a + and the playlists
  * with small covers; and the library's tools and Settings at the foot. Small rows, grey
  * icons; the row open has a soft highlight and an amber icon. On a TV it is folded to its
@@ -161,6 +162,8 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
         val list = rememberLazyListState()
         LazyColumn(Modifier.weight(1f).fadeCut(list.canScrollBackward, list.canScrollForward), list) {
             item { SideRow("Home", Icons.Outlined.Home, tab == Tab.Home && page == Route.Home, words) { show(Tab.Home, Route.Home) } }
+            // The iPhone's Radio tab: your station and quick mixes.
+            item { SideRow("Radio", Icons.Outlined.Radio, page == Route.Radio, words) { library(Route.Radio) } }
             item { SideRow("Songs", Icons.Outlined.MusicNote, page == Route.Songs, words) { library(Route.Songs) } }
             item { SideRow("Albums", Icons.Outlined.Album, page == Route.Albums, words) { library(Route.Albums) } }
             item { SideRow("Artists", Icons.Outlined.Person, page == Route.Artists, words) { library(Route.Artists) } }
@@ -187,8 +190,10 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
                 SideRow(
                     p.name, null, here, words,
                     lead = { PlaylistCover(p, Modifier.size(18.dp), RoundedCornerShape(4.dp)) },
-                    // A playlist on a music server, marked as its songs are.
-                    server = p.server && serverMark,
+                    // A playlist on a music server, marked as its songs are; always one the server
+                    // lets you only read.
+                    server = (p.server && serverMark) || p.readOnly,
+                    readOnly = p.readOnly,
                 ) {
                     if (!here) library(Route.Playlist(p.id, p.name))
                 }
@@ -316,6 +321,7 @@ private fun SideRow(
     words: Float,
     lead: (@Composable () -> Unit)? = null,
     server: Boolean = false,
+    readOnly: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -354,7 +360,7 @@ private fun SideRow(
             if (server) {
                 Icon(
                     Icons.Rounded.Dns,
-                    contentDescription = "On your music server",
+                    contentDescription = if (readOnly) "Read-only on the server" else "On your music server",
                     tint = colors.onSurfaceVariant,
                     modifier = Modifier.padding(start = 6.dp).size(14.dp).graphicsLayer { alpha = words },
                 )

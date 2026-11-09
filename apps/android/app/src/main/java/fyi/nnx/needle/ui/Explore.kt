@@ -203,19 +203,11 @@ fun MoodMapScreen() {
     // Map (where the songs sound), Cloud, or Bubbles (by family); the last two by songs or plays.
     var view by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("map") }
     var byPlays by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var art by remember { mutableStateOf<org.json.JSONObject?>(null) }
-    var artFor by remember { mutableStateOf("") }
-    // Laid out again when the library changes (a scan that ends while the page is open).
-    val version by NeedleApp.instance.libraryVersion.collectAsState()
-    LaunchedEffect(view, byPlays, version) {
-        if (view == "map") return@LaunchedEffect
-        // Cleared for another view or order; a library change keeps the old one until the new.
-        val key = "$view|$byPlays"
-        if (key != artFor) { art = null; artFor = key }
-        art = withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { org.json.JSONObject(NeedleApp.instance.core.genreArtJson(view, byPlays, 0.8f)) }.getOrNull()
-        }
-    }
+    // Laid out again when the library changes (a scan that ends while the page is open), the old
+    // one kept until the new; cleared for another view or order. A failure is told in the page's
+    // one message.
+    val artLoad = rememberLoaded(view, byPlays) { if (view == "map") null else org.json.JSONObject(genreArtJson(view, byPlays, 0.8f)) }
+    val art by artLoad
     fun playSpellings(name: String, spellings: List<String>) {
         NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val songs = runCatching { NeedleApp.instance.core.genresSongs(spellings) }.getOrDefault(emptyList())
@@ -257,7 +249,7 @@ fun MoodMapScreen() {
             item {
                 Text(
                     when {
-                        picture == null -> "Laying it out…"
+                        picture == null -> if (artLoad.failed) "Could not lay it out." else "Laying it out…"
                         items == null || items.length() == 0 -> if (byPlays) "Nothing played yet." else "Your songs have no genres in their tags yet."
                         else -> "${count(items.length(), "genre")}. ${if (view == "cloud") "As big as" else "Grouped by family, as big as"} ${if (byPlays) "their plays" else "their songs"}. Tap one to play it."
                     },

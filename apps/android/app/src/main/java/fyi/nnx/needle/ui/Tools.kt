@@ -91,6 +91,7 @@ import fyi.nnx.needle.core.SoundMatch
 import fyi.nnx.needle.core.TagChange
 import fyi.nnx.needle.core.TagReport
 import fyi.nnx.needle.core.TidyPlan
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -392,12 +393,9 @@ fun FixLibraryScreen() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // The overview: what is wrong, card by card; a card opens its tool, shows the songs, or
     // fixes them at once.
-    val version by NeedleApp.instance.libraryVersion.collectAsState()
-    var health by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    // Read again as the library changes; a failure is told in the page's one message.
+    val health by rememberLoaded { org.json.JSONObject(libraryHealthJson()) }
     var confirmForget by remember { mutableStateOf(false) }
-    LaunchedEffect(version) {
-        health = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { org.json.JSONObject(core.libraryHealthJson()) }.getOrNull() }
-    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Fix my library") }
         health?.let { h ->
@@ -640,9 +638,26 @@ private fun AlbumProblems() {
     var looking by remember { mutableStateOf<AlbumProblem?>(null) }
     var round by remember { mutableIntStateOf(0) }
     LaunchedEffect(round) { problems = withContext(Dispatchers.IO) { core.albumProblems() } }
+    // Online lookups (Settings › Library › Look up lyrics and artists) are what lets Needle ask
+    // MusicBrainz for them all at once, as on the computer.
+    val online = rememberLoaded { playbackSettings().onlineMedia }.value == true
+    var bulk by remember { mutableStateOf<LookUpAll?>(null) }
+    bulk?.let { run ->
+        BulkLookUp(run, onChange = { bulk = it }, onWritten = { bulk = null; round++ })
+        return
+    }
     Column {
-        Explain("Albums missing a year or track numbers, or with mixed artists. MusicBrainz can fill them in.")
         val list = problems
+        Explain(
+            when {
+                list.isNullOrEmpty() -> "Albums missing a year or track numbers, or with mixed artists. MusicBrainz can fill them in."
+                online -> "${count(list.size, "album")} with gaps in their tags. Look one up to match it with a release on MusicBrainz, or look them all up: Look up all keeps only sure matches for you to check. You see every change before anything is written, and Needle keeps a backup of each file."
+                else -> "${count(list.size, "album")} with gaps in their tags. Turn on online lookups in Settings to match them on MusicBrainz."
+            },
+        )
+        if (online && list != null && list.size > 1) {
+            FilledTonalButton(onClick = { bulk = LookUpAll(list) }, modifier = Modifier.padding(horizontal = Edge)) { Text("Look up all") }
+        }
         when {
             list == null -> Loading("Checking your albums…")
             list.isEmpty() -> Explain("Every album looks right.")
@@ -657,6 +672,111 @@ private fun AlbumProblems() {
         }
     }
     looking?.let { p -> ReleaseDialog(p) { changed -> looking = null; if (changed) round++ } }
+}
+
+/** Look up all, as on the computer: the albums it goes through. */
+private class LookUpAll(val albums: List<AlbumProblem>)
+
+/**
+ * Look up all: every album with gaps looked up on MusicBrainz, one after another (it takes one
+ * request a second), keeping only sure matches. Its progress and Stop while it runs; then the
+ * matches to tick, and Write. Nothing is written before the person says so.
+ */
+@Composable
+private fun BulkLookUp(run: LookUpAll, onChange: (LookUpAll?) -> Unit, onWritten: () -> Unit) {
+    var done by remember(run) { mutableIntStateOf(0) }
+    var failed by remember(run) { mutableIntStateOf(0) }
+    var finished by remember(run) { mutableStateOf(false) }
+    var stopping by remember(run) { mutableStateOf(false) }
+    var writing by remember(run) { mutableStateOf(false) }
+    val found = remember(run) { androidx.compose.runtime.mutableStateListOf<Pair<AlbumProblem, fyi.nnx.needle.core.SureMatch>>() }
+    // The matches the person unticked, by their release.
+    val unticked = remember(run) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val total = run.albums.size
+    // Stop, Back, or leaving the page ends it between two albums.
+    LaunchedEffect(run) {
+        for ((i, album) in run.albums.withIndex()) {
+            if (stopping) break
+            val result = withContext(Dispatchers.IO) {
+                runCatching { core.lookUpSureMatch(album.album, album.artist, album.songIds, i == 0) }
+            }
+            result.getOrNull()?.let { found += album to it }
+            if (result.isFailure) failed++
+            done = i + 1
+        }
+        finished = true
+    }
+    androidx.activity.compose.BackHandler { stopping = true; onChange(null) }
+    val chosen = found.filter { unticked[it.second.release.id] != true }
+    val access = rememberFileAccess(chosen.flatMap { it.second.songIds })
+    val matches = if (found.size == 1) "1 sure match" else "${found.size} sure matches"
+    Column {
+        Row(
+            Modifier.padding(horizontal = Edge, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { stopping = true; onChange(null) }) { Text("Back to the list") }
+            if (!finished) {
+                androidx.compose.material3.OutlinedButton(enabled = !stopping, onClick = { stopping = true }) { Text(if (stopping) "Stopping…" else "Stop") }
+            } else {
+                Button(enabled = chosen.isNotEmpty() && !writing, onClick = {
+                    access {
+                        writing = true
+                        work({ core.applySureMatches(chosen.map { it.second.release.id }) }, { writing = false }) { report ->
+                            showMessage(
+                                if (report.failed.isEmpty()) "Updated ${count(report.saved.toInt(), "song")} in ${count(chosen.size, "album")}. Needle kept a backup of each file."
+                                else "Updated ${report.saved}; ${report.failed.size} failed: ${report.failed.take(3).joinToString("; ")}",
+                            )
+                            refresh()
+                            onWritten()
+                        }
+                    }
+                }) { Text(if (writing) "Writing…" else "Write ${count(chosen.size, "album")}") }
+            }
+        }
+        if (!finished) {
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { done.toFloat() / total.coerceAtLeast(1) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Edge),
+            )
+        }
+        Explain(
+            if (finished) "Looked up $done of $total: $matches. Untick any you do not want, then write them; Needle keeps a backup of each file."
+            else "Looking up $done of $total on MusicBrainz (about a second or two each): $matches so far. You can write them once it ends, or stop it.",
+        )
+        if (failed > 0) Explain("${count(failed, "album")} could not be looked up (no connection, or MusicBrainz was busy).")
+        found.forEachIndexed { i, (album, match) ->
+            val release = match.release
+            val ticked = unticked[release.id] != true
+            val about = listOfNotNull(
+                release.title, release.artist.ifBlank { null }, release.year.takeIf { it > 0u }?.toString(), release.country.ifBlank { null },
+            ).joinToString(" · ")
+            val changes = match.changes.toInt()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .toggleable(ticked, enabled = finished && !writing, role = androidx.compose.ui.semantics.Role.Checkbox) { unticked[release.id] = !it }
+                    .padding(horizontal = Edge)
+                    .then(if (i < found.lastIndex) Modifier.softLine() else Modifier)
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                androidx.compose.material3.Checkbox(ticked, onCheckedChange = null, enabled = finished && !writing)
+                Column(Modifier.weight(1f)) {
+                    Text(album.album.ifBlank { "Unknown album" }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${album.artist} · $about · $changes ${if (changes == 1) "song changes" else "songs change"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -858,6 +978,18 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
     var picking by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
+    // Export…: the theme's file, saved where the person picks (to send to a friend, or to add on
+    // another device with Add a theme file).
+    val context = LocalContext.current
+    var exporting by remember { mutableStateOf<fyi.nnx.needle.core.ThemeExport?>(null) }
+    val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/toml")) { uri ->
+        val file = exporting
+        exporting = null
+        if (uri == null || file == null) return@rememberLauncherForActivityResult
+        work({ context.contentResolver.openOutputStream(uri)?.use { it.write(file.text.toByteArray()) } ?: error("Could not save the theme") }) {
+            showMessage("Saved ${file.fileName}. Send it to a friend, or add it on another device with Add a theme file.")
+        }
+    }
     val defaults = mapOf(
         "page" to scheme.background, "sidebar" to scheme.surfaceContainerLow, "card" to scheme.surfaceContainer,
         "card_hover" to scheme.surfaceContainerHigh, "text" to scheme.onSurface, "text_muted" to scheme.onSurfaceVariant,
@@ -875,7 +1007,7 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
                         FilterChip(base == b, { base = b }, label = { Text(label) })
                     }
                 }
-                Text("Colours", style = MaterialTheme.typography.titleSmall)
+                Text("Colors", style = MaterialTheme.typography.titleSmall)
             }
         }
         items(ThemeSlots) { (slot, label) ->
@@ -908,6 +1040,12 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
                         back()
                     }
                 }) { Text("Save and use it") }
+                if (existing != null && !existing.readOnly) TextButton(enabled = !saving, onClick = {
+                    work({ core.exportTheme(existing.id) }) { file ->
+                        exporting = file
+                        tryOpen("file picker") { saveFile.launch(file.fileName) }
+                    }
+                }) { Text("Export…") }
                 if (existing != null && !existing.readOnly) TextButton(enabled = !saving, onClick = {
                     saving = true
                     work({ core.deleteTheme(existing.id) }, { saving = false }) {
@@ -946,13 +1084,13 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
     }
     GlassAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Colour") },
+        title = { Text("Color") },
         text = {
             // Scrolled where the window is short (a phone on its side), so the hex box stays in reach.
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp)).background(color))
                 Text("Hue"); Slider(h, { h = it; slid() }, valueRange = 0f..359f, modifier = Modifier.named("Hue"))
-                Text("Colourfulness"); Slider(s, { s = it; slid() }, modifier = Modifier.named("Colourfulness"))
+                Text("Colorfulness"); Slider(s, { s = it; slid() }, modifier = Modifier.named("Colorfulness"))
                 Text("Lightness"); Slider(l, { l = it; slid() }, modifier = Modifier.named("Lightness"))
                 OutlinedTextField(typed, { t ->
                     typed = t
@@ -980,6 +1118,11 @@ fun SpeakersSheet(context: Context) {
     val chosen = remember { mutableStateMapOf<String, Boolean>() }
     val delays = remember { mutableStateMapOf<String, Int>() }
     var phone by remember { mutableStateOf(true) }
+    // The group playing now, as it was when the sheet opened: its members' timing moves while it
+    // plays (Speaker timing, as on the Mac), each slider at once.
+    var members by remember { mutableStateOf<List<fyi.nnx.needle.core.GroupMember>>(emptyList()) }
+    val live = remember { mutableStateMapOf<String, Int>() }
+    var before by remember { mutableStateOf<Pair<Set<String>, Boolean>?>(null) }
     LaunchedEffect(Unit) {
         // Finding speakers needs the phone to listen to the network's announcements.
         // A TV box on a cable may have no Wi-Fi at all: then the network is heard without it.
@@ -991,13 +1134,23 @@ fun SpeakersSheet(context: Context) {
                 found.chosen.forEach { chosen[it] = true }
                 delays.putAll(found.delays)
                 phone = found.thisPhone
+                before = found.chosen.toSet() to found.thisPhone
+                members = withContext(Dispatchers.IO) { runCatching { core.groupMembers() }.getOrDefault(emptyList()) }
+                members.forEach { live[it.key] = it.delay }
                 all = found.all
             } else all = emptyList()
         } finally {
             lock?.release()
         }
     }
+    // The same speakers as when the sheet opened: their timing is set already, live.
+    val unchanged = before == (chosen.filterValues { it }.keys.toSet() to phone)
+    val timing = unchanged && members.size > 1
     fun apply() {
+        if (timing) {
+            Ui.sheet.value = null
+            return
+        }
         // Only speakers found now: one not on the network has no row to turn it off by.
         val found = all.orEmpty().map { it.id }.toSet()
         val ids = chosen.filterValues { it }.keys.filter { it in found }
@@ -1030,7 +1183,31 @@ fun SpeakersSheet(context: Context) {
             }
             if (list != null && list.isEmpty()) Explain("No speakers found. Chromecast, DLNA, and AirPlay speakers on the same Wi-Fi show here.")
             val playing = chosen.filterValues { it }.keys.toList() + (if (phone) listOf("") else emptyList())
-            if (playing.size > 1) {
+            if (timing) {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text("Speaker timing", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = Edge))
+                Explain("Move a late or early speaker's slider.")
+                members.forEach { member ->
+                    // The core names the group's own player after a computer.
+                    val label = if (member.key.isEmpty()) "This phone" else member.name
+                    val ms = live[member.key] ?: 0
+                    Column(Modifier.padding(horizontal = Edge)) {
+                        Row { Text(label, Modifier.weight(1f)); Text("${if (ms > 0) "+" else ""}$ms ms", color = MaterialTheme.colorScheme.primary) }
+                        Slider(
+                            ms.toFloat(),
+                            { live[member.key] = (it / 10).roundToInt() * 10 },
+                            valueRange = -1000f..1000f,
+                            onValueChangeFinished = {
+                                val set = live[member.key] ?: 0
+                                NeedleApp.instance.scope.launch(Dispatchers.IO) {
+                                    runCatching { core.setSpeakerDelay(member.key, set) }.onFailure { showMessage(it.message ?: "Could not move it") }
+                                }
+                            },
+                            modifier = Modifier.named("$label timing", "$ms ms"),
+                        )
+                    }
+                }
+            } else if (playing.size > 1) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Text("Line them up", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = Edge))
                 Explain("Hold back any that plays early, until they sound as one.")
