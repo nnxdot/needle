@@ -48,16 +48,19 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import fyi.nnx.needle.NeedleApp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -176,10 +179,16 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
                     )
                 }
             }
+            val serverMark = NeedleApp.instance.app.collectAsState().value.serverMark
             items(mine, key = { "p" + it.id }) { p ->
                 // By its id: a page opened before a rename still has the old name.
                 val here = page is Route.Playlist && page.id == p.id
-                SideRow(p.name, null, here, words, lead = { PlaylistCover(p, Modifier.size(18.dp), RoundedCornerShape(4.dp)) }) {
+                SideRow(
+                    p.name, null, here, words,
+                    lead = { PlaylistCover(p, Modifier.size(18.dp), RoundedCornerShape(4.dp)) },
+                    // A playlist on a music server, marked as its songs are.
+                    server = p.server && serverMark,
+                ) {
                     if (!here) library(Route.Playlist(p.id, p.name))
                 }
             }
@@ -293,6 +302,7 @@ private fun SideRow(
     selected: Boolean,
     words: Float,
     lead: (@Composable () -> Unit)? = null,
+    server: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -328,6 +338,14 @@ private fun SideRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(start = 12.dp).graphicsLayer { alpha = words },
             )
+            if (server) {
+                Icon(
+                    Icons.Rounded.Dns,
+                    contentDescription = "On your music server",
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp).size(14.dp).graphicsLayer { alpha = words },
+                )
+            }
         }
     }
 }
