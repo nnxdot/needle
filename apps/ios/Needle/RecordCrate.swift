@@ -108,7 +108,7 @@ struct RecordCrateView: View {
                 Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(.horizontal)
-            GlassEffectContainer(spacing: 12) {
+            GlassEffectContainer(spacing: 4) {
                 HStack(spacing: 12) {
                     Button { play(album) } label: {
                         Label("Play", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 4)
@@ -127,14 +127,15 @@ struct RecordCrateView: View {
 
     private func flip(to target: Int, count: Int) {
         let next = min(max(0, target), count - 1)
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+        // The records flip; with Reduce motion the next one is simply there.
+        withMotion(.spring(response: 0.45, dampingFraction: 0.82)) {
             index = next
             drag = 0
         }
     }
 
     private func shuffle() {
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withFade(.easeInOut(duration: 0.3)) {
             albums?.shuffle()
             index = 0
             drag = 0

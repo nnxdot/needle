@@ -275,7 +275,7 @@ extension View {
             .tint(colors.ink)
             .environment(\.colorScheme, colors.dark ? .dark : .light)
             .toolbarColorScheme(colors.dark ? .dark : .light, for: .navigationBar)
-            .animation(.easeOut(duration: 0.35), value: colors)
+            .animation(Motion.fade(.easeOut(duration: 0.35)), value: colors)
     }
 }
 
@@ -442,7 +442,7 @@ struct CoverBackdrop: View {
                 let made = await Task.detached(priority: .userInitiated) { Self.soften(source, radius: radius) }.value
                 guard !Task.isCancelled, let made else { return }
                 if real { Self.made.setObject(Made(made, Int(radius)), forKey: key) }
-                withAnimation(.easeInOut(duration: 0.4)) { soft = made }
+                withFade(.easeInOut(duration: 0.4)) { soft = made }
             }
         }
         .overlay(LinearGradient(colors: [.black.opacity(0.05), .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
