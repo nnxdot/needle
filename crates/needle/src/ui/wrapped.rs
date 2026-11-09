@@ -447,6 +447,7 @@ impl AppView {
                 .id("wrapped")
                 .size_full()
                 .overflow_y_scroll()
+                .track_scroll(&self.page_scroll)
                 .child(
                     div()
                         .px_8()

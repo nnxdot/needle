@@ -40,6 +40,8 @@ impl Look {
 #[derive(Default)]
 pub struct Looks {
     map: HashMap<String, Option<Look>>,
+    /// Covers being measured now.
+    pending: std::collections::HashSet<String>,
 }
 
 /// The palette fading from one cover's colours to the next.
@@ -59,6 +61,79 @@ impl Fade {
 }
 
 const FADE_MS: f32 = 900.;
+
+/// The whole-window cover glow moving from one cover to the next, over the palette's fade
+/// time. The old picture stays until the new one has loaded, so no frame is blank.
+#[derive(Default)]
+pub struct GlowFade {
+    /// The picture shown, its strength, and whether it has loaded.
+    current: Option<(PathBuf, f32)>,
+    ready: bool,
+    /// The picture it replaces, and its strength; drawn until the new one has faded in.
+    previous: Option<(PathBuf, f32)>,
+    /// When the new picture had loaded and began to fade in.
+    since: Option<Instant>,
+    serial: usize,
+}
+
+impl GlowFade {
+    /// The picture shown now, if any.
+    fn shown(&self) -> Option<(PathBuf, f32)> {
+        self.current.clone()
+    }
+
+    /// Move to `target` (a blurred cover and its strength) and say what to draw: the picture
+    /// fading out, the one fading in, and the fade's serial, or `None` while the new picture
+    /// loads (the old one then stays as it is).
+    fn step(
+        &mut self,
+        target: Option<(PathBuf, f32)>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (
+        Option<(PathBuf, f32)>,
+        Option<(PathBuf, f32)>,
+        Option<usize>,
+    ) {
+        if target.as_ref().map(|t| &t.0) != self.current.as_ref().map(|c| &c.0) {
+            // A picture that never loaded is not kept: the last one seen stays instead.
+            if self.ready {
+                self.previous = self.current.take();
+            }
+            self.current = target;
+            self.ready = false;
+            self.since = None;
+        } else if let (Some(current), Some(target)) = (&mut self.current, target) {
+            // The same cover with a new strength (the look changed): no fade.
+            current.1 = target.1;
+        }
+        if !self.ready {
+            self.ready = match &self.current {
+                Some((path, _)) => window
+                    .use_asset::<ImgResourceLoader>(&Resource::Path(path.as_path().into()), cx)
+                    .is_some(),
+                None => true,
+            };
+            if self.ready {
+                self.since = Some(Instant::now());
+                self.serial += 1;
+            }
+        }
+        // Once the new picture is fully in, the old one is gone.
+        if self
+            .since
+            .is_some_and(|since| since.elapsed().as_secs_f32() * 1000. >= FADE_MS)
+        {
+            self.previous = None;
+        }
+        let fading_in = self.current.clone().filter(|_| self.ready);
+        (
+            self.previous.clone(),
+            fading_in,
+            self.ready.then_some(self.serial),
+        )
+    }
+}
 
 /// The strongest colour in an image: the most colourful band of hues, weighted by how
 /// saturated and how clearly lit each pixel is, so a small red label beats a grey sky.
@@ -165,6 +240,7 @@ impl AppView {
             return look.clone();
         }
         self.looks.map.insert(path.to_string(), None);
+        self.looks.pending.insert(path.to_string());
         let sender = self.sender.clone();
         let cache = self.library.directory.join("artwork").join("ambient");
         let path = path.to_string();
@@ -179,6 +255,7 @@ impl AppView {
         self.looks.map.get(path).cloned().flatten()
     }
     pub(super) fn set_look(&mut self, path: String, look: Option<Look>) {
+        self.looks.pending.remove(&path);
         self.looks.map.insert(path, look);
     }
 
@@ -488,7 +565,11 @@ impl AppView {
     /// readable on any cover. Ambient lays it strongly over a solid base; glass half
     /// see-through over the window's glass, or a little stronger over a solid base where Linux
     /// cannot blur.
-    pub(super) fn ambient_layer(&mut self, cx: &App) -> Option<AnyElement> {
+    pub(super) fn ambient_layer(
+        &mut self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<AnyElement> {
         let ambient = self.ambient_look();
         if !ambient && !self.glass_cover() {
             return None;
@@ -503,14 +584,20 @@ impl AppView {
                     .or_else(|| shown.and_then(|c| c.track.artwork))
             })
             .flatten();
-        let blur = path.and_then(|path| self.look(&path)).and_then(|look| {
-            look.blur.clone().map(|b| {
-                (
-                    b,
-                    look.strength(p.dark).max(if p.dark { 0.6 } else { 0.35 }),
-                )
-            })
-        });
+        let blur = path
+            .as_ref()
+            .and_then(|path| self.look(path))
+            .and_then(|look| {
+                look.blur.clone().map(|b| {
+                    (
+                        b,
+                        look.strength(p.dark).max(if p.dark { 0.6 } else { 0.35 }),
+                    )
+                })
+            });
+        // A cover still being measured keeps the glow there is, rather than flashing the
+        // plain colour in between.
+        let measuring = path.is_some_and(|path| self.looks.pending.contains(&path));
         let painted = ambient || self.painted_glass();
         let d = p.dark;
         // (cover, gradient start and end, wash top and foot).
@@ -527,21 +614,49 @@ impl AppView {
             .absolute()
             .inset_0()
             .when(painted, |el| el.bg(p.chrome));
-        let layer = match blur {
-            Some((blur, fit)) => layer.child(
-                img(blur)
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(ObjectFit::Cover)
-                    .opacity(cover * fit),
-            ),
-            None => layer.child(div().absolute().inset_0().bg(linear_gradient(
-                150.,
-                linear_color_stop(p.glow.opacity(glow.0), 0.),
-                linear_color_stop(p.glow.opacity(glow.1), 1.),
-            ))),
+        // A new cover fades in over the old one, as the palette does; the old one stays until
+        // the new one has loaded.
+        let target = if measuring && blur.is_none() {
+            self.glow_fade.shown()
+        } else {
+            blur.map(|(blur, fit)| (blur, cover * fit))
         };
+        let gradient = target.is_none();
+        let (old, new, serial) = self.glow_fade.step(target, window, cx);
+        let picture = |path: PathBuf| {
+            img(path)
+                .absolute()
+                .inset_0()
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+        };
+        let layer = layer
+            .when(gradient, |el| {
+                el.child(div().absolute().inset_0().bg(linear_gradient(
+                    150.,
+                    linear_color_stop(p.glow.opacity(glow.0), 0.),
+                    linear_color_stop(p.glow.opacity(glow.1), 1.),
+                )))
+            })
+            .when_some(old, |el, (path, alpha)| match serial {
+                Some(serial) => el.child(motion::animate(
+                    picture(path),
+                    ("glow-out", serial),
+                    FADE_MS as u64,
+                    cx,
+                    move |el, t| el.opacity(alpha * (1. - t)),
+                )),
+                None => el.child(picture(path).opacity(alpha)),
+            })
+            .when_some(new.zip(serial), |el, ((path, alpha), serial)| {
+                el.child(motion::animate(
+                    picture(path),
+                    ("glow-in", serial),
+                    FADE_MS as u64,
+                    cx,
+                    move |el, t| el.opacity(alpha * t),
+                ))
+            });
         Some(
             layer
                 // On the light look a busy mid-tone background makes grey text hard to read,
@@ -585,24 +700,52 @@ impl AppView {
         self.backdrop(path.as_deref(), height, strength, cx)
     }
 
+    /// Whether the page shown is scrolled down from its top.
+    fn page_scrolled(&self) -> bool {
+        use super::Page;
+        let down = |handle: &ScrollHandle| f32::from(handle.offset().y) < -0.5;
+        match &self.page {
+            Page::Settings => down(&self.settings_scroll),
+            Page::Timing => down(&self.timing_scroll),
+            // Its list scrolls under a header that stays.
+            Page::History => false,
+            Page::Home
+            | Page::Folders
+            | Page::Import
+            | Page::Search
+            | Page::Sound
+            | Page::Doctor
+            | Page::Numbers
+            | Page::MoodMap
+            | Page::Wrapped(_) => down(&self.page_scroll),
+            Page::Artist(_) => down(&self.artist_scroll),
+            page if page.is_grid() => down(&self.grid_scroll.0.borrow().base_handle),
+            _ => down(&self.list_scroll.0.borrow().base_handle),
+        }
+    }
+
     /// Windows and Linux: soft edges on the page, so it fades out under the title bar and
-    /// under the floating player rather than stopping at a hard line.
+    /// under the floating player rather than stopping at a hard line. The top one shows only
+    /// while the page is scrolled: at rest it would lay a band over the page's glow or banner.
     pub(super) fn scroll_edges(&self, cx: &App) -> Vec<AnyElement> {
         let c = theme::pal(cx).canvas;
-        let mut edges = vec![
-            div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .right_0()
-                .h(px(14.))
-                .bg(linear_gradient(
-                    180.,
-                    linear_color_stop(c, 0.),
-                    linear_color_stop(c.opacity(0.), 1.),
-                ))
-                .into_any_element(),
-        ];
+        let mut edges = Vec::new();
+        if self.page_scrolled() {
+            edges.push(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(14.))
+                    .bg(linear_gradient(
+                        180.,
+                        linear_color_stop(c, 0.),
+                        linear_color_stop(c.opacity(0.), 1.),
+                    ))
+                    .into_any_element(),
+            );
+        }
         if !self.settings.layout.player_on_top {
             edges.push(
                 div()

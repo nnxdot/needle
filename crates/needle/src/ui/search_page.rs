@@ -163,6 +163,7 @@ impl AppView {
             .id("search-page")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
             .pb(px(40.) + self.foot_room())
             .child(head)
             .child(body)

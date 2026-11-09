@@ -692,6 +692,8 @@ pub struct AppView {
     big_tint: (Hsla, Hsla, usize),
     looks: ambient::Looks,
     fade: ambient::Fade,
+    /// The whole-window cover glow, fading from one cover to the next.
+    glow_fade: ambient::GlowFade,
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
     media_keys: Option<media_keys::MediaKeys>,
@@ -727,6 +729,10 @@ pub struct AppView {
     artist_images: std::collections::HashMap<String, Option<String>>,
     artist_view: artist::ArtistView,
     artist_scroll: ScrollHandle,
+    /// The scroll of the pages that keep no handle of their own (Home, Search, Sound, and
+    /// others), so the page's soft top edge knows when it is scrolled. Back to the top on
+    /// each new page.
+    page_scroll: ScrollHandle,
     /// Where each Home row is scrolled to, for its arrows.
     shelf_scrolls: Vec<ScrollHandle>,
     recent: Vec<Listen>,
@@ -1364,6 +1370,7 @@ impl AppView {
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
+            glow_fade: ambient::GlowFade::default(),
             grain_file: None,
             media_keys,
             hotkeys: Some(hotkeys),
@@ -1387,6 +1394,7 @@ impl AppView {
             artist_images: Default::default(),
             artist_view: Default::default(),
             artist_scroll: ScrollHandle::new(),
+            page_scroll: ScrollHandle::new(),
             // One for each of Home's rows (it has five at most).
             shelf_scrolls: (0..5).map(|_| ScrollHandle::new()).collect(),
             recent: vec![],
@@ -2268,6 +2276,7 @@ impl AppView {
         self.details_here = false;
         self.page = page;
         self.page_serial += 1;
+        self.page_scroll.set_offset(point(px(0.), px(0.)));
         self.pending_scroll = None;
         self.scroll_on_load = true;
         self.confirm_delete = false;
@@ -3289,7 +3298,7 @@ impl Render for AppView {
             self.page_backdrop(cx)
         };
         let grain = self.grain(window, cx);
-        let ambient_layer = self.ambient_layer(cx);
+        let ambient_layer = self.ambient_layer(window, cx);
         self.glide_lyrics(window, cx);
         if self.big != self.big_was {
             self.big_was = self.big;

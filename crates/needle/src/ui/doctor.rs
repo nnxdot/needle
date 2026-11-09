@@ -570,6 +570,7 @@ impl AppView {
             .id("doctor")
             .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.page_scroll)
             .pb(self.foot_room())
             .child(
                 div()
