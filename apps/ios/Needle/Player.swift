@@ -854,7 +854,8 @@ struct SeekBar: View {
             HStack {
                 Text(clock(position))
                 Spacer()
-                if let format = store.playback?.current?.format, !format.isEmpty {
+                // The core's format text ("FLAC 24/48", "MP3 320"), or the bare format.
+                if let song = store.playback?.current, case let format = song.quality.isEmpty ? song.format : song.quality, !format.isEmpty {
                     Text(format).font(.needle(.caption2).weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
                         .overlay(Capsule().stroke(.secondary, lineWidth: 1))
                 }
