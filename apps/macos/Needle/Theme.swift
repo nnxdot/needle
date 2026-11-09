@@ -419,3 +419,12 @@ struct Grain: View {
             .ignoresSafeArea()
     }
 }
+
+/// Labels with only their icons when `narrow`, with their names too otherwise.
+struct IconsWhenNarrow: ViewModifier {
+    let narrow: Bool
+
+    func body(content: Content) -> some View {
+        if narrow { content.labelStyle(.iconOnly) } else { content.labelStyle(.titleAndIcon) }
+    }
+}

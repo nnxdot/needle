@@ -326,6 +326,8 @@ struct AlbumsPage: View {
 struct ArtistsPage: View {
     private var store: Store { .shared }
     @State private var artists: [ArtistSummary]?
+    /// The header's width: narrow, its buttons show only their icons.
+    @State private var width: CGFloat = 1000
 
     var body: some View {
         let s = store.settings
@@ -339,13 +341,19 @@ struct ArtistsPage: View {
                             Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                         }
                         Spacer()
-                        // In sight, as on Windows: inside the sort menu they went unseen.
-                        Toggle("Only album artists", isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) }))
-                            .toggleStyle(.button)
-                            .help("Only artists with albums of their own")
-                        Toggle("Hide Various Artists-only", isOn: Binding(get: { s.hideCompilationArtists }, set: { store.set(["hide_compilation_artists": $0]) }))
-                            .toggleStyle(.button)
-                            .help("Hide artists who are only on Various Artists albums")
+                        // In sight, as on Windows: inside the sort menu they went unseen. In a
+                        // narrow page only their icons show (their names stay for VoiceOver and
+                        // in their tips), so the title keeps its room.
+                        Toggle(isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) })) {
+                            Label("Only album artists", systemImage: "square.stack")
+                        }
+                        .toggleStyle(.button)
+                        .help("Only album artists: only artists with albums of their own")
+                        Toggle(isOn: Binding(get: { s.hideCompilationArtists }, set: { store.set(["hide_compilation_artists": $0]) })) {
+                            Label("Hide Various Artists-only", systemImage: "person.3")
+                        }
+                        .toggleStyle(.button)
+                        .help("Hide Various Artists-only: artists who are only on Various Artists albums")
                         Menu {
                             Picker("Sort by", selection: Binding(get: { s.artistOrder }, set: { store.set(["artist_order": $0]) })) {
                                 Text("A–Z").tag("name")
@@ -362,6 +370,8 @@ struct ArtistsPage: View {
                         .padding(.trailing, letters.isEmpty ? 0 : 22)
                         .help("Sort artists")
                     }
+                    .modifier(IconsWhenNarrow(narrow: width < 820))
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
                         ForEach(artists ?? []) { artist in
                             ArtistTile(artist: artist, side: 160).id("artist:" + artist.name)
