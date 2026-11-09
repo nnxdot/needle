@@ -1,7 +1,7 @@
 # 2.0.6
 Your Navidrome playlists, and more glass.
 - **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways, and if a playlist changed on both sides, yours is kept as a copy.
-- **More glass.** The player's buttons, Shuffle and Repeat in Up Next, the sleep and speed choices, Search's chips, and Library in numbers are glass now, in the colour of the song playing.
+- **More glass.** The player's buttons and Shuffle and Repeat in Up Next are glass now, in the colour of the song playing. The sleep and speed choices and Search's chips are glass too, the chosen one lit in the accent.
 - The lit circle under Lyrics or Up Next glides from one to the other.
 - Every page and sheet fades softly under its bar as it scrolls.
 
