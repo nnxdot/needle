@@ -172,6 +172,10 @@ pub struct Playlist {
     /// Its own picture, chosen for it (`artwork` is this, or else a song's cover).
     #[uniffi(default = None)]
     pub picture: Option<String>,
+    /// It lives on a music server (a Navidrome playlist): changes to it go to the server too.
+    /// Shown with the small server icon, when Mark server songs is on.
+    #[uniffi(default = false)]
+    pub server: bool,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -540,6 +544,7 @@ impl Needle {
                 }
             }
             out.push(Playlist {
+                server: playlist.server.is_some(),
                 mosaic,
                 picture: playlist.cover.clone(),
                 artwork: playlist
@@ -742,6 +747,7 @@ impl Needle {
                         .clone()
                 });
                 Ok(Playlist {
+                    server: p.server.is_some(),
                     id: p.id,
                     name: p.name,
                     description: p.description,

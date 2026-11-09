@@ -128,7 +128,7 @@ struct PlaylistView: View {
                 }
             }
         } message: {
-            Text("The songs stay in your library.")
+            Text(playlist.server ? "It is deleted on your music server too. The songs stay." : "The songs stay in your library.")
         }
         // Stars too: a smart playlist's rule can be by them.
         .task(id: "\(store.libraryVersion)|\(store.ratingVersion)") { await reload() }

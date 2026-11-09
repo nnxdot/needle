@@ -218,11 +218,7 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
                     PlaylistCover(playlist, Modifier.size(LocalRows.current.cover + 4.dp), SmallCoverShape)
                     Column(Modifier.weight(1f)) {
                         Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            if (playlist.smart) "Smart playlist" else count(playlist.songs.toInt(), "song"),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        PlaylistLine(playlist)
                     }
                 }
             }

@@ -258,7 +258,9 @@ struct SongsHeader: View {
         }
         .confirmationDialog("Delete this playlist?", isPresented: $confirmDelete) {
             Button("Delete Playlist", role: .destructive) { deletePlaylist() }
-        } message: { Text("Your music files are untouched.") }
+        } message: {
+            Text(model.playlist?.server != nil ? "It is deleted on your music server too. Your music files are untouched." : "Your music files are untouched.")
+        }
     }
 
     private var title: String {

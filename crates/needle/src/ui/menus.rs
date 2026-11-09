@@ -794,7 +794,9 @@ impl AppView {
             Entry::Separator,
             Entry::item(
                 "trash",
-                if confirm {
+                if confirm && playlist.server.is_some() {
+                    "Click again to delete it on the server too"
+                } else if confirm {
                     "Click again to delete"
                 } else {
                     "Delete playlist"
@@ -819,7 +821,11 @@ impl AppView {
                                 this.back.clear();
                                 this.open(Page::Home, window, cx);
                             }
-                            this.notify("Playlist deleted. Your music files are untouched.");
+                            this.notify(if delete.server.is_some() {
+                                "Playlist deleted, here and on the server. The songs stay."
+                            } else {
+                                "Playlist deleted. Your music files are untouched."
+                            });
                         }
                         Err(e) => this.fail(e.to_string()),
                     }

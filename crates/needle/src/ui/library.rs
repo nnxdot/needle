@@ -587,6 +587,8 @@ impl AppView {
         };
         let playlist = self.playlists.iter().find(|p| &p.id == id)?.clone();
         let (export, delete) = (playlist.clone(), playlist.clone());
+        // A playlist from a music server: changes made here go to the server too.
+        let on_server = playlist.server.is_some();
         Some(
             div()
                 .px_6()
@@ -594,6 +596,19 @@ impl AppView {
                 .flex()
                 .gap_2()
                 .items_center()
+                .when(on_server, |el| {
+                    let p = pal(cx);
+                    el.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_size(px(12.))
+                            .text_color(p.ink_2)
+                            .child(glyph("server").size(px(12.)).text_color(p.ink_3))
+                            .child("On your music server: changes here are saved there too"),
+                    )
+                })
                 .child(
                     Button::new("export-playlist")
                         .small()
@@ -623,7 +638,9 @@ impl AppView {
                         .small()
                         .ghost()
                         .when(self.confirm_delete, |b| b.danger())
-                        .label(if self.confirm_delete {
+                        .label(if self.confirm_delete && on_server {
+                            "Click again to delete it on the server too"
+                        } else if self.confirm_delete {
                             "Click again to delete"
                         } else {
                             "Delete playlist"
@@ -636,9 +653,11 @@ impl AppView {
                                             this.library.playlists().unwrap_or_default();
                                         this.back.clear();
                                         this.open(Page::Songs, window, cx);
-                                        this.notify(
-                                            "Playlist deleted. Your music files are untouched.",
-                                        );
+                                        this.notify(if on_server {
+                                            "Playlist deleted, here and on the server. The songs stay."
+                                        } else {
+                                            "Playlist deleted. Your music files are untouched."
+                                        });
                                     }
                                     Err(e) => this.fail(e.to_string()),
                                 }
