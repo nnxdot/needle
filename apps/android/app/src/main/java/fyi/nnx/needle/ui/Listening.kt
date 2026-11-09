@@ -288,7 +288,8 @@ fun androidx.compose.foundation.lazy.LazyListScope.statsItems(s: Stats, open: (R
 
 @Composable
 fun Figure(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp)) {
+    // A number and its name, plain on the page (DESIGN.md: no tiles).
+    Column(modifier.padding(vertical = 8.dp)) {
         // Smaller where three share a narrow row ("12 h 30 min"), rather than cut short.
         Text(
             value,

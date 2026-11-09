@@ -35,10 +35,14 @@ plays and the one main button.
     (Haze, RenderEffect) and the fill is see-through; before that, the fill is solid. A phone
     with little memory is solid too, and so are the big panes on a TV.
   - The edge light: a 1 dp line, brighter along the top and fading down the sides, and a faint
-    outline. No flat line round it.
+    outline. No flat line round it. On light glass (Day) a white line would not show: there it
+    is a soft dark line round the edge with the white light just inside it.
+  - A sheet's edge runs its whole real height, top and sides; a sheet has no line along its
+    bottom, which is the screen's.
   - A soft shadow under it.
   - The dock and the floating player take the playing cover's colour from the left, with
-    "Mini player in the song's colour" on.
+    "Mini player in the song's colour" on. A song's, an album's, and a playlist's sheet take
+    that cover's colour faintly from the left, always. Dialogs and menus stay neutral.
 - Where it is used:
   - The dock and the floating player: blurred glass over the page.
   - The side pane (lyrics, Up next): dark glass in the cover's colour over the page, so its
@@ -47,12 +51,20 @@ plays and the one main button.
     window is under it, so its fill is solid.
   - Sheets and dialogs (`GlassSheet`, `GlassAlertDialog`) are their own windows, which the
     page's blur does not reach. The system blurs what is behind their window (Android 12 and
-    newer, where it is turned on; not on a TV), and their fill turns a little see-through.
-    Elsewhere they keep the solid fill. Both have the edge light.
+    newer, where it is turned on; not on a TV), set once as the window opens, at its full
+    radius; only the fill animates: it turns a little see-through as the window opens, and solid
+    again as a sheet leaves, so the page never shows sharp through it. Elsewhere they keep the
+    solid fill. Both have the edge light.
   - Menus (`GlassMenu`): a solid fill with the edge light. The system's blur behind a small
     menu would blur the whole screen.
-  - The top of a page: what scrolls up blurs and fades into the page under the status bar
-    (`TopEdge`), and fades under a page's pinned title bar.
+  - The top of a page: once the page has scrolled, what scrolls up blurs and fades into the
+    page under the status bar (`TopEdge`), and fades under a page's pinned title bar. Before it
+    has scrolled there is no fade over the page's top, and nothing to blur.
+  - Messages (the snackbar), a page that could not load (one message, above the dock, inside the
+    page, never a window over the dock), and the bar of chosen songs: glass bars in the dock's
+    shape.
+  - The alarm's time: Material's time picker in a glass dialog (with a remote, the boxes to type
+    the time in).
 - Nothing else is filled: no tiles, no filled groups.
 
 ## Structure
@@ -113,7 +125,8 @@ plays and the one main button.
 - Buttons: pills. A page's buttons are a filled **Play** pill in the page's colour and a glass
   **Shuffle** pill beside it; the page's own button (Add to a playlist, Edit, Radio) is a round
   glass button.
-- Choosing songs: a floating bar of the chosen songs' actions, Play its one filled button.
+- Choosing songs: a floating glass bar in the dock's shape with the chosen songs' actions, Play
+  its one filled button (a circle).
 
 ## Colour
 
@@ -122,7 +135,7 @@ plays and the one main button.
   colour). A change of cover blends over, never snaps.
 - The top of those pages and the player: the cover, huge, blurred, and slowly drifting
   (`CoverBackdrop`). The pages run up under the status bar and down behind the dock.
-- Everything else: the theme's own background; with "Colours from what's playing" on, the
+- Everything else: the theme's own background; with "Colours from the music" on, the
   whole app takes the playing song's scheme.
 
 ## Stays Android
@@ -182,4 +195,11 @@ plays and the one main button.
   gone.
 - Progress is a wave while music plays and a flat line while it rests.
 - Presses shrink a little and spring back. Nothing bounces for show.
-- "Reduce motion" (or Android's own setting) turns it into cross-fades.
+- Back: the back swipe shows the page behind as the page slides off to the right, and goes there
+  on release (predictive back); let go early, the page slides back.
+- Rows in the queue and in playlists slide to their new places when a song is taken out or moved
+  (not after a drag, whose rows are in place already).
+- The dock's open tab sits on a soft light that slides from tab to tab.
+- "Reduce motion" (or Android's own setting) turns it into cross-fades: pages, the player, the
+  side pane, the floating player, the dock's mini player, and the bar of chosen songs fade; sheets
+  come and go without a slide; the loading shimmer and the tab light stand still.

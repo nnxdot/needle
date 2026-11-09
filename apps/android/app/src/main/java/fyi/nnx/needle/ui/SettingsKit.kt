@@ -52,12 +52,12 @@ import androidx.compose.ui.unit.dp
  * kept for what is chosen: a thin accent line and a check.
  */
 
-/** A row's small icon, on a quiet rounded square. */
+/** A row's small icon, on a quiet circle (DESIGN.md › Shapes: icons in a shape are circles). */
 @Composable
 internal fun SettingIcon(icon: ImageVector?, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     if (icon == null) return
     Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        Modifier.size(36.dp).clip(iconShape()).background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp)) }
 }

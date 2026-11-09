@@ -308,13 +308,13 @@ private fun ServerCard(plugin: PluginItem) {
         else -> androidx.compose.ui.graphics.Color(0xFF3DBA5C) to "Connected"
     }
     Column(
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(18.dp),
+        // Plain on the page, a soft line under it (DESIGN.md: nothing is filled).
+        Modifier.padding(horizontal = Edge, vertical = 8.dp).fillMaxWidth().softLine().padding(vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             androidx.compose.foundation.layout.Box(
-                Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(28.dp)) }
             Column(Modifier.weight(1f)) {
@@ -363,7 +363,7 @@ private fun ServerStats(plugin: PluginItem) {
     ) {
         tiles.forEach { (icon, value, label) ->
             Column(
-                Modifier.weight(1f).widthIn(min = 132.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp),
+                Modifier.weight(1f).widthIn(min = 132.dp).padding(horizontal = 4.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
@@ -518,12 +518,12 @@ private fun StorageRow(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
     }
 }
 
-/** A titled group of rows on one rounded surface. */
+/** A titled group of rows, plain on the page (DESIGN.md: no filled groups). */
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp, top = 8.dp))
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer)) { content() }
+        Column(Modifier.fillMaxWidth()) { content() }
     }
 }
 
@@ -538,7 +538,7 @@ fun PluginEffects() {
     val off = soundToolsOff()
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text("Effects from plugins", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp, top = 8.dp))
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer).animateContentSize()) {
+        Column(Modifier.fillMaxWidth().animateContentSize()) {
             if (list.isEmpty()) {
                 Text(
                     "Plugins can add effects, such as a compressor or reverb. None of your plugins do yet.",

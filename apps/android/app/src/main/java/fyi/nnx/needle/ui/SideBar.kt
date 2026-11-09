@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -250,14 +251,22 @@ internal val Tab.outline: ImageVector
 private fun SearchField(here: Boolean, words: Float, modifier: Modifier, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
-    Row(
+    // A 36 dp field, in a 48 dp place to touch.
+    Box(
         modifier
+            .height(48.dp)
+            .selectable(here, interactionSource = interaction, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Search" },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+    Row(
+        Modifier
+            .fillMaxWidth()
             .height(36.dp)
             .softRing(interaction, 10.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(colors.onSurface.copy(alpha = if (here) 0.12f else 0.07f))
-            .selectable(here, interactionSource = interaction, indication = ripple(), role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Search" }
+            .indication(interaction, ripple())
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -273,22 +282,26 @@ private fun SearchField(here: Boolean, words: Float, modifier: Modifier, onClick
             )
         }
     }
+    }
 }
 
 /** A small icon button beside the search field. */
 @Composable
-private fun SmallButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun SmallButton(icon: ImageVector, label: String, touch: androidx.compose.ui.unit.Dp = 48.dp, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
+    // A 36 dp button, in a 48 dp place to touch (where its row has the room).
     Box(
         Modifier
-            .padding(start = 6.dp)
-            .size(36.dp)
-            .softRing(interaction, 8.dp)
-            .clip(RowCorners)
-            .selectable(false, interactionSource = interaction, indication = ripple(), role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .size(touch)
+            .selectable(false, interactionSource = interaction, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
+    ) {
+        Box(
+            Modifier.size(36.dp).softRing(interaction, 8.dp).clip(RowCorners).indication(interaction, ripple()),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
+    }
 }
 
 /**
@@ -370,7 +383,8 @@ private fun SideLabel(title: String, words: Float, onAdd: (() -> Unit)? = null) 
             softWrap = false,
             modifier = Modifier.weight(1f).semantics { heading() },
         )
-        if (onAdd != null) SmallButton(Icons.Rounded.Add, "New playlist", onAdd)
+        // In a short label row: no taller than the row.
+        if (onAdd != null) SmallButton(Icons.Rounded.Add, "New playlist", touch = 36.dp, onClick = onAdd)
     }
 }
 

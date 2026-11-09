@@ -471,7 +471,9 @@ private fun LazyListScope.songList(
     // Keys that follow each song, so a row moved with a remote keeps its focus as it moves.
     val keys = songKeys(list)
     itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
-        Box(Modifier.entrance(i).then(if (reorder != null) Modifier.reorderRow(reorder, i) else Modifier)) {
+        // A list that changes in place (a playlist's): its rows slide when one goes or moves.
+        val moving = if (reorder != null || remove != null) Modifier.movingRow(this, reorder) else Modifier
+        Box(moving.entrance(i).then(if (reorder != null) Modifier.reorderRow(reorder, i) else Modifier)) {
             SongRow(
                 song, playing == song.id, open,
                 number = numbered,

@@ -445,43 +445,52 @@ fun FixLibraryScreen() {
     }
 }
 
-/** Fix my library's overview: how much is fine, then a card for each thing wrong. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** Fix my library's overview: how much is fine, then a row for each thing wrong. */
 @Composable
 private fun HealthCards(h: org.json.JSONObject, onTab: (Int) -> Unit, onForget: () -> Unit) {
     val songs = h.optInt("songs")
     val fine = h.optInt("fine")
     val open: (Route) -> Unit = { Ui.openRoute.tryEmit(it) }
+    Column {
     Column(Modifier.padding(horizontal = Edge, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             if (fine >= songs) "All ${count(songs, "song")} are in good shape."
-            else "${fine * 100 / songs.coerceAtLeast(1)}% of your songs are in good shape. Tap a card to fix what is left.",
+            else "${fine * 100 / songs.coerceAtLeast(1)}% of your songs are in good shape. Tap a row to fix what is left.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         androidx.compose.material3.LinearProgressIndicator(progress = { fine.toFloat() / songs.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            @Composable
-            fun card(number: Int, label: String, action: String, run: () -> Unit) {
-                if (number <= 0) return
-                androidx.compose.material3.Card(onClick = run, modifier = Modifier.width(160.dp)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("$number", style = MaterialTheme.typography.headlineSmall)
-                        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, minLines = 2, maxLines = 3)
-                        Text(action, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    }
-                }
+    }
+    // What is wrong, one plain row each (DESIGN.md: nothing is filled), a soft line between.
+    class Fix(val number: Int, val label: String, val action: String, val run: () -> Unit)
+    val fixes = listOf(
+        Fix(h.optInt("duplicate_copies"), "extra copies of songs", "Show") { onTab(0) },
+        Fix(h.optInt("albums_without_cover"), "albums without a cover", "Find covers") { onTab(1) },
+        Fix(h.optInt("album_issues"), "albums missing a year, track numbers, or album artist", "Fix tags") { onTab(2) },
+        Fix(h.optInt("no_genre"), "songs with no genre", "Show them") { open(Route.Rule("No genre", "not exists(genre)")) },
+        Fix(h.optInt("no_artist"), "songs with no artist", "Show them") { open(Route.Rule("No artist", "not exists(artist)")) },
+        Fix(h.optInt("no_album"), "songs with no album", "Show them") { open(Route.Rule("No album", "not exists(album)")) },
+        Fix(h.optInt("gone"), "songs whose file is gone", "Forget them", onForget),
+        Fix(h.optInt("low_quality_albums"), "albums in low quality", "Show") { open(Route.Numbers) },
+    ).filter { it.number > 0 }
+    Column(Modifier.padding(top = 4.dp)) {
+        fixes.forEachIndexed { i, fix ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .segment(Place(i, fixes.size), groupColor(), lineStart = 80.dp)
+                    .clickable(onClickLabel = fix.action, onClick = fix.run)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("${fix.number}", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.width(56.dp))
+                Text(fix.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Text(fix.action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             }
-            card(h.optInt("duplicate_copies"), "extra copies of songs", "Show") { onTab(0) }
-            card(h.optInt("albums_without_cover"), "albums without a cover", "Find covers") { onTab(1) }
-            card(h.optInt("album_issues"), "albums missing a year, track numbers, or album artist", "Fix tags") { onTab(2) }
-            card(h.optInt("no_genre"), "songs with no genre", "Show them") { open(Route.Rule("No genre", "not exists(genre)")) }
-            card(h.optInt("no_artist"), "songs with no artist", "Show them") { open(Route.Rule("No artist", "not exists(artist)")) }
-            card(h.optInt("no_album"), "songs with no album", "Show them") { open(Route.Rule("No album", "not exists(album)")) }
-            card(h.optInt("gone"), "songs whose file is gone", "Forget them", onForget)
-            card(h.optInt("low_quality_albums"), "albums in low quality", "Show") { open(Route.Numbers) }
         }
     }
+}
 }
 
 /**
@@ -513,10 +522,11 @@ private fun Loading(text: String) {
     }
 }
 
+/** One block of a tool's list: plain on the page, a soft line under it (DESIGN.md: nothing is filled). */
 @Composable
 private fun Card(content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(12.dp),
+        Modifier.fillMaxWidth().padding(horizontal = Edge).softLine().padding(vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) { content() }
 }
@@ -805,7 +815,8 @@ fun ImportScreen() {
 @Composable
 private fun ImportCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer).clickable(onClick = onClick).padding(16.dp),
+        // A plain row with a soft line under it from where its words start (DESIGN.md › Rows).
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp).softLine(start = 72.dp).clip(RowShape).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {

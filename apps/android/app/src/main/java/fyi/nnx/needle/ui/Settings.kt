@@ -198,7 +198,7 @@ enum class SettingsSection(val title: String, val summary: String, val icon: Ima
     Playback("Playback", "Crossfade and even loudness", Icons.Rounded.PlayCircle, Color(0xFF7FB8E8)),
     Sound("Sound", "Equalizer, balance, and headphones", Icons.Rounded.Equalizer, Color(0xFFB39DDB)),
     Appearance("Appearance", "Colours, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
-    Scrobbling("Scrobbling", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
+    Scrobbling("Online services", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
     Discord("Discord", "Show what you play on your profile", Icons.Rounded.Forum, Color(0xFF8C9EFF)),
     Plugins("Plugins", "NetEase lyrics, effects, and commands", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
     Computer("Your computer", "Control Needle there, play its music here", Icons.Rounded.Computer, Color(0xFF9FB4E8)),
@@ -647,8 +647,9 @@ private fun PlaybackSettingsPage() {
             MoreText("Album keeps an album's quiet and loud songs as the artist made them.")
         }
     }
-    // Android's own: the alarm, and the Quick Settings tile.
-    Group("Alarm and tile") {
+    // Android's own: the alarm, and the Quick Settings tile. Not on a TV: it has no Quick
+    // Settings, most have no place to allow exact alarms, and one asleep does not wake to play.
+    if (!isTv()) Group("Alarm and tile") {
         val context = androidx.compose.ui.platform.LocalContext.current
         val alarm = remember { fyi.nnx.needle.WakeAlarm.read(context) }
         LinkRow("Wake up to music", "A playlist or a smart mix as your alarm", Icons.Rounded.Alarm, if (alarm.on) fyi.nnx.needle.WakeAlarm.timeText(context, alarm) else "Off") {
@@ -684,7 +685,7 @@ private fun PlaybackSettingsPage() {
             }
         }
         val keep = { if (query != s.autoplayQuery && problem == null) { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") } }
-        ExpandRow(Icons.Rounded.AllInclusive, "Keep playing", "Songs that match a search", s.autoplayQuery.ifBlank { "Off" }) {
+        ExpandRow(Icons.Rounded.AllInclusive, "When the queue runs out", "Songs that match a search", s.autoplayQuery.ifBlank { "Off" }) {
             OutlinedTextField(
                 query, { query = it },
                 label = { Text("Search") },
@@ -1026,9 +1027,9 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         }
     }
     Group("Colour") {
-        SwitchRow("Pages in their cover's colours", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
+        SwitchRow("Colours from covers", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
         Divider()
-        SwitchRow("Colours from what's playing", "The whole app takes the song's colours", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
+        SwitchRow("Colours from the music", "The whole app takes the song's colours", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
         Divider()
         SwitchRow("Mini player in the song's colour", "Otherwise it matches the page", app.miniPlayerColored, icon = Icons.Rounded.SmartDisplay) { on -> update { it.copy(miniPlayerColored = on) } }
         if (Build.VERSION.SDK_INT >= 31) {
@@ -1604,7 +1605,8 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         live.forEachIndexed { i, band ->
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
+                // Plain rows, a soft line between them (DESIGN.md: nothing is filled).
+                Modifier.fillMaxWidth().then(if (i < live.lastIndex) Modifier.softLine() else Modifier).padding(vertical = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     var open by remember { mutableStateOf(false) }

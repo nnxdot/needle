@@ -98,11 +98,17 @@ private val Faint = ColorProvider(Color(0x99FFFFFF))
 private val Glass = ColorProvider(Color(0x26FFFFFF))
 private val DarkIcon = ColorProvider(Color(0xFF1A1714))
 
-/** Refreshes the widgets, when what plays changes. */
-/** The widgets drawn again: the Recently added one only when asked (it shows no playing). */
+/**
+ * The widgets drawn again, when what plays changes: Recently added and Playlists only when asked
+ * (they show no playing); the week's listening each time, as a song adds to it.
+ */
 suspend fun updateWidgets(context: Context, recent: Boolean = true) {
     runCatching { NowPlayingWidget().updateAll(context) }
-    if (recent) runCatching { RecentWidget().updateAll(context) }
+    runCatching { StatsWidget().updateAll(context) }
+    if (recent) {
+        runCatching { RecentWidget().updateAll(context) }
+        runCatching { PlaylistsWidget().updateAll(context) }
+    }
 }
 
 // ---------- Now playing
@@ -394,37 +400,43 @@ class RecentWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val albums = runCatching { NeedleApp.instance.core.home().added.take(4) }.getOrDefault(emptyList())
-        val arts = albums.map { cover(it.artwork, 192) }
-        val back = deep(arts.firstOrNull { it != null })
-        provideContent {
-            GlanceTheme {
-                val size = LocalSize.current
-                // As many covers as fit, each with its name under it.
-                val count = ((size.width - 28.dp) / 84.dp).toInt().coerceIn(1, 4)
-                val side = ((size.width - 28.dp - 10.dp * (count - 1)) / count).coerceAtMost(size.height - 76.dp).coerceAtLeast(48.dp)
-                Box(GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(back))) {
-                    Column(GlanceModifier.fillMaxSize().padding(14.dp)) {
-                        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Recently added", style = TextStyle(color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold), modifier = GlanceModifier.defaultWeight())
-                            Image(ImageProvider(R.drawable.needle_logo_small), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
+        val items = albums.map { ShelfItem(it.title.ifBlank { "Unknown album" }, it.artist, cover(it.artwork, 192), actionRunCallback<PlayAlbum>(actionParametersOf(AlbumKey to it.key))) }
+        provideContent { GlanceTheme { Shelf("Recently added", "Your new albums show here.", items) } }
+    }
+}
+
+/** One cover on a widget's shelf: its name, a grey line, and what a tap plays. */
+private class ShelfItem(val title: String, val detail: String, val art: Bitmap?, val action: androidx.glance.action.Action)
+
+/**
+ * A widget of covers to play (Recently added, Playlists): its title and the mark, then as many
+ * covers as fit, each with its name under it, on the first cover's deep colour.
+ */
+@Composable
+private fun Shelf(title: String, empty: String, items: List<ShelfItem>) {
+    val back = deep(items.firstNotNullOfOrNull { it.art })
+    val size = LocalSize.current
+    val count = ((size.width - 28.dp) / 84.dp).toInt().coerceIn(1, 4)
+    val side = ((size.width - 28.dp - 10.dp * (count - 1)) / count).coerceAtMost(size.height - 76.dp).coerceAtLeast(48.dp)
+    Box(GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(back))) {
+        Column(GlanceModifier.fillMaxSize().padding(14.dp)) {
+            Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, style = TextStyle(color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold), modifier = GlanceModifier.defaultWeight())
+                Image(ImageProvider(R.drawable.needle_logo_small), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
+            }
+            Spacer(GlanceModifier.height(10.dp))
+            if (items.isEmpty()) Text(empty, style = TextStyle(color = Soft, fontSize = 13.sp))
+            Row(GlanceModifier.fillMaxWidth()) {
+                items.take(count).forEachIndexed { i, item ->
+                    if (i > 0) Spacer(GlanceModifier.width(10.dp))
+                    Column(GlanceModifier.width(side).clickable(item.action)) {
+                        Box(GlanceModifier.size(side).cornerRadius(16.dp).background(Glass), contentAlignment = Alignment.Center) {
+                            if (item.art != null) Image(ImageProvider(item.art), contentDescription = item.title, contentScale = ContentScale.Crop, modifier = GlanceModifier.size(side).cornerRadius(16.dp))
+                            else Image(ImageProvider(R.drawable.needle_logo), contentDescription = null, modifier = GlanceModifier.size(side * 0.4f))
                         }
-                        Spacer(GlanceModifier.height(10.dp))
-                        if (albums.isEmpty()) Text("Your new albums show here.", style = TextStyle(color = Soft, fontSize = 13.sp))
-                        Row(GlanceModifier.fillMaxWidth()) {
-                            albums.take(count).forEachIndexed { i, album ->
-                                if (i > 0) Spacer(GlanceModifier.width(10.dp))
-                                Column(GlanceModifier.width(side).clickable(actionRunCallback<PlayAlbum>(actionParametersOf(AlbumKey to album.key)))) {
-                                    Box(GlanceModifier.size(side).cornerRadius(16.dp).background(Glass), contentAlignment = Alignment.Center) {
-                                        val art = arts[i]
-                                        if (art != null) Image(ImageProvider(art), contentDescription = album.title, contentScale = ContentScale.Crop, modifier = GlanceModifier.size(side).cornerRadius(16.dp))
-                                        else Image(ImageProvider(R.drawable.needle_logo), contentDescription = null, modifier = GlanceModifier.size(side * 0.4f))
-                                    }
-                                    Spacer(GlanceModifier.height(6.dp))
-                                    Text(album.title.ifBlank { "Unknown album" }, maxLines = 1, style = TextStyle(color = White, fontSize = 12.sp, fontWeight = FontWeight.Medium))
-                                    Text(album.artist, maxLines = 1, style = TextStyle(color = Faint, fontSize = 11.sp))
-                                }
-                            }
-                        }
+                        Spacer(GlanceModifier.height(6.dp))
+                        Text(item.title, maxLines = 1, style = TextStyle(color = White, fontSize = 12.sp, fontWeight = FontWeight.Medium))
+                        Text(item.detail, maxLines = 1, style = TextStyle(color = Faint, fontSize = 11.sp))
                     }
                 }
             }
@@ -448,3 +460,121 @@ class PlayAlbum : ActionCallback {
 class RecentReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = RecentWidget()
 }
+
+// ---------- Playlists: tap one to play it
+
+private val PlaylistKey = ActionParameters.Key<String>("playlist")
+
+class PlaylistsWidget : GlanceAppWidget() {
+    override val sizeMode = SizeMode.Exact
+
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val playlists = runCatching { NeedleApp.instance.core.playlists().take(4) }.getOrDefault(emptyList())
+        val items = playlists.map {
+            ShelfItem(
+                it.name,
+                if (it.songs == 1u) "1 song" else "${it.songs} songs",
+                cover(it.artwork ?: it.mosaic.firstOrNull(), 192),
+                actionRunCallback<PlayPlaylist>(actionParametersOf(PlaylistKey to it.id)),
+            )
+        }
+        provideContent { GlanceTheme { Shelf("Playlists", "Your playlists show here.", items) } }
+    }
+}
+
+class PlayPlaylist : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val id = parameters[PlaylistKey] ?: return
+        val core = NeedleApp.instance.core
+        // A library that cannot answer leaves the press undone; it does not close Needle.
+        runCatching { core.play(core.playlistSongs(id).map { it.id }, 0u) }
+        startPlaybackService(context)
+        NeedleApp.instance.wake()
+        updateWidgets(context, recent = false)
+    }
+}
+
+class PlaylistsReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = PlaylistsWidget()
+}
+
+// ---------- My radio: one tap starts radio from what you play most
+
+class RadioWidget : GlanceAppWidget() {
+    override val sizeMode = SizeMode.Exact
+
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        provideContent {
+            GlanceTheme {
+                val size = LocalSize.current
+                // Needle's amber, light at the top and deep at the foot, as on the iPhone.
+                Box(
+                    GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ImageProvider(R.drawable.widget_radio_back))
+                        .clickable(actionRunCallback<StartRadio>()),
+                ) {
+                    Column(GlanceModifier.fillMaxSize().padding(16.dp)) {
+                        Image(ImageProvider(R.drawable.ic_widget_radio), contentDescription = null, colorFilter = ColorFilter.tint(White), modifier = GlanceModifier.size(36.dp))
+                        Spacer(GlanceModifier.defaultWeight())
+                        Text("My radio", maxLines = 1, style = TextStyle(color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold))
+                        if (size.height >= 110.dp) Text("Songs like the ones you love", maxLines = 2, style = TextStyle(color = Soft, fontSize = 12.sp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+class StartRadio : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val core = NeedleApp.instance.core
+        // From the song played most of late, or any song when nothing has played yet: the first
+        // that can start one (a song whose file is gone cannot).
+        runCatching {
+            val top = runCatching { core.stats(30u).topSongs.mapNotNull { it.songId } }.getOrDefault(emptyList())
+            val any = core.searchSongsPage("shuffle limit 1", 0u, 1u).map { it.id }
+            (top + any).firstOrNull { runCatching { core.startRadio(it) }.isSuccess }
+        }
+        startPlaybackService(context)
+        NeedleApp.instance.wake()
+        updateWidgets(context, recent = false)
+    }
+}
+
+class RadioReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = RadioWidget()
+}
+
+// ---------- Listening: this week in numbers; a tap opens the History page
+
+class StatsWidget : GlanceAppWidget() {
+    override val sizeMode = SizeMode.Exact
+
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val week = runCatching { NeedleApp.instance.core.stats(7u) }.getOrNull()
+        val minutes = ((week?.seconds ?: 0.0) / 60).toInt()
+        val time = if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
+        val songs = week?.songs?.toInt() ?: 0
+        val top = week?.topArtists?.firstOrNull()?.artist?.takeIf { it.isNotBlank() }
+        val open = android.content.Intent(context, MainActivity::class.java).putExtra(OpenExtra, "history")
+        provideContent {
+            GlanceTheme {
+                Box(GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(Color(0xFF1B1918))).clickable(androidx.glance.appwidget.action.actionStartActivity(open))) {
+                    Column(GlanceModifier.fillMaxSize().padding(16.dp)) {
+                        Text("THIS WEEK", style = TextStyle(color = ColorProvider(Color(0xFFE2B46C)), fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                        Text(time, maxLines = 1, style = TextStyle(color = White, fontSize = 26.sp, fontWeight = FontWeight.Bold))
+                        Text(if (songs == 1) "1 song" else "$songs songs", style = TextStyle(color = Soft, fontSize = 12.sp))
+                        Spacer(GlanceModifier.defaultWeight())
+                        if (top != null) Text("Most: $top", maxLines = 2, style = TextStyle(color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                    }
+                }
+            }
+        }
+    }
+}
+
+class StatsReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = StatsWidget()
+}
+
+/** The page a widget opens Needle at ("history"), an extra on its intent (MainActivity). */
+const val OpenExtra = "fyi.nnx.needle.open"

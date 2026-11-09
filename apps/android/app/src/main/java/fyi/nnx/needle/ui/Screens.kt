@@ -129,11 +129,14 @@ fun ArtistsScreen(open: (Route) -> Unit) {
 }
 
 @Composable
-private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Unit, loading: Boolean) {
+private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Unit, loading: Boolean, note: String? = null) {
     val playing = currentId()
     val list = songs.orEmpty()
     val bottom = PaddingValues(bottom = 24.dp + LocalBottomInset.current)
     fun androidx.compose.foundation.lazy.LazyListScope.rows() {
+        if (note != null) item(key = "note") {
+            Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
+        }
         itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
             SongRow(song, playing == song.id, open, place = list.place(i)) { play(list, i) }
         }
@@ -172,22 +175,29 @@ fun GenreScreen(name: String, open: (Route) -> Unit) {
     SongListPage(name, songs, open, songsLoad.loading)
 }
 
-/** Every song a rule finds (such as `not exists(genre)`), page after page. */
+/** Every song a rule finds (such as `not exists(genre)`), page after page, up to [RuleCap]. */
 @Composable
 fun RuleScreen(title: String, query: String, open: (Route) -> Unit) {
     val songsLoad = rememberLoaded(query) {
-        // The core gives at most a thousand at a time: ask until a page comes back short.
+        // The core gives at most a thousand at a time: ask until a page comes back short, or the
+        // cap is reached (a big library's "no genre" would otherwise hold every song at once,
+        // too much for a small or 32-bit phone). One more is asked for, to know if there are more.
         val all = mutableListOf<fyi.nnx.needle.core.Song>()
-        while (true) {
-            val page = searchSongsPage(query, all.size.toUInt(), 1000u)
+        while (all.size <= RuleCap) {
+            val want = minOf(1000, RuleCap + 1 - all.size)
+            val page = searchSongsPage(query, all.size.toUInt(), want.toUInt())
             all += page
-            if (page.size < 1000) break
+            if (page.size < want) break
         }
-        all.toList()
+        if (all.size > RuleCap) all.take(RuleCap) to true else all.toList() to false
     }
-    val songs by songsLoad
-    SongListPage(title, songs, open, songsLoad.loading)
+    val found by songsLoad
+    val note = if (found?.second == true) "Showing the first ${"%,d".format(RuleCap)}." else null
+    SongListPage(title, found?.first, open, songsLoad.loading, note)
 }
+
+/** The most songs a rule's page shows. */
+private const val RuleCap = 5_000
 
 @Composable
 fun PlaylistsScreen(open: (Route) -> Unit) {

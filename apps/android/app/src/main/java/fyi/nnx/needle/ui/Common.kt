@@ -110,14 +110,21 @@ class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.Loa
     val failed: Boolean get() = result is fyi.nnx.needle.LoadResult.Failed
 }
 
+/** The loads that failed on what shows now, told as one message (see [LoadErrorBar]). */
+object LoadErrors {
+    class Failure(val message: String, val retry: () -> Unit)
+
+    val list = androidx.compose.runtime.mutableStateListOf<Failure>()
+
+    /** Tries each failed load again. */
+    fun retry() = list.toList().forEach { it.retry() }
+}
+
 /** Loading, a completed value (including empty/null), and failure remain distinct. */
 @Composable
 fun <T> rememberLoaded(vararg keys: Any?, cache: Boolean = true, load: Needle.() -> T): LoadedState<T> {
     val version by NeedleApp.instance.libraryVersion.collectAsState()
     var attempt by remember(*keys) { mutableStateOf(0) }
-    // Back on the failure card: first it tries again, then (still failing) it leaves the page.
-    var retried by remember(*keys) { mutableStateOf(false) }
-    val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     // A change in the library (a heart, a scan) reloads quietly: what shows stays until the new
     // answer comes. New keys (another album, another song) are other data, so they show loading.
     val wanted = keys.toList()
@@ -143,23 +150,13 @@ fun <T> rememberLoaded(vararg keys: Any?, cache: Boolean = true, load: Needle.()
         if (cache && value is fyi.nnx.needle.LoadResult.Ready) Loads.put(cacheKey, asked, value)
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed
-    if (result is fyi.nnx.needle.LoadResult.Ready) retried = false
+    // A failed load is told in one message inside the page, above the dock (Root.kt), however many
+    // loads on the page failed: never a window over the dock, never several stacked.
     if (failure != null) {
-        // With a remote the card takes the focus, so Retry is in reach.
-        val keys = usingKeys()
-        androidx.compose.ui.window.Popup(
-            alignment = Alignment.BottomCenter,
-            onDismissRequest = if (keys) ({
-                if (retried) back?.onBackPressedDispatcher?.onBackPressed() else { retried = true; attempt++ }
-            }) else null,
-            properties = androidx.compose.ui.window.PopupProperties(focusable = keys),
-        ) {
-            androidx.compose.material3.Surface(shape = CoverShape, tonalElevation = 6.dp, modifier = Modifier.padding(Edge)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(failure.error.message ?: "Could not load this page", color = MaterialTheme.colorScheme.error)
-                    androidx.compose.material3.TextButton(onClick = { attempt++ }) { Text("Retry") }
-                }
-            }
+        androidx.compose.runtime.DisposableEffect(failure) {
+            val told = LoadErrors.Failure(failure.error.message ?: "Could not load this page") { attempt++ }
+            LoadErrors.list += told
+            onDispose { LoadErrors.list -= told }
         }
     }
     return remember(result) { LoadedState(result) }

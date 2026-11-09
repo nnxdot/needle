@@ -141,7 +141,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                         Column(Modifier.clip(RoundedCornerShape(24.dp)).background(groupColor())) {
                             LookCards(BuiltInLooks, app.theme) { id -> NeedleApp.instance.updateApp { it.copy(theme = id) } }
                             Divider()
-                            SwitchRow("Colours from what's playing", "The whole app takes the song's colours", app.ambientColors, icon = androidx.compose.material.icons.Icons.Rounded.AutoAwesome) { on ->
+                            SwitchRow("Colours from the music", "The whole app takes the song's colours", app.ambientColors, icon = androidx.compose.material.icons.Icons.Rounded.AutoAwesome) { on ->
                                 NeedleApp.instance.updateApp { it.copy(ambientColors = on) }
                             }
                         }
@@ -165,7 +165,8 @@ fun WelcomeGuide(open: (Route) -> Unit) {
 @Composable
 private fun Choice(icon: ImageVector, title: String, detail: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer).clickable(onClick = onClick).padding(16.dp),
+        // A plain row, a soft line under it from where its words start (DESIGN.md › Rows).
+        Modifier.fillMaxWidth().softLine(start = 76.dp).clip(RowShape).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
