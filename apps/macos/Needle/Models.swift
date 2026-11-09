@@ -291,6 +291,9 @@ struct NeedleSettings: Decodable, Equatable {
     var tray = false
     /// The sleep timer puts the Mac to sleep when it ends.
     var sleepComputer = false
+    /// Keys that work everywhere (Settings › Keyboard): pairs of an action and its keys, as
+    /// ["play", "ctrl-alt-space"], shared with Windows. Held only while the Mac's switch is on.
+    var globalShortcuts: [[String]] = []
     /// The big player's seek bar: "shape", "wave", "line", or "thick".
     var seekStyle = "shape"
     /// What makes an album: "tags" (album artist and album) or "folder".

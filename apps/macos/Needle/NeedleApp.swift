@@ -48,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keys = Keys.install { [weak self] in self?.store }
+        // Keys everywhere, when they are on (Settings › Keyboard).
+        MainActor.assumeIsolated { GlobalKeys.apply() }
         #if DEBUG
         MainActor.assumeIsolated { TestRenders.start() }
         #endif

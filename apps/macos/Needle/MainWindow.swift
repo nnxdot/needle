@@ -87,7 +87,11 @@ struct MainWindow: View {
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
         .frame(minWidth: Store.leastWidth(store.settings), minHeight: 620)
-        .onAppear { Store.makeRoom(Store.leastWidth(store.settings)) }
+        .onAppear {
+            Store.makeRoom(Store.leastWidth(store.settings))
+            // A key everywhere can open the mini player.
+            GlobalKeys.openMini = { [openWindow] in openWindow(id: "mini") }
+        }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             drop(providers)
             return true
