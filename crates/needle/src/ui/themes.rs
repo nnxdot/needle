@@ -230,12 +230,12 @@ impl CustomTheme {
         for (key, value) in file.colors {
             let slot = Slot::from_key(&key).with_context(|| {
                 format!(
-                    "\"{key}\" is not a colour a theme can set (try {})",
+                    "\"{key}\" is not a color a theme can set (try {})",
                     Slot::ALL.map(Slot::key).join(", ")
                 )
             })?;
             let color = parse_hex(&value)
-                .with_context(|| format!("{key} = \"{value}\" is not a colour like \"#e75480\""))?;
+                .with_context(|| format!("{key} = \"{value}\" is not a color like \"#e75480\""))?;
             colors.insert(slot, color);
         }
         if let Some(font) = &file.extras.font
@@ -271,7 +271,7 @@ impl CustomTheme {
     pub fn to_toml(&self) -> String {
         let quote = |s: &str| toml::Value::String(s.into()).to_string();
         let mut out = String::from(
-            "# A Needle theme. Colours are \"#rrggbb\"; leave one out to keep the base look's.\n\
+            "# A Needle theme. Colors are \"#rrggbb\"; leave one out to keep the base look's.\n\
              # Keys: https://needle.nnx.fyi/themes\n",
         );
         out += &format!("name = {}\n", quote(&self.name));
@@ -560,7 +560,7 @@ font = "fraunces"
             )
         };
         assert!(error("[colors]\nbackground = \"#000000\"").contains("\"background\" is not"));
-        assert!(error("[colors]\naccent = \"pink\"").contains("not a colour like"));
+        assert!(error("[colors]\naccent = \"pink\"").contains("not a color like"));
         assert!(error("base = \"sepia\"").contains("not dark, midnight, or light"));
         assert!(error("[extras]\nfont = \"Comic Sans\"").contains("is not one of"));
         // A theme with nothing in it is the dark look, named after its file.

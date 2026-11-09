@@ -857,7 +857,7 @@ private fun SoundSettingsPage() {
                 off -> "Off"
                 balance < -0.02f -> "Left ${(-balance * 100).toInt()}%"
                 balance > 0.02f -> "Right ${(balance * 100).toInt()}%"
-                else -> "Centre"
+                else -> "Center"
             },
             if (off) 0f else balance,
             -1f..1f,

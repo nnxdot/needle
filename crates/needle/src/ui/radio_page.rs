@@ -368,7 +368,7 @@ impl AppView {
                 if favorites > 0 {
                     format!("{}, shuffled", songs(favorites))
                 } else {
-                    "Star songs to fill it".into()
+                    "Heart songs to fill it".into()
                 },
                 "heart",
                 data.art[1].clone(),

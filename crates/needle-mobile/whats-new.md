@@ -2,7 +2,7 @@
 Glass all over, your Navidrome playlists, and a Radio page.
 ! **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy: Needle tells you, and opens the copy. A weak connection does not undo a change; Needle keeps it and sends it later. Playlists you can only read on the server say so.
 - **Glass all over.** Sheets, menus, dialogs, messages, the bar of chosen songs, and on tablets and TVs the side bar and the side pane, are glass with a light along their top edge. A song's, an album's, or a playlist's menu takes a hint of its cover's colour.
-- **The song's colour on the dock.** With "Mini player in the song's colour" on, the dock and the tablet's player take the playing cover's colour.
+- **The song's colour on the dock.** With "Mini player in the song's color" on, the dock and the tablet's player take the playing cover's colour.
 - **A Radio page.** Your station, quick mixes, and stations from the songs you play most: in Library, and in the side bar on tablets and TVs.
 - **Look up all.** Fix my library looks up every album with gaps, keeps only sure matches, and you tick which to write.
 - **See where Back goes.** The back swipe shows the page behind before you let go. Songs slide into place when you move or remove them, and the light under the open tab slides from tab to tab.

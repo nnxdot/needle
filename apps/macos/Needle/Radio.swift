@@ -45,7 +45,7 @@ struct RadioPage: View {
                     Task { _ = await store.ask { try $0.playView(query: "", playlist: nil, filter: "", start: 0, shuffle: true, reason: reason) } }
                 }
                 let favourites = data?.favourites ?? 0
-                MixTile(title: "Favorites", detail: favourites > 0 ? "\(count(favourites, "song")), shuffled" : "Star songs to fill it",
+                MixTile(title: "Favorites", detail: favourites > 0 ? "\(count(favourites, "song")), shuffled" : "Heart songs to fill it",
                         symbol: "heart.fill", cover: loved.path, seed: loved.seed) {
                     let reason = "From your favorites"
                     Task { _ = await store.ask { try $0.playView(query: Route.favorites.base, playlist: nil, filter: "", start: 0, shuffle: true, reason: reason) } }

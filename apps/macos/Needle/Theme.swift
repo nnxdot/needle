@@ -29,7 +29,7 @@ struct Palette: Equatable {
 
     /// The base looks: settings value, name, and a few words.
     static let bases: [(String, String, String)] = [
-        ("dark", "Night", "Charcoal grey"),
+        ("dark", "Night", "Charcoal gray"),
         ("midnight", "Midnight", "True black"),
         ("light", "Day", "Light and airy"),
     ]

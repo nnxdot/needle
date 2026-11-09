@@ -36,7 +36,7 @@ impl Material {
         (
             "mica",
             "Cover glow",
-            "Panes of glass over the playing cover's colours.",
+            "Panes of glass over the playing cover's colors.",
         ),
         (
             "acrylic",

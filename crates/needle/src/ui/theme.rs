@@ -16,7 +16,7 @@ pub enum Base {
 impl Base {
     /// Settings value, the name people see, and a few words about it.
     pub const ALL: [(&'static str, &'static str, &'static str); 3] = [
-        ("dark", "Night", "Charcoal grey"),
+        ("dark", "Night", "Charcoal gray"),
         ("midnight", "Midnight", "True black"),
         ("light", "Day", "Light and airy"),
     ];

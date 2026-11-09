@@ -382,7 +382,7 @@ impl AppView {
                         match dsp.balance {
                             b if b < 0. => "Leaning left.",
                             b if b > 0. => "Leaning right.",
-                            _ => "Centred.",
+                            _ => "Centered.",
                         },
                         div().w(px(220.)).flex().items_center().gap_2().child(faint("L", cx)).child(Slider::new(&self.sound.balance).flex_1()).child(faint("R", cx)),
                         cx,
