@@ -415,7 +415,7 @@ struct MainWindow: View {
 
     /// The player at the page's foot, with the line being sung under it (Settings › Appearance):
     /// one group of glass, so the strip grows out of the player's glass and flows into it.
-    private struct PlayerFoot: View {
+    struct PlayerFoot: View {
         private var store: Store { .shared }
         @Namespace private var glass
 

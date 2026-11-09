@@ -107,6 +107,9 @@ enum TestRenders {
             .frame(width: 180, height: 940, alignment: .topLeading)
             .background(store.colors.canvas), to: path)
         }
+        if let folder = value("--render-glass") {
+            Task { await renderGlass(store, folder, music: value("--test-music")) }
+        }
         if let file = value("--test-sandbox") {
             Task { await testSandbox(store, file, output: value("--test-output"), play: value("--test-sandbox-play"), add: value("--test-sandbox-add")) }
         }
@@ -225,6 +228,88 @@ enum TestRenders {
         await pause()
         lines.append("forget missing off: \(store.settings.forgetMissing)")
         try? lines.joined(separator: "\n").write(toFile: file, atomically: true, encoding: .utf8)
+    }
+
+    /// `--render-glass <folder> [--test-music <folder>]`: the volume to 0 first (checked before
+    /// anything plays), the music folder read, its first album played and paused at once, then
+    /// the real glass parts drawn into <folder>: the player at the page's foot with its lyric
+    /// strip, the title bar's group (macOS 26), a long message, the side panel, the mini
+    /// player, and the folded sidebar, in Night and in Day; and what the store says of them.
+    private static func renderGlass(_ store: Store, _ folder: String, music: String?) async {
+        var notes: [String] = []
+        func note(_ line: String) {
+            notes.append(line)
+            try? notes.joined(separator: "\n").write(toFile: folder + "/glass.txt", atomically: true, encoding: .utf8)
+        }
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        store.setVolume(0)
+        store.set(["welcomed": true, "player_lyrics": true, "music_colors": true, "ambient": false,
+                   "window_material": "glass", "theme": "dark"])
+        try? await Task.sleep(for: .seconds(1))
+        note("volume \(store.playback?.volume ?? -1) settings volume \(store.settings.volume)")
+        if let music {
+            _ = await store.ask { try $0.addFolder(path: music) }
+            for _ in 0..<30 where store.scan.running || store.libraryVersion == 0 {
+                try? await Task.sleep(for: .seconds(1))
+            }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: "") }) ?? []
+        note("albums \(albums.map(\.album))")
+        // Silent, or nothing plays.
+        if !albums.isEmpty, (store.playback?.volume ?? 1) <= 0.001 {
+            // The song with timed lyrics (a .lrc beside it), paused a little way in.
+            _ = await store.ask { try $0.playView(query: "title contains \"Glass\"", playlist: nil, filter: "", start: 0, shuffle: false, reason: "test") }
+            for _ in 0..<30 where !store.isPlaying { try? await Task.sleep(for: .milliseconds(100)) }
+            if store.isPlaying { store.toggle() }
+            store.seek(4.2)
+        } else {
+            note("not played: volume not 0, or no album")
+        }
+        try? await Task.sleep(for: .seconds(4))
+        note("playing \(store.playback?.title ?? "none") paused \(!(store.playback?.playing ?? false)) tint \(store.paneTint.map { "\($0)" } ?? "none") lyrics shows \(LyricStrip.shows) timed \(store.lyricsTimed)")
+        let backdrop = { (dark: Bool) -> AnyView in
+            AnyView((dark ? Color.black : Color.white)
+                .overlay {
+                    if let p = store.playback { CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: false, dim: dark ? 0.35 : 0, light: !dark) }
+                }
+                // Rows under the glass, to see what it does to them.
+                .overlay(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(0..<12, id: \.self) { i in
+                            Text("Song row \(i + 1) — the page under the player").font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(dark ? .white : .black)
+                        }
+                    }
+                    .padding(24)
+                }
+                .clipped())
+        }
+        for dark in [true, false] {
+            store.set(["theme": dark ? "dark" : "light"])
+            try? await Task.sleep(for: .seconds(1))
+            let look = dark ? "night" : "day"
+            render(ZStack(alignment: .bottom) { backdrop(dark); MainWindow.PlayerFoot() }.frame(width: 900, height: 260), to: "\(folder)/foot-\(look).png")
+            if #available(macOS 26, *) {
+                render(ZStack { backdrop(dark); TitleBarGlass() }.frame(width: 1060, height: 90), to: "\(folder)/titlebar-\(look).png")
+            }
+            store.toast = Store.Toast(text: "Needle could not reach your music server. Check that it is on and that this Mac is on the same network, then try again. The songs you keep on this Mac still play.", error: true)
+            render(ZStack(alignment: .bottom) { backdrop(dark); ToastView().padding(.bottom, 20) }.frame(width: 700, height: 200), to: "\(folder)/toast-\(look).png")
+            store.toast = nil
+            store.panel = .queue
+            render(ZStack(alignment: .trailing) {
+                backdrop(dark)
+                Inspector().frame(width: MainWindow.panelWidth).frame(maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
+                    .pane(RoundedRectangle(cornerRadius: Radius.large, style: .continuous), tinted: true)
+                    .padding(10)
+            }.frame(width: 700, height: 560), to: "\(folder)/panel-\(look).png")
+            render(HStack(spacing: 0) { Rail(); backdrop(dark) }.frame(width: 400, height: 700).background(store.colors.canvas), to: "\(folder)/rail-\(look).png")
+        }
+        MiniPlayer.showControls = true
+        render(MiniPlayer().frame(width: 300, height: 300), to: "\(folder)/mini.png")
+        MiniPlayer.showControls = false
+        note("done")
     }
 
     private static func render(_ view: some View, to path: String) {

@@ -402,6 +402,12 @@ struct MiniPlayer: View {
     @AppStorage("mini-view") private var view = "cover"
     @State private var hovering = false
     private let side: CGFloat = 300
+    #if DEBUG
+    /// Test pictures: the controls show as under the pointer (see `TestRenders`).
+    static var showControls = false
+    #else
+    static let showControls = false
+    #endif
 
     var body: some View {
         let p = store.playback
@@ -437,7 +443,7 @@ struct MiniPlayer: View {
             } else {
                 Image(systemName: "music.note").font(.system(size: 54)).foregroundStyle(.white.opacity(0.3))
             }
-            if hovering || p?.hasSong != true {
+            if hovering || p?.hasSong != true || Self.showControls {
                 controls(p).transition(.opacity)
             }
         }
