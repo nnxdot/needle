@@ -358,7 +358,7 @@ enum TestRenders {
         store.setVolume(0)
         store.set(["welcomed": true, "online_media": true, "theme": "dark", "music_colors": false])
         try? await Task.sleep(for: .seconds(3))
-        note("volume \(store.settings.volume), playing \(store.isPlaying)")
+        note("volume \(store.settings.volume), playing \(store.isPlaying), sandboxed \(ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil)")
 
         // Shortcuts everywhere: keys held, keys taken, a press delivered, and let go.
         store.set(["global_shortcuts": [["play", "ctrl-alt-shift-f17"], ["volume_up", "ctrl-alt-shift-f18"],
