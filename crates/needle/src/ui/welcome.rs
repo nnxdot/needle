@@ -114,7 +114,7 @@ impl AppView {
                     .justify_center()
                     .items_center()
                     .p_6()
-                    .child(card),
+                    .child(super::motion::dialog_in(card, "welcome-card", cx)),
             )
             .with_priority(3),
         )

@@ -832,7 +832,7 @@ impl AppView {
                     .flex()
                     .justify_center()
                     .items_center()
-                    .child(card),
+                    .child(super::motion::dialog_in(card, "playlist-editor-card", cx)),
             )
             .with_priority(2),
         )
@@ -1053,7 +1053,7 @@ impl AppView {
                             cx.notify();
                         }),
                     )
-                    .child(card),
+                    .child(super::motion::dialog_in(card, "add-songs-card", cx)),
             )
             .with_priority(2),
         )
