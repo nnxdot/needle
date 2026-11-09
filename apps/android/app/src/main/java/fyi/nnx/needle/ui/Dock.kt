@@ -1,8 +1,5 @@
 package fyi.nnx.needle.ui
 
-import android.os.Build
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,66 +16,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeInput
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.blur.HazeBlurStyle
-import dev.chrisbanes.haze.blur.HazeColorEffect
-import dev.chrisbanes.haze.blur.hazeBlur
-
-/**
- * What the floating glass blurs: the pages under it (`hazeSource` in Root.kt). Null where
- * nothing is captured; the glass is then a solid fill.
- */
-val LocalHaze = compositionLocalOf<HazeState?> { null }
-
-/** Real blur behind glass needs Android 12 (RenderEffect); before it, a solid fill. */
-private val canBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-
-/**
- * Frosted glass, the Needle look's one floating surface (the dock, a tablet's player and pane):
- * the page behind it blurred and tinted with the page's own colour, a thin light line around it,
- * and a soft shadow. Before Android 12, the page's raised colour, solid.
- */
-@Composable
-fun Modifier.glass(shape: Shape): Modifier {
-    val scheme = MaterialTheme.colorScheme
-    val dark = scheme.background.luminance() < 0.5f
-    val haze = LocalHaze.current
-    val edge = if (dark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.07f)
-    return this
-        .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f))
-        .clip(shape)
-        .then(
-            if (canBlur && haze != null) {
-                val tint = scheme.surfaceContainer.copy(alpha = if (dark) 0.62f else 0.7f)
-                Modifier.hazeBlur(
-                    HazeInput.Sources(haze),
-                    HazeBlurStyle {
-                        blurRadius(28.dp)
-                        noiseFactor(0.06f)
-                        backgroundColor(scheme.background)
-                        colorEffects(listOf(HazeColorEffect.tint(tint)))
-                    },
-                )
-            } else {
-                Modifier.background(scheme.surfaceContainerHigh)
-            },
-        )
-        .border(0.5.dp, edge, shape)
-}
 
 /** The dock's corners. */
 val DockShape = RoundedCornerShape(26.dp)
@@ -96,7 +41,9 @@ fun Dock(
     animated: androidx.compose.animation.AnimatedVisibilityScope?,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier.fillMaxWidth().glass(DockShape)) {
+    // With a song in it, the glass takes the cover's colour from the left (Glass.kt).
+    val cover = playingGlassCover()
+    Column(modifier.fillMaxWidth().glass(DockShape, cover = if (showPlayer) cover else null)) {
         androidx.compose.animation.AnimatedVisibility(showPlayer) {
             CompositionLocalProvider(LocalAnimated provides (animated ?: this)) {
                 MiniPlayer(onOpen = onOpenPlayer, docked = true)
@@ -143,7 +90,7 @@ private fun DockTabs(tab: Tab, choose: (Tab) -> Unit) {
 @Composable
 fun FloatingPlayer(onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.widthIn(max = 820.dp).fillMaxWidth().glass(DockShape)) {
+        Box(Modifier.widthIn(max = 820.dp).fillMaxWidth().glass(DockShape, cover = playingGlassCover())) {
             MiniPlayer(onOpen = onOpenPlayer, docked = true)
         }
     }

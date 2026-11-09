@@ -247,7 +247,7 @@ private fun ServerSection(plugin: PluginItem) {
                 }
             }
             if (askRefresh) {
-                androidx.compose.material3.AlertDialog(
+                GlassAlertDialog(
                     onDismissRequest = { askRefresh = false },
                     title = { Text("Refresh everything?") },
                     text = { Text("Needle gets every song and cover again. Songs no longer on the server leave your library.") },
@@ -277,7 +277,7 @@ private fun ServerSection(plugin: PluginItem) {
                 )
             }
             if (askSignOut) {
-                androidx.compose.material3.AlertDialog(
+                GlassAlertDialog(
                     onDismissRequest = { askSignOut = false },
                     title = { Text("Sign out of ${source.name}?") },
                     text = { Text("Its songs leave your library. You can sign in again at any time.") },
@@ -470,7 +470,7 @@ private fun PhoneStorage(server: PluginItem) {
         StorageRow(Icons.Rounded.History, "Played lately", "They play again without the network.", usage(context, cached), if (cachedSongs > 0) "Free space" else null) { asking = "cache" }
     }
     when (asking) {
-        "kept" -> androidx.compose.material3.AlertDialog(
+        "kept" -> GlassAlertDialog(
             onDismissRequest = { asking = null },
             title = { Text("Stop keeping ${count(keptSongs, "song")}?") },
             text = { Text("They stay on this phone until the space is needed, then they stream again.") },
@@ -487,7 +487,7 @@ private fun PhoneStorage(server: PluginItem) {
             },
             dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel") } },
         )
-        "cache" -> androidx.compose.material3.AlertDialog(
+        "cache" -> GlassAlertDialog(
             onDismissRequest = { asking = null },
             title = { Text("Free $cachedSize?") },
             text = { Text("These songs stream again the next time you play them. Songs you kept stay.") },

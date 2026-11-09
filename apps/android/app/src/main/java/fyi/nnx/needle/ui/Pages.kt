@@ -54,7 +54,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.border
 import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -704,7 +703,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
         ) { menu = false }
     }
     if (deleting && d != null) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { deleting = false },
             title = { Text("Delete ${d.name}?") },
             text = { Text("The playlist goes. Its songs stay in your library.") },

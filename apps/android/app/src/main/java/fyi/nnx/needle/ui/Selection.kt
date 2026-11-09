@@ -19,7 +19,6 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueuePlayNext
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -108,7 +107,7 @@ fun SelectionBar() {
                     Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Add to a playlist")
                 }
                 IconButton(onClick = { more = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More") }
-                DropdownMenu(more, { more = false }) {
+                GlassMenu(more, { more = false }) {
                     DropdownMenuItem(
                         text = { Text("Add to queue") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) },

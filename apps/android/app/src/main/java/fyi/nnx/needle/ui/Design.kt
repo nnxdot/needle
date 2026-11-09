@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,7 +46,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -194,7 +194,23 @@ fun Page(
                 ),
             )
         },
-    ) { padding -> content(padding, Modifier.nestedScroll(behavior.nestedScrollConnection)) }
+    ) { padding ->
+        content(padding, Modifier.nestedScroll(behavior.nestedScrollConnection))
+        // Once the list runs under the bar, it fades into it rather than stopping at a hard line
+        // (the soft scroll edge, as under the status bar: Root.kt). Read only as it is drawn, so
+        // scrolling does not compose the page again.
+        val page = MaterialTheme.colorScheme.background
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .padding(top = padding.calculateTopPadding())
+                .fillMaxWidth()
+                .height(18.dp)
+                .drawBehind {
+                    val under = behavior.state.overlappedFraction.coerceIn(0f, 1f)
+                    if (under > 0f) drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(page.copy(alpha = under), page.copy(alpha = 0f))))
+                },
+        )
+    }
 }
 
 /**
@@ -214,7 +230,7 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
         acted = true
         scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    GlassSheet(onDismissRequest = onDismiss, sheetState = state) {
         // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
@@ -368,7 +384,7 @@ fun ActionSheet(
             scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    GlassSheet(onDismissRequest = onDismiss, sheetState = state) {
         // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {

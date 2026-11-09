@@ -89,6 +89,9 @@ private val Open = 240.dp
 /** The side bar folded to its icons (a TV until the focus moves to it; a narrow tablet). */
 private val Folded = 64.dp
 
+/** The side bar's glass corners. */
+private val SideBarShape = RoundedCornerShape(20.dp)
+
 /** A row's corners, and its soft highlight's. */
 private val RowCorners = RoundedCornerShape(8.dp)
 
@@ -124,8 +127,6 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
     Column(
         Modifier
             .fillMaxHeight()
-            // Over the page on a TV: the bar's own colour.
-            .then(if (tv) Modifier.background(colors.surfaceContainerLowest) else Modifier)
             // Clear of the bars and a camera cut-out on its own side only.
             .windowInsetsPadding(
                 androidx.compose.foundation.layout.WindowInsets.systemBars
@@ -134,7 +135,13 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
             )
             .width(width)
             .onFocusChanged { focused = it.hasFocus }
-            .padding(horizontal = 10.dp),
+            // A pane of glass floating on the window, as the Mac's side bar (Glass.kt): inset a
+            // little, round corners, the edge light. Nothing but the window is under it on a
+            // tablet, and a TV does not blur so big a pane, so its fill is solid: a shade between
+            // the window's colour and the page's.
+            .padding(6.dp)
+            .glass(SideBarShape, large = true, shadow = 8.dp, solid = colors.surfaceContainerLow)
+            .padding(horizontal = 4.dp),
     ) {
         // The search field (folded: its icon), and the fold button on a tablet.
         Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {

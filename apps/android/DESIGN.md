@@ -30,11 +30,30 @@ plays and the one main button.
 
 ## Glass
 
-- One surface floats: frosted glass (`Modifier.glass`). On Android 12 and newer the page under
-  it is blurred (Haze, RenderEffect) and tinted with the page's raised colour; before that, the
-  raised colour, solid. A thin light line runs round it, and a soft shadow under it.
-- Glass is for what floats over the page (the dock, the floating player, the pane, a page's
-  Shuffle pill). Nothing else is filled: no tiles, no filled groups.
+- One material floats: glass (`Glass.kt`). All glass is drawn there, so every part matches.
+  - The fill: the page's raised colour. On Android 12 and newer the page under it is blurred
+    (Haze, RenderEffect) and the fill is see-through; before that, the fill is solid. A phone
+    with little memory is solid too, and so are the big panes on a TV.
+  - The edge light: a 1 dp line, brighter along the top and fading down the sides, and a faint
+    outline. No flat line round it.
+  - A soft shadow under it.
+  - The dock and the floating player take the playing cover's colour from the left, with
+    "Mini player in the song's colour" on.
+- Where it is used:
+  - The dock and the floating player: blurred glass over the page.
+  - The side pane (lyrics, Up next): dark glass in the cover's colour over the page, so its
+    white words read in any theme. Where it cannot blur, the player's solid backdrop.
+  - The side bar: a pane of glass on the window, inset 6 dp, 20 dp corners. Nothing but the
+    window is under it, so its fill is solid.
+  - Sheets and dialogs (`GlassSheet`, `GlassAlertDialog`) are their own windows, which the
+    page's blur does not reach. The system blurs what is behind their window (Android 12 and
+    newer, where it is turned on; not on a TV), and their fill turns a little see-through.
+    Elsewhere they keep the solid fill. Both have the edge light.
+  - Menus (`GlassMenu`): a solid fill with the edge light. The system's blur behind a small
+    menu would blur the whole screen.
+  - The top of a page: what scrolls up blurs and fades into the page under the status bar
+    (`TopEdge`), and fades under a page's pinned title bar.
+- Nothing else is filled: no tiles, no filled groups.
 
 ## Structure
 
@@ -70,7 +89,7 @@ plays and the one main button.
   pages put the cover at the left with the name and buttons beside it; an artist's picture is a
   wide band.
 - The side bar (`SideBar.kt`) in place of the dock's tabs, as on the Mac and the computer:
-  - 240 dp wide, on the window's colour (`surfaceContainerLowest`). No logo.
+  - 240 dp wide, a pane of glass on the window's colour (`surfaceContainerLowest`). No logo.
   - At its top, a rounded search field ("Search"); it opens the Search page.
   - Home, Songs, Albums, Artists, Folders. Then a grey "Collections" label: Favorites,
     Recently added, Listening history. Then a grey "Playlists" label with a +, and the
