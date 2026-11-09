@@ -61,6 +61,21 @@ impl PlaylistEditor {
     pub fn set_name(&self, name: String, window: &mut Window, cx: &mut App) {
         self.name.update(cx, |s, cx| s.set_value(name, window, cx));
     }
+
+    /// A save elsewhere moved the playlist this editor edits (`old`) under another id, or
+    /// put the change in a copy: the editor now edits `now`, the playlist as stored there, so
+    /// its own save goes there too and does not make one more copy. What was typed stays.
+    pub fn follow(&mut self, old: &str, now: Option<Playlist>) {
+        let Some(now) = now else {
+            return;
+        };
+        if self.editing.as_ref().is_some_and(|p| p.id == old) {
+            if now.query.is_none() {
+                self.track_ids = now.track_ids.clone();
+            }
+            self.editing = Some(now);
+        }
+    }
 }
 
 fn choice(
@@ -421,14 +436,19 @@ impl AppView {
             editor.editing.clone(),
             playlist,
             move |this, saved, window, cx| match saved {
-                Ok(id) => {
+                Ok(saved) => {
                     this.editor = None;
-                    this.notify(if new {
-                        format!("Made “{name}”.")
-                    } else {
-                        format!("Saved “{name}”.")
-                    });
-                    this.follow_saved_playlist(&old, &id, window, cx);
+                    // Said with where it went, when that is not just as asked.
+                    let landed = super::playlist_saves::landed_name(&saved, &name);
+                    this.notify(super::playlist_saves::with_note(
+                        if new {
+                            format!("Made “{landed}”.")
+                        } else {
+                            format!("Saved “{landed}”.")
+                        },
+                        &saved,
+                    ));
+                    let id = this.follow_saved_playlist(&old, &saved, window, cx);
                     if this.page != Page::Playlist(id.clone()) {
                         this.navigate(Page::Playlist(id), window, cx);
                     }

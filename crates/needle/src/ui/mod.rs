@@ -2879,16 +2879,22 @@ impl AppView {
             Some(opened),
             playlist,
             move |this, saved, window, cx| match saved {
-                Ok(id) => {
-                    this.notify(format!(
-                        "Added {} to “{name}”.",
-                        if count == 1 {
-                            "1 track".to_string()
-                        } else {
-                            format!("{count} tracks")
-                        },
+                Ok(saved) => {
+                    // Where the songs went: a copy when the server's playlist changed
+                    // meanwhile or is read-only there.
+                    let landed = playlist_saves::landed_name(&saved, &name);
+                    this.notify(playlist_saves::with_note(
+                        format!(
+                            "Added {} to “{landed}”.",
+                            if count == 1 {
+                                "1 track".to_string()
+                            } else {
+                                format!("{count} tracks")
+                            },
+                        ),
+                        &saved,
                     ));
-                    this.follow_saved_playlist(&old, &id, window, cx);
+                    this.follow_saved_playlist(&old, &saved, window, cx);
                     this.refresh(cx);
                 }
                 Err(e) => {
@@ -2963,7 +2969,12 @@ impl AppView {
             playlist,
             move |this, saved, window, cx| {
                 match saved {
-                    Ok(id) => this.follow_saved_playlist(&old, &id, window, cx),
+                    Ok(saved) => {
+                        if let Some(note) = playlist_saves::saved_note(&saved) {
+                            this.notify(note);
+                        }
+                        this.follow_saved_playlist(&old, &saved, window, cx);
+                    }
                     Err(e) => this.fail(e),
                 }
                 this.refresh(cx);
@@ -2989,16 +3000,20 @@ impl AppView {
         self.selection = Selection::default();
         self.save_playlist_later(Some(opened), playlist, move |this, saved, window, cx| {
             match saved {
-                Ok(id) => {
-                    this.notify(format!(
-                        "Took {} out of “{name}”.",
-                        if removed == 1 {
-                            "1 song".to_string()
-                        } else {
-                            format!("{removed} songs")
-                        },
+                Ok(saved) => {
+                    let landed = playlist_saves::landed_name(&saved, &name);
+                    this.notify(playlist_saves::with_note(
+                        format!(
+                            "Took {} out of “{landed}”.",
+                            if removed == 1 {
+                                "1 song".to_string()
+                            } else {
+                                format!("{removed} songs")
+                            },
+                        ),
+                        &saved,
                     ));
-                    this.follow_saved_playlist(&old, &id, window, cx);
+                    this.follow_saved_playlist(&old, &saved, window, cx);
                 }
                 Err(e) => this.fail(e),
             }
