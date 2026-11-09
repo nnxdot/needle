@@ -598,19 +598,33 @@ impl AppView {
                 .items_center()
                 .when(on_server, |el| {
                     let p = pal(cx);
+                    // The note gives way to the buttons: it shortens, they never move off.
                     el.child(
                         div()
+                            .flex_shrink()
+                            .min_w_0()
                             .flex()
                             .items_center()
                             .gap_1()
                             .text_size(px(12.))
                             .text_color(p.ink_2)
-                            .child(glyph("server").size(px(12.)).text_color(p.ink_3))
-                            .child("On your music server: changes here are saved there too"),
+                            .child(
+                                glyph("server")
+                                    .flex_shrink_0()
+                                    .size(px(12.))
+                                    .text_color(p.ink_3),
+                            )
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child("On your music server: changes here are saved there too"),
+                            ),
                     )
                 })
                 .child(
                     Button::new("export-playlist")
+                        .flex_shrink_0()
                         .small()
                         .ghost()
                         .label("Export M3U8")
@@ -635,11 +649,12 @@ impl AppView {
                 .child(div().flex_1())
                 .child(
                     Button::new("delete-playlist")
+                        .flex_shrink_0()
                         .small()
                         .ghost()
                         .when(self.confirm_delete, |b| b.danger())
                         .label(if self.confirm_delete && on_server {
-                            "Click again to delete it on the server too"
+                            "Delete here and on the server"
                         } else if self.confirm_delete {
                             "Click again to delete"
                         } else {

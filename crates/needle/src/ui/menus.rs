@@ -792,7 +792,7 @@ impl AppView {
             Entry::item(
                 "trash",
                 if confirm && playlist.server.is_some() {
-                    "Click again to delete it on the server too"
+                    "Delete here and on the server"
                 } else if confirm {
                     "Click again to delete"
                 } else {
@@ -838,10 +838,16 @@ impl AppView {
             return None;
         }
         let rows = Self::menu_rows(&entries, None, cx);
+        // The server playlist's confirm line is longer than the others.
+        let wide = menu.confirm
+            && self
+                .playlists
+                .iter()
+                .any(|p| p.id == menu.id && p.server.is_some());
         let body = div()
             .id("playlist-menu")
             .occlude()
-            .w(px(220.))
+            .w(px(if wide { 240. } else { 220. }))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .flex()
