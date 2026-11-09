@@ -11,6 +11,11 @@ struct DoctorPage: View {
     @State private var healthError: String?
     @State private var confirmForget = false
 
+    #if DEBUG
+    /// Test pictures: the core's answer to give instead of reading the library (an error).
+    static var testError: String?
+    #endif
+
     var body: some View {
         // One page that scrolls: the cards, then the tool, whose own list scrolls inside a box
         // about the window's height. (Fixed above the tool, the cards squeezed it to nothing in
@@ -76,6 +81,13 @@ struct DoctorPage: View {
 
     /// The overview from the core, or why it could not be read.
     private func readHealth() async {
+        #if DEBUG
+        if let error = Self.testError {
+            health = nil
+            healthError = error
+            return
+        }
+        #endif
         switch await store.read({ try $0.libraryHealthJson() }) {
         case .success(let json):
             if let read = JSON.decode(LibraryHealth.self, json) {
@@ -337,13 +349,17 @@ private struct CoversTab: View {
     }
 }
 
-private struct TagsTab: View {
+struct TagsTab: View {
     private var store: Store { .shared }
     @State private var problems: [AlbumProblem]?
     @State private var open: AlbumProblem?
     @State private var releases: [ReleaseChoice]?
     /// Look up all: its progress, then the sure matches to tick and write.
     @State private var bulk: Bulk?
+
+    init(bulk: Bulk? = nil) {
+        _bulk = State(initialValue: bulk)
+    }
     @State private var bulkRun: Task<Void, Never>?
     @State private var writing = false
 

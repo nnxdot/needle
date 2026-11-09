@@ -23,7 +23,30 @@ enum GlobalKeys {
 
     /// The switch, in the Mac's own defaults.
     static let switchKey = "global-shortcuts"
-    static var on: Bool { UserDefaults.standard.bool(forKey: switchKey) }
+    static var on: Bool {
+        #if DEBUG
+        if let testOn { return testOn }
+        #endif
+        return UserDefaults.standard.bool(forKey: switchKey)
+    }
+
+    #if DEBUG
+    /// Tests: the switch, without touching the Mac's own defaults (test copies share them).
+    static var testOn: Bool?
+    static var heldCount: Int { held.count }
+
+    /// Tests: delivers `action`'s hot key event to the app, as the system does when its keys
+    /// are pressed (posting real key presses needs Accessibility).
+    static func testPress(_ action: String) {
+        guard let number = byNumber.first(where: { $0.value == action })?.key else { return }
+        var event: EventRef?
+        guard CreateEvent(nil, OSType(kEventClassKeyboard), UInt32(kEventHotKeyPressed), 0, 0, &event) == noErr, let event else { return }
+        var id = EventHotKeyID(signature: signature, id: number)
+        SetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), MemoryLayout<EventHotKeyID>.size, &id)
+        SendEventToEventTarget(event, GetApplicationEventTarget())
+        ReleaseEvent(event)
+    }
+    #endif
 
     /// Opens the mini player (the main window's `openWindow`, set when it shows).
     static var openMini: (() -> Void)?
@@ -243,7 +266,16 @@ enum GlobalKeys {
 /// as on Windows. A row whose keys another app holds says so.
 struct GlobalShortcutsSection: View {
     private var store: Store { .shared }
-    @AppStorage(GlobalKeys.switchKey) private var on = false
+    @AppStorage(GlobalKeys.switchKey) private var stored = false
+    private var on: Bool {
+        get {
+            #if DEBUG
+            if let test = GlobalKeys.testOn { return test }
+            #endif
+            return stored
+        }
+        nonmutating set { stored = newValue }
+    }
     /// The action whose row waits for keys.
     @State private var recording: String?
     @State private var monitor: Any?
