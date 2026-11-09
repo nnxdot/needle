@@ -5,6 +5,8 @@ import SwiftUI
 /// volume, at the foot of the page. (`TopPlayer` is the same in the title bar.)
 struct PlayerBar: View {
     private var store: Store { .shared }
+    /// The glass group it sits in, with the lyric strip under it (see `GlassGroup`).
+    var space: Namespace.ID? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -36,7 +38,7 @@ struct PlayerBar: View {
         }
         .frame(height: 56)
         .frame(maxWidth: 820)
-        .pane(Capsule())
+        .pane(Capsule(), interactive: true, tinted: true, id: "player", in: space)
     }
 }
 
@@ -75,6 +77,59 @@ struct TopPlayer: View {
     static let screen: CGFloat = 300
     /// About the whole player's width, for the window's least width.
     static let width: CGFloat = 700
+}
+
+/// The title bar with the player in it (macOS 26): the sidebar's button, Back, Forward, and the
+/// palette's button in one capsule of glass, the player in the next, and the line being sung
+/// in a third, all in one group of glass, so they flow together and the line grows out of the
+/// player's glass when it comes.
+@available(macOS 26, *)
+struct TitleBarGlass: View {
+    private var store: Store { .shared }
+    @Namespace private var glass
+    /// The capsules' height: the player's screen and its edge.
+    private static let height: CGFloat = 42
+
+    var body: some View {
+        let lyrics = LyricStrip.shows
+        GlassGroup(spacing: 8) {
+            HStack(spacing: 6) {
+                buttons
+                    .frame(height: Self.height)
+                    .pane(Capsule(), interactive: true, id: "buttons", in: glass)
+                TopPlayer()
+                    .frame(height: Self.height)
+                    .pane(Capsule(), interactive: true, tinted: true, id: "player", in: glass)
+                if lyrics {
+                    LyricStrip(inBar: true, space: glass)
+                        .frame(minWidth: 140, idealWidth: 300, maxWidth: 300)
+                }
+            }
+        }
+        .animation(store.motion ? .smooth(duration: 0.35) : nil, value: lyrics)
+    }
+
+    private var buttons: some View {
+        HStack(spacing: 14) {
+            SidebarButton()
+            Button { store.goBack() } label: { Image(systemName: "chevron.left") }
+                .help("Back · ⌘[")
+                .accessibilityLabel("Back")
+                .disabled(store.back.isEmpty)
+            Button { store.goForward() } label: { Image(systemName: "chevron.right") }
+                .help("Forward · ⌘]")
+                .accessibilityLabel("Forward")
+                .disabled(store.forward.isEmpty)
+            Button { store.palette = true } label: { Image(systemName: "command") }
+                .help("Command palette: go anywhere, do anything · ⌘K")
+                .accessibilityLabel("Command palette: go anywhere, do anything")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .font(.system(size: 14, weight: .medium))
+        .foregroundStyle(store.colors.ink)
+        .padding(.horizontal, 14)
+    }
 }
 
 /// The title bar player's screen: a panel a little sunk into the glass, the cover at its left

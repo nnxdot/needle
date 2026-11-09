@@ -356,15 +356,24 @@ extension EnvironmentValues {
 extension View {
     /// A pane of Liquid Glass (macOS 26), or the frosted material before it; solid in the
     /// look's own colors with the Plain background.
+    /// - `interactive`: the glass answers a press (macOS 26).
+    /// - `tinted`: a faint wash of the playing cover's colour (Colors from the music), which
+    ///   fades to the next cover's over half a second (see `Store.paneTint`).
+    /// - `id`, `space`: its place in a `GlassEffectContainer`, so it merges with the glass near
+    ///   it and morphs when it comes and goes (macOS 26).
     @MainActor @ViewBuilder
-    func pane<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+    func pane<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, tinted: Bool = false,
+                        id: String? = nil, in space: Namespace.ID? = nil) -> some View {
         if !Store.shared.liquidGlass {
             background(Store.shared.colors.raised, in: shape)
                 .overlay(shape.stroke(Store.shared.colors.line, lineWidth: 1))
         } else if #available(macOS 26, *) {
-            glassEffect(interactive ? Glass.regular.tint(tint).interactive() : Glass.regular.tint(tint), in: shape)
+            background { if tinted { TintWash(shape: shape) } }
+                .glassEffect(interactive ? Glass.regular.tint(tint).interactive() : Glass.regular.tint(tint), in: shape)
+                .modifier(GlassPlace(id: id, space: space))
         } else {
-            background(.regularMaterial, in: shape)
+            background { if tinted { TintWash(shape: shape) } }
+                .background(.regularMaterial, in: shape)
         }
     }
 
@@ -426,5 +435,45 @@ struct IconsWhenNarrow: ViewModifier {
 
     func body(content: Content) -> some View {
         if narrow { content.labelStyle(.iconOnly) } else { content.labelStyle(.titleAndIcon) }
+    }
+}
+
+/// The playing cover's colour, faint, under a pane's glass: it fades to the next cover's over
+/// half a second (at once with Reduce motion). Only this layer animates, never the pane's words.
+private struct TintWash<S: Shape>: View {
+    let shape: S
+
+    var body: some View {
+        let store = Store.shared
+        shape.fill(store.paneTint ?? .clear)
+            .animation(store.motion ? .easeInOut(duration: 0.5) : nil, value: store.paneTint)
+            .allowsHitTesting(false)
+    }
+}
+
+/// A glass pane's place in its container (macOS 26), when it has one.
+@available(macOS 26, *)
+private struct GlassPlace: ViewModifier {
+    let id: String?
+    let space: Namespace.ID?
+
+    func body(content: Content) -> some View {
+        if let id, let space { content.glassEffectID(id, in: space) } else { content }
+    }
+}
+
+/// Glass that merges and morphs: its panes within `spacing` of each other flow together, and a
+/// pane that comes or goes grows out of, or into, its neighbour (macOS 26). Before that, the
+/// panes as they are.
+struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat = 8
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if #available(macOS 26, *), Store.shared.liquidGlass {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
     }
 }

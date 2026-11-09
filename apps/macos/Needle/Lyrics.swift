@@ -502,6 +502,8 @@ struct TimingPage: View {
 struct LyricStrip: View {
     private var store: Store { .shared }
     var inBar = false
+    /// The glass group it sits in with the player: it grows out of the player's glass.
+    var space: Namespace.ID? = nil
 
     @MainActor static var shows: Bool {
         let store = Store.shared
@@ -541,7 +543,8 @@ struct LyricStrip: View {
         .frame(maxWidth: inBar ? .infinity : 640, alignment: inBar ? .leading : .center)
         // The lines move inside the capsule, not over its edge.
         .clipped()
-        .pane(Capsule())
+        .contentShape(Capsule())
+        .pane(Capsule(), interactive: true, tinted: true, id: "lyrics", in: space)
         .animation(store.motion ? .easeOut(duration: 0.35) : nil, value: store.lyricLine)
         .onTapGesture { store.panel = .lyrics; store.set(["show_inspector": true]) }
         .help("Lyrics: click to see them all")

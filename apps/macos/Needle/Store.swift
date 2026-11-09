@@ -73,6 +73,9 @@ final class Store {
     /// The accent without an open page's colours: for the always-dark mini player and the
     /// sidebar (whose highlight AppKit keeps from when it was made).
     private(set) var playerAccent: Color = .accentColor
+    /// The faint cover colour under the player's, the panels', the palette's, and the messages'
+    /// glass (see `pane`), or none.
+    private(set) var paneTint: Color?
     /// Whether music plays: menus and the palette follow this, which changes only when it does
     /// (`playback` changes ten times a second).
     private(set) var isPlaying = false
@@ -650,6 +653,11 @@ final class Store {
         let plain = pageTint == nil ? look : lookNow(paged: false)
         if plain != plainColors { plainColors = plain }
         if plain.accent != playerAccent { playerAccent = plain.accent }
+        // The player's and the panels' glass take the playing cover's colour, faintly, when the
+        // colours come from the music (less on the light look, which washes out sooner).
+        let fromMusic = settings.musicColors && (customTheme?.musicColors ?? true) && coverTint != nil
+        let wash = fromMusic ? plain.glow.opacity(plain.dark ? 0.18 : 0.1) : nil
+        if wash != paneTint { paneTint = wash }
         let system = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if system != systemStill { systemStill = system }
         let still = settings.reduceMotion || system
@@ -697,6 +705,8 @@ final class Store {
         // The player in the title bar needs its width beside the sidebar button, Back, Forward,
         // and the command button, and the window's buttons when the sidebar is folded away.
         let beside: CGFloat = 170 + (layout.sidebarHidden ? 80 : 0)
+            // The line being sung beside it, at its narrowest.
+            + (settings.playerLyrics ? 150 : 0)
         let page: CGFloat = layout.playerOnTop ? max(560, TopPlayer.width + beside) : 560
         let wanted = max(760, page + sidebar + (settings.showInspector ? 310 : 0))
         // Never wider than the screen: on a small one the window could not fit.
