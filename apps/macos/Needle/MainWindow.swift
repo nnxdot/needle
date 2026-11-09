@@ -33,7 +33,9 @@ struct MainWindow: View {
             }
             .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions))
             .toolbar(removing: .sidebarToggle)
-            .toolbar(store.big && !store.immersive ? .hidden : .visible, for: .windowToolbar)
+            // Under the big player and the full screen one alike: in full screen, the sidebar's
+            // button and Back showed over the cover when the pointer touched the top.
+            .toolbar(store.big || store.immersive ? .hidden : .visible, for: .windowToolbar)
             // No band behind the toolbar over the page only: the window's one background shows
             // through the whole top bar, the search field included.
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -708,6 +710,10 @@ struct ToastView: View {
 
     var body: some View {
         if let toast = store.toast {
+            // A capsule for one line; a longer message (it may take four) in a rounded box, so
+            // its lines do not run into round ends.
+            let long = toast.text.count > 64 || toast.text.contains("\n")
+            let shape = long ? AnyShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)) : AnyShape(Capsule())
             HStack(spacing: 10) {
                 Image(systemName: toast.error ? "exclamationmark.triangle.fill" : "info.circle.fill")
                     .foregroundStyle(toast.error ? store.colors.danger : store.colors.accent)
@@ -718,7 +724,7 @@ struct ToastView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 16)
-            .pane(Capsule())
+            .pane(shape)
             .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
             .transition(store.motion ? .move(edge: .bottom).combined(with: .opacity) : .opacity)
             .id(toast.id)
