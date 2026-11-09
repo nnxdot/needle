@@ -470,9 +470,10 @@ struct MiniPlayer: View {
             }
             .font(.system(size: 14, weight: .semibold))
             .padding(.horizontal, 12)
+            .frame(height: 34)
+            .miniGlass(Capsule())
+            .padding(.horizontal, 10)
             .padding(.top, 10)
-            .padding(.bottom, 30)
-            .background(LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom))
             Spacer(minLength: 0)
             VStack(spacing: 8) {
                 VStack(spacing: 1) {
@@ -491,10 +492,11 @@ struct MiniPlayer: View {
                 }
                 .font(.system(size: 14))
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 44)
-            .padding(.bottom, 14)
-            .background(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            // On glass over the cover, as the other floating players.
+            .miniGlass(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+            .padding(10)
         }
         .foregroundStyle(.white)
         .buttonStyle(.plain)
@@ -599,6 +601,23 @@ struct MiniHistory: View {
         .scrollContentBackground(.hidden)
         .task(id: store.playback?.current) {
             items = await store.load { try $0.history(offset: 0, limit: 40) } ?? []
+        }
+    }
+}
+
+extension View {
+    /// The mini player's glass over its cover: Liquid Glass on macOS 26, a thin material
+    /// before; a dim layer with the Plain background (the mini player is always dark).
+    @MainActor @ViewBuilder
+    func miniGlass<S: Shape>(_ shape: S) -> some View {
+        if Store.shared.liquidGlass {
+            if #available(macOS 26, *) {
+                glassEffect(.regular.interactive(), in: shape)
+            } else {
+                background(.ultraThinMaterial, in: shape)
+            }
+        } else {
+            background(.black.opacity(0.5), in: shape)
         }
     }
 }
