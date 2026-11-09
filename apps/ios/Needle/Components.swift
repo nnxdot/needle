@@ -390,16 +390,18 @@ struct PagedSongs: View {
     var body: some View {
         List(selection: selecting ? $selected : nil) {
             if !songs.isEmpty {
-                HStack(spacing: 12) {
-                    Button { playAll(shuffled: false) } label: {
-                        Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                GlassEffectContainer(spacing: 12) {
+                    HStack(spacing: 12) {
+                        Button { playAll(shuffled: false) } label: {
+                            Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .foregroundStyle(store.colors.onAccent)
+                        Button { playAll(shuffled: true) } label: {
+                            Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
+                        }
+                        .buttonStyle(.glass)
                     }
-                    .buttonStyle(.glassProminent)
-                    .foregroundStyle(store.colors.onAccent)
-                    Button { playAll(shuffled: true) } label: {
-                        Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glass)
                 }
                 .font(.needle(.headline))
                 .listRowSeparator(.hidden).listRowBackground(Color.clear).selectionDisabled()

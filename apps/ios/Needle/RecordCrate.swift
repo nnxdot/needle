@@ -108,16 +108,18 @@ struct RecordCrateView: View {
                 Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(.horizontal)
-            HStack(spacing: 12) {
-                Button { play(album) } label: {
-                    Label("Play", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 4)
+            GlassEffectContainer(spacing: 12) {
+                HStack(spacing: 12) {
+                    Button { play(album) } label: {
+                        Label("Play", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 4)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .foregroundStyle(store.colors.onAccent)
+                    Button { store.opening = .album(album) } label: {
+                        Label("Open", systemImage: "square.stack").padding(.horizontal, 10).padding(.vertical, 4)
+                    }
+                    .buttonStyle(.glass)
                 }
-                .buttonStyle(.glassProminent)
-                .foregroundStyle(store.colors.onAccent)
-                Button { store.opening = .album(album) } label: {
-                    Label("Open", systemImage: "square.stack").padding(.horizontal, 10).padding(.vertical, 4)
-                }
-                .buttonStyle(.glass)
             }
         }
         .animation(nil, value: index)
