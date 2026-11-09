@@ -50,6 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keys = Keys.install { [weak self] in self?.store }
         // Keys everywhere, when they are on (Settings › Keyboard).
         MainActor.assumeIsolated { GlobalKeys.apply() }
+        // Siri and Spotlight learn the playlists' names for "Play <playlist> in Needle".
+        NeedleShortcuts.updateAppShortcutParameters()
         #if DEBUG
         MainActor.assumeIsolated { TestRenders.start() }
         #endif
