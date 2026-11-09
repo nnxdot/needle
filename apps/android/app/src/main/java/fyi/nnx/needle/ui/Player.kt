@@ -631,7 +631,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
             val controls: @Composable () -> Unit = {
                 val shape = rememberShape(song)
-                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape, format = song.format) }
+                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape, format = song.quality.ifEmpty { song.format }) }
                 androidx.compose.animation.AnimatedVisibility(stopped != null) {
                     Text(
                         stopped.orEmpty(),
