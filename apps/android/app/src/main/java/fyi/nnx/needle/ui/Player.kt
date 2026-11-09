@@ -631,7 +631,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
             val controls: @Composable () -> Unit = {
                 val shape = rememberShape(song)
-                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape) }
+                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape, format = song.format) }
                 androidx.compose.animation.AnimatedVisibility(stopped != null) {
                     Text(
                         stopped.orEmpty(),
@@ -1422,7 +1422,7 @@ private fun SmallNowPlaying(song: Song) {
  * the song moves only when it lets go.
  */
 @Composable
-private fun SeekBar(position: Double, duration: Double, playing: Boolean, heights: List<Float> = emptyList()) {
+private fun SeekBar(position: Double, duration: Double, playing: Boolean, heights: List<Float> = emptyList(), format: String = "") {
     var held by remember { mutableStateOf<Float?>(null) }
     val length = duration.coerceAtLeast(1.0).toFloat()
     // Where it was just sent: shown until the player is there (a moment later, at its next
@@ -1487,9 +1487,23 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean, height
                 Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White))
             }
         }
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(time((shown * length).toDouble()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
             Spacer(Modifier.weight(1f))
+            // The song's format ("FLAC 24/48"), between the times in a thin pill, as on the iPhone.
+            if (format.isNotBlank()) {
+                Text(
+                    format,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    modifier = Modifier
+                        .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+                Spacer(Modifier.weight(1f))
+            }
             // A song whose length is not known has no time left to show.
             if (duration > 0) Text("-" + time(length.toDouble() - shown * length), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
         }
