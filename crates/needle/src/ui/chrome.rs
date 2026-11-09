@@ -312,7 +312,10 @@ impl AppView {
         } else {
             width
         };
-        div()
+        // Folding or unfolding (Ctrl+B), it moves from the width it had to the new one.
+        let (fold, from, since) = self.sidebar_fold;
+        self.sidebar_drawn.set(width);
+        let element = div()
             .w(px(width))
             .flex_shrink_0()
             // As a pane it stretches to the row's height, less its margin.
@@ -677,7 +680,15 @@ impl AppView {
                         Page::Settings,
                         cx,
                     )),
-            )
+            );
+        // Only just after the fold: a sidebar drawn again later (after the big player) does
+        // not move again.
+        if fold == 0 || since.elapsed() > std::time::Duration::from_millis(300) {
+            return element.into_any_element();
+        }
+        super::motion::animate(element, ("sidebar-fold", fold), 220, cx, move |el, t| {
+            el.w(px(from + (width - from) * t))
+        })
     }
 
     pub(super) fn signal_path(&self, cx: &App) -> (String, String, bool) {

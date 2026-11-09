@@ -617,6 +617,10 @@ pub struct AppView {
     /// The height of the grid beside the A–Z bar, as last drawn (0 before), so the bar holds
     /// as many letters as fit on the sheet.
     letter_room: std::rc::Rc<std::cell::Cell<f32>>,
+    /// The sidebar's folds (Ctrl+B) so far, and the width the last one moves from, since when.
+    sidebar_fold: (u64, f32, Instant),
+    /// The sidebar's width as last drawn.
+    sidebar_drawn: std::cell::Cell<f32>,
     /// The window's content height at the last frame, for parts that must fit it.
     window_height: f32,
     grid_scroll: UniformListScrollHandle,
@@ -1333,6 +1337,8 @@ impl AppView {
             list_scroll: UniformListScrollHandle::new(),
             header_fold: std::cell::Cell::new(0.),
             letter_room: Default::default(),
+            sidebar_fold: (0, 0., Instant::now()),
+            sidebar_drawn: std::cell::Cell::new(0.),
             window_height: 800.,
             grid_scroll: UniformListScrollHandle::new(),
             scroll_memory: Default::default(),
@@ -1587,6 +1593,11 @@ impl AppView {
     }
     fn toggle_sidebar(&mut self) {
         self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
+        self.sidebar_fold = (
+            self.sidebar_fold.0 + 1,
+            self.sidebar_drawn.get(),
+            Instant::now(),
+        );
         self.persist_settings();
     }
     fn persist_settings(&mut self) {
