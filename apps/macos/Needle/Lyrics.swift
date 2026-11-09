@@ -505,12 +505,14 @@ struct LyricStrip: View {
 
     @MainActor static var shows: Bool {
         let store = Store.shared
-        guard store.settings.playerLyrics, store.current != nil, !store.big, !store.immersive,
-              let lyrics = store.lyrics, !lyrics.instrumental else { return false }
+        guard store.settings.playerLyrics, store.current != nil, !store.big, !store.immersive else { return false }
         // The Lyrics panel open shows them all: the one line under the player would only repeat
         // it, and lay over it.
         if store.settings.showInspector && store.panel == .lyrics { return false }
-        return !lyrics.lines.isEmpty
+        if let lyrics = store.lyrics { return !lyrics.instrumental && !lyrics.lines.isEmpty }
+        // A new song's still being looked up: the strip keeps its room (a faint ♪) when the
+        // last song had one, so the foot of the page does not jump at each song.
+        return store.lyricsLooking && store.lyricsTimed
     }
 
     var body: some View {

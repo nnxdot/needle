@@ -52,6 +52,9 @@ final class Store {
     private(set) var lyrics: Lyrics?
     private(set) var lyricsFor: String?
     private(set) var lyricsLooking = false
+    /// The last lyrics found were timed: while the next song's are looked up, the strip under
+    /// the player keeps its room (see `LyricStrip.shows`).
+    private(set) var lyricsTimed = false
     /// The timed lyric line being sung; it changes only when the line does.
     private(set) var lyricLine: Int?
     private(set) var scan = ScanStatus(running: false, scanned: 0, imported: 0, current: "", error: nil)
@@ -453,6 +456,8 @@ final class Store {
             lyrics = found ?? nil
             lyricsFor = id
             lyricsLooking = false
+            let timed = lyrics.map { !$0.instrumental && !$0.lines.isEmpty } ?? false
+            if timed != lyricsTimed { lyricsTimed = timed }
             if needsCover {
                 coverFetched.insert(id)
                 let got = await Task.detached { (try? core.fetchCover(id: id)) ?? 0 }.value
