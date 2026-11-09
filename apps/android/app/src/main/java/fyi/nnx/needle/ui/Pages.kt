@@ -707,7 +707,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
         AlertDialog(
             onDismissRequest = { deleting = false },
             title = { Text("Delete ${d.name}?") },
-            text = { Text("The playlist goes. Its songs stay in your library.") },
+            text = { Text(if (d.server) "The playlist goes, here and on your music server. Its songs stay." else "The playlist goes. Its songs stay in your library.") },
             confirmButton = {
                 TextButton(onClick = {
                     deleting = false

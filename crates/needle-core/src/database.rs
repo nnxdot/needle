@@ -482,10 +482,43 @@ impl Library {
         if let Some(q) = &playlist.query {
             query::compile(q, chrono::Utc::now().timestamp())?;
         }
+        // A server playlist stays one when an app saves it without the server part (see
+        // `server_playlists`); changes to it go to the server.
+        let mut playlist = std::borrow::Cow::Borrowed(playlist);
+        if playlist.server.is_none()
+            && let Some(link) = self.playlist_by_id(&playlist.id)?.and_then(|p| p.server)
+        {
+            playlist.to_mut().server = Some(link);
+        }
+        if playlist.server.is_some() && playlist.query.is_some() {
+            bail!("A playlist on your music server holds songs you pick; it cannot follow rules")
+        }
+        self.store_playlist(&playlist)?;
+        if playlist.edited_here()
+            && let Some(plugin) = playlist.server_plugin()
+        {
+            crate::server_playlists::edited(plugin);
+        }
+        Ok(())
+    }
+    /// Save a playlist as it is (the server playlists' sync).
+    pub(crate) fn store_playlist(&self, playlist: &Playlist) -> Result<()> {
         self.connection()?.execute("INSERT INTO playlists VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,data=excluded.data", params![playlist.id,playlist.name,serde_json::to_string(playlist)?])?;
         Ok(())
     }
+    /// Delete a playlist. A server playlist is deleted on the server too, at the next sync
+    /// (see `server_playlists`).
     pub fn delete_playlist(&self, id: &str) -> Result<()> {
+        if let Some(link) = self.playlist_by_id(id)?.and_then(|p| p.server) {
+            crate::server_playlists::remember_deleted(self, &link)?;
+            self.drop_playlist(id)?;
+            crate::server_playlists::edited(&link.plugin);
+            return Ok(());
+        }
+        self.drop_playlist(id)
+    }
+    /// Delete a playlist from Needle only.
+    pub(crate) fn drop_playlist(&self, id: &str) -> Result<()> {
         self.connection()?
             .execute("DELETE FROM playlists WHERE id=?", [id])?;
         Ok(())

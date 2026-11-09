@@ -366,8 +366,14 @@ struct PlaylistsView: View {
                     PlaylistCover(playlist: playlist).frame(width: 56, height: 56).clipShape(.rect(cornerRadius: 8))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(playlist.name).lineLimit(1)
-                        Text(playlist.smart ? "Smart playlist" : count(Int(playlist.songs), "song"))
-                            .font(.needle(.subheadline)).foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            // A playlist on a music server, marked as its songs are.
+                            if playlist.server && store.app.serverMark {
+                                Image(systemName: "server.rack").font(.needle(.caption2)).accessibilityLabel("On your music server")
+                            }
+                            Text(playlist.smart ? "Smart playlist" : count(Int(playlist.songs), "song"))
+                        }
+                        .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     }
                 }
             }

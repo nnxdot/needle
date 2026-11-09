@@ -394,6 +394,31 @@ fun Cover(path: String?, modifier: Modifier = Modifier, shape: Shape = CoverShap
     }
 }
 
+/**
+ * The line under a playlist's name in a list: how many songs (or that it is smart), with the small
+ * server icon before it for a playlist on a music server (Navidrome), while Settings › Appearance ›
+ * Mark server songs is on.
+ */
+@Composable
+fun PlaylistLine(playlist: fyi.nnx.needle.core.Playlist) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (playlist.server && NeedleApp.instance.app.collectAsState().value.serverMark) {
+            Icon(
+                Icons.Rounded.Dns,
+                contentDescription = "On your music server",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+        Text(
+            if (playlist.smart) "Smart playlist" else count(playlist.songs.toInt(), "song"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
 /** A playlist's picture: its own, a mosaic of four of its songs' covers, or one cover. */
 @Composable
 fun PlaylistCover(playlist: fyi.nnx.needle.core.Playlist, modifier: Modifier = Modifier, shape: Shape = SmallCoverShape) {

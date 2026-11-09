@@ -50,7 +50,12 @@ pub fn export(library: &Library, path: &Path, passphrase: &str) -> Result<()> {
         version: 1,
         tracks,
         listens: library.history(i64::MAX as usize)?,
-        playlists: library.playlists()?,
+        // A music server's playlists come from the server on each device that signs in.
+        playlists: library
+            .playlists()?
+            .into_iter()
+            .filter(|p| p.server.is_none())
+            .collect(),
     };
     let payload = serde_json::to_vec(&bundle)?;
     let mut salt = [0u8; 16];

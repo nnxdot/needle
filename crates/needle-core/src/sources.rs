@@ -297,7 +297,12 @@ pub fn apply_with(library: &Library, plugin: &str, songs: &[Song], full: bool) -
         for mut playlist in library.playlists()? {
             if playlist.track_ids.iter().any(|id| removed.contains(id)) {
                 playlist.track_ids.retain(|id| !removed.contains(id));
-                library.save_playlist(&playlist)?;
+                // A server playlist's songs come back with its own sync: this is not a change
+                // to send to the server.
+                if let Some(link) = &mut playlist.server {
+                    link.songs.retain(|id| !removed.contains(id));
+                }
+                library.store_playlist(&playlist)?;
             }
         }
     }

@@ -472,11 +472,7 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
                 PlaylistCover(playlist, Modifier.size(56.dp), SmallCoverShape)
                 Column(Modifier.weight(1f)) {
                     Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        if (playlist.smart) "Smart playlist" else count(playlist.songs.toInt(), "song"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    PlaylistLine(playlist)
                 }
             }
         }

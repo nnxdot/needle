@@ -155,12 +155,24 @@ struct PlaylistModel: Codable, Identifiable, Hashable {
     var description: String
     var cover: String?
     var rules: RuleSet?
+    /// For a playlist on a music server (Navidrome): where it lives and how it was at the last
+    /// sync. Kept as it came: the core compares it with the playlist to send changes there.
+    var server: ServerLink? = nil
 
     var smart: Bool { query != nil }
 
     static func new() -> PlaylistModel {
         PlaylistModel(id: "", name: "", query: nil, trackIds: [], updatedAt: 0, description: "", cover: nil, rules: nil)
     }
+}
+
+/// Where a server playlist lives (the core's `ServerPlaylist`).
+struct ServerLink: Codable, Hashable {
+    var plugin: String
+    var id: String
+    var name: String
+    var songs: [String]
+    var comment: String
 }
 
 struct RuleSet: Codable, Hashable {

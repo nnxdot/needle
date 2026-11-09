@@ -321,6 +321,12 @@ pub enum PluginEvent {
     /// Refresh everything: the whole list, every cover again, and songs no longer on the
     /// server leave the library (see `sources::apply_with`).
     SourceRefresh(String),
+    /// Bring a source's playlists in step with the server's (see `server_playlists`); with
+    /// `only_edited`, only send the changes made in Needle.
+    SourcePlaylists {
+        plugin: String,
+        only_edited: bool,
+    },
     /// One page of a sync (sent by the plugin thread to itself, so streams are not held up).
     SourceSyncPage {
         plugin: String,
@@ -476,6 +482,15 @@ impl PluginHost {
         {
             let host = host.clone();
             crate::sources::set_resolver(move |plugin, id| host.stream_link(plugin, id));
+        }
+        {
+            let tx = host.tx.clone();
+            crate::server_playlists::set_edit_hook(move |plugin| {
+                let _ = tx.send(PluginEvent::SourcePlaylists {
+                    plugin: plugin.into(),
+                    only_edited: true,
+                });
+            });
         }
         let own = host.tx.clone();
         std::thread::Builder::new()
@@ -875,6 +890,14 @@ fn run(
             }
             PluginEvent::SourceSignOut(plugin) => {
                 if let Some(target) = source_plugin(&mut loaded, &plugin) {
+                    // Changes to its playlists made in Needle go to the server first; its
+                    // playlists then leave Needle (not the server).
+                    if let Some(native) = &target.native
+                        && native.signed_in()
+                    {
+                        let _ = crate::server_playlists::sync(&library, &plugin, native, true);
+                    }
+                    let _ = crate::server_playlists::forget(&library, &plugin);
                     let _ = call_source(target, "sign_out", vec![]);
                     let _ = crate::sources::forget(&library, &plugin);
                     refresh_source(target, &library);
@@ -961,6 +984,18 @@ fn run(
                     let _ = tx.send(PluginEvent::SourceSyncPage { plugin, page: 0 });
                 }
                 publish(&loaded);
+            }
+            PluginEvent::SourcePlaylists {
+                plugin,
+                only_edited,
+            } => {
+                // Only sources that keep playlists (the built-in Navidrome / Subsonic), signed
+                // in. Run beside the plugin thread: a server with many playlists takes a while.
+                if source_plugin(&mut loaded, &plugin).is_some_and(|t| {
+                    t.native.is_some() && t.info.source.as_ref().is_some_and(|s| s.signed_in)
+                }) {
+                    sync_playlists(&library, &actions, plugin, only_edited);
+                }
             }
             PluginEvent::SourceSyncPage { plugin, page } => {
                 let Some(target) = source_plugin(&mut loaded, &plugin) else {
@@ -1052,6 +1087,10 @@ fn run(
                             )));
                         }
                         actions(HostAction::LibraryChanged);
+                        let _ = tx.send(PluginEvent::SourcePlaylists {
+                            plugin: plugin.clone(),
+                            only_edited: false,
+                        });
                         if !synced.covers.is_empty() {
                             let (library, actions) = (library.clone(), actions.clone());
                             std::thread::spawn(move || {
@@ -1101,6 +1140,67 @@ fn run(
             }
         }
     }
+}
+
+/// Sources whose changes made in Needle wait a moment to be sent (see `sync_playlists`).
+static PLAYLISTS_WAITING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Bring the built-in server's playlists in step, on a thread of its own. Changes made in
+/// Needle wait two seconds first, so a run of quick edits (dragging songs) goes as one.
+fn sync_playlists(
+    library: &Library,
+    actions: &Arc<dyn Fn(HostAction) + Send + Sync>,
+    plugin: String,
+    only_edited: bool,
+) {
+    if only_edited
+        && !PLAYLISTS_WAITING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(plugin.clone())
+    {
+        return;
+    }
+    let (library, actions) = (library.clone(), actions.clone());
+    std::thread::spawn(move || {
+        if only_edited {
+            std::thread::sleep(Duration::from_secs(2));
+            PLAYLISTS_WAITING
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&plugin);
+        }
+        let server = crate::subsonic::Subsonic::new(library.clone());
+        match crate::server_playlists::sync(&library, &plugin, &server, only_edited) {
+            Ok(report) => {
+                for note in &report.notes {
+                    actions(HostAction::Notify(format!(
+                        "{}: {note}.",
+                        crate::subsonic::NAME
+                    )));
+                }
+                if report.changed() {
+                    actions(HostAction::LibraryChanged);
+                }
+                if !report.covers.is_empty()
+                    && crate::sources::fetch_covers(&library, &report.covers, || {
+                        actions(HostAction::LibraryChanged)
+                    }) > 0
+                {
+                    actions(HostAction::LibraryChanged);
+                }
+            }
+            Err(error) => {
+                crate::logfile::warn(format!("Server playlists could not sync: {error:#}"));
+                if only_edited {
+                    actions(HostAction::Notify(format!(
+                        "{}: your playlist changes wait for the server: {error:#}",
+                        crate::subsonic::NAME
+                    )));
+                }
+            }
+        }
+    });
 }
 
 /// The turned-on plugin with this id, if it is a music source.

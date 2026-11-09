@@ -49,6 +49,7 @@ pub use secrets::plugin as secret_store;
 pub use secrets::set_android_folder;
 /// The library folder: a test copy's, with a `secrets.json` in it, keeps its secrets there.
 pub use secrets::set_secrets_folder;
+pub mod server_playlists;
 pub mod sources;
 pub mod stems;
 pub mod subsonic;

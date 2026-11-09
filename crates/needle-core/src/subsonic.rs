@@ -373,6 +373,58 @@ impl Subsonic {
     }
 }
 
+/// The server's playlists (see [`crate::server_playlists`]).
+impl crate::server_playlists::Server for Subsonic {
+    fn playlist_ids(&self) -> Result<Vec<String>, String> {
+        let reply = self.ask("getPlaylists", &[])?;
+        Ok(list(&reply["playlists"]["playlist"])
+            .iter()
+            .map(|p| text(&p["id"]))
+            .filter(|id| !id.is_empty())
+            .collect())
+    }
+
+    fn playlist(&self, id: &str) -> Result<crate::server_playlists::Remote, String> {
+        let session = self.session()?;
+        let reply = session.ask("getPlaylist", &[("id", id.to_string())])?;
+        let playlist = &reply["playlist"];
+        let covers = ALBUM_COVERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_default();
+        Ok(crate::server_playlists::Remote {
+            id: id.to_string(),
+            name: text(&playlist["name"]),
+            comment: text(&playlist["comment"]),
+            songs: to_songs(&list(&playlist["entry"]), &session, &covers)
+                .iter()
+                .filter_map(crate::sources::Song::from_value)
+                .collect(),
+        })
+    }
+
+    fn save_playlist(&self, id: &str, name: &str, songs: &[String]) -> Result<(), String> {
+        let session = self.session()?;
+        // createPlaylist with a playlist's id gives it exactly these songs. Sent as a form:
+        // a long playlist does not fit in a link.
+        let mut form = vec![("playlistId", id.to_string())];
+        form.extend(songs.iter().map(|song| ("songId", song.clone())));
+        session.post("createPlaylist", &form)?;
+        session
+            .ask(
+                "updatePlaylist",
+                &[("playlistId", id.to_string()), ("name", name.to_string())],
+            )
+            .map(drop)
+    }
+
+    fn delete_playlist(&self, id: &str) -> Result<(), String> {
+        self.ask("deletePlaylist", &[("id", id.to_string())])
+            .map(drop)
+    }
+}
+
 /// What every request to the server needs (see `Subsonic::session`).
 struct Session {
     server: String,
@@ -390,6 +442,19 @@ impl Session {
 
     fn ask(&self, method: &str, params: &[(&str, String)]) -> Result<Value, String> {
         get(&self.link(method, params))
+    }
+
+    /// Ask with the values in a form instead of the link.
+    fn post(&self, method: &str, params: &[(&str, String)]) -> Result<Value, String> {
+        let body: Vec<String> = params
+            .iter()
+            .map(|(key, value)| format!("{key}={}", encode(value)))
+            .collect();
+        let request = client()?
+            .post(self.link(method, &[]))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body.join("&"));
+        answer(request)
     }
 }
 
@@ -498,9 +563,13 @@ fn client() -> Result<&'static reqwest::blocking::Client, String> {
 
 /// Ask the server at `url`, and return its `subsonic-response` when it says "ok".
 fn get(url: &str) -> Result<Value, String> {
+    answer(client()?.get(url))
+}
+
+/// Send a request to the server, and return its `subsonic-response` when it says "ok".
+fn answer(request: reqwest::blocking::RequestBuilder) -> Result<Value, String> {
     use std::io::Read;
-    let response = client()?
-        .get(url)
+    let response = request
         .timeout(TIMEOUT)
         .send()
         .map_err(|e| crate::sources::http_error(&e))?;
@@ -604,6 +673,150 @@ fn pick_lyrics(all: &[&Value]) -> Option<Lyrics> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Against a real, throwaway Navidrome (never a person's own): set NEEDLE_TEST_NAVIDROME
+    /// to its address, and NEEDLE_TEST_NAVIDROME_USER and _PASSWORD, with two playlists made
+    /// in its web page ("Web Road Trip" with 3 songs, "Web Gym" with 2), then run
+    /// `cargo test -p needle-core navidrome_playlists_live -- --ignored`.
+    #[test]
+    #[ignore]
+    fn navidrome_playlists_live() {
+        use crate::server_playlists::{Server, playlist_id, sync};
+        let env = |key: &str| std::env::var(key).unwrap_or_default();
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let server = Subsonic::new(library.clone());
+        server
+            .sign_in(&BTreeMap::from([
+                ("server".to_string(), env("NEEDLE_TEST_NAVIDROME")),
+                ("username".to_string(), env("NEEDLE_TEST_NAVIDROME_USER")),
+                (
+                    "password".to_string(),
+                    env("NEEDLE_TEST_NAVIDROME_PASSWORD"),
+                ),
+            ]))
+            .unwrap();
+        let mut songs = vec![];
+        for page in 0.. {
+            let list = server.songs(page).unwrap();
+            if list.is_empty() {
+                break;
+            }
+            songs.extend(list.iter().filter_map(crate::sources::Song::from_value));
+        }
+        crate::sources::apply(&library, ID, &songs).unwrap();
+        let ours = |name: &str| {
+            library
+                .playlists()
+                .unwrap()
+                .into_iter()
+                .find(|p| p.name == name)
+        };
+        let titles = |p: &crate::model::Playlist| -> Vec<String> {
+            p.track_ids
+                .iter()
+                .map(|id| library.track(id).unwrap().unwrap().title)
+                .collect()
+        };
+
+        // Made in the web page: they come in, with their songs and comment.
+        let report = sync(&library, ID, &server, false).unwrap();
+        assert_eq!(report.added, 2, "{report:?}");
+        let trip = ours("Web Road Trip").unwrap();
+        assert_eq!(trip.track_ids.len(), 3);
+        assert_eq!(trip.description, "made in the web UI");
+        let gym = ours("Web Gym").unwrap();
+        let (trip_id, gym_id) = (
+            trip.server.clone().unwrap().id,
+            gym.server.clone().unwrap().id,
+        );
+        assert_eq!(trip.id, playlist_id(ID, &trip_id));
+
+        // Changed in Needle: renamed, one song out, the rest the other way round.
+        let mut edited = trip.clone();
+        edited.name = "Road Trip from Needle".into();
+        edited.track_ids.remove(0);
+        edited.track_ids.reverse();
+        library.save_playlist(&edited).unwrap();
+        let report = sync(&library, ID, &server, true).unwrap();
+        assert_eq!(report.sent, 1, "{report:?}");
+        let there = server.playlist(&trip_id).unwrap();
+        assert_eq!(there.name, "Road Trip from Needle");
+        assert_eq!(
+            there
+                .songs
+                .iter()
+                .map(|s| s.title.clone())
+                .collect::<Vec<_>>(),
+            titles(&edited)
+        );
+
+        // Changed on the server: renamed, a song added.
+        let extra = songs
+            .iter()
+            .find(|s| !gym.track_ids.contains(&crate::sources::track_id(ID, &s.id)))
+            .unwrap();
+        server
+            .ask(
+                "updatePlaylist",
+                &[
+                    ("playlistId", gym_id.clone()),
+                    ("name", "Gym, renamed on the server".into()),
+                    ("songIdToAdd", extra.id.clone()),
+                ],
+            )
+            .unwrap();
+        let report = sync(&library, ID, &server, false).unwrap();
+        assert_eq!(report.updated, 1, "{report:?}");
+        let gym = ours("Gym, renamed on the server").unwrap();
+        assert_eq!(gym.track_ids.len(), 3);
+        assert_eq!(titles(&gym).last(), Some(&extra.title));
+
+        // Deleted on the server: gone from Needle.
+        server
+            .ask("deletePlaylist", &[("id", gym_id.clone())])
+            .unwrap();
+        let report = sync(&library, ID, &server, false).unwrap();
+        assert_eq!(report.removed, 1, "{report:?}");
+        assert!(ours("Gym, renamed on the server").is_none());
+
+        // Deleted in Needle: gone from the server.
+        library.delete_playlist(&edited.id).unwrap();
+        let report = sync(&library, ID, &server, true).unwrap();
+        assert_eq!(report.sent, 1, "{report:?}");
+        assert!(server.playlist_ids().unwrap().is_empty());
+
+        // A new one whose song is not in the library: the song comes with it.
+        let missing = &songs[0];
+        server
+            .ask(
+                "createPlaylist",
+                &[("name", "Late".into()), ("songId", missing.id.clone())],
+            )
+            .unwrap();
+        library
+            .connection()
+            .unwrap()
+            .execute(
+                "DELETE FROM tracks WHERE id=?",
+                [crate::sources::track_id(ID, &missing.id)],
+            )
+            .unwrap();
+        sync(&library, ID, &server, false).unwrap();
+        let late = ours("Late").unwrap();
+        assert_eq!(titles(&late), std::slice::from_ref(&missing.title));
+
+        // Signing out takes it from Needle, not from the server.
+        crate::server_playlists::forget(&library, ID).unwrap();
+        assert!(library.playlists().unwrap().is_empty());
+        assert_eq!(server.playlist_ids().unwrap().len(), 1);
+        server
+            .ask(
+                "deletePlaylist",
+                &[("id", server.playlist_ids().unwrap()[0].clone())],
+            )
+            .unwrap();
+    }
 
     #[test]
     fn addresses_lose_spaces_and_end_slashes() {

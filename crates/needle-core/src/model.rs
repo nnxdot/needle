@@ -135,6 +135,40 @@ pub struct Playlist {
     /// `None` for a rule typed by hand.
     #[serde(default)]
     pub rules: Option<RuleSet>,
+    /// For a playlist that lives on a music server (a Navidrome playlist): which one, and
+    /// how it was when last synced. `None` for Needle's own playlists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<ServerPlaylist>,
+}
+
+/// Where a server playlist lives, and how it was at the last sync (see
+/// [`crate::server_playlists`]): what both sides are compared with, to know which side changed.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerPlaylist {
+    /// The source that brings it (its plugin id, such as "subsonic").
+    pub plugin: String,
+    /// Its id on the server.
+    pub id: String,
+    /// Its name at the last sync.
+    pub name: String,
+    /// Its songs (library ids) at the last sync, in order.
+    pub songs: Vec<String>,
+    /// Its comment on the server at the last sync.
+    pub comment: String,
+}
+
+impl Playlist {
+    /// The source that brings this playlist, when it lives on a music server.
+    pub fn server_plugin(&self) -> Option<&str> {
+        self.server.as_ref().map(|s| s.plugin.as_str())
+    }
+    /// A server playlist changed in Needle since the last sync (its name or its songs).
+    pub fn edited_here(&self) -> bool {
+        self.server
+            .as_ref()
+            .is_some_and(|s| s.name != self.name || s.songs != self.track_ids)
+    }
 }
 
 /// A smart playlist's rules as the builder shows them.

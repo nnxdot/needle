@@ -203,6 +203,11 @@ struct PlaylistRow: View {
             PlaylistArt(playlist: playlist, side: rail ? 28 : 20)
             if !rail {
                 Text(playlist.name).lineLimit(1)
+                // A playlist on a music server, marked as its songs are.
+                if playlist.server && store.settings.serverMark {
+                    Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
+                        .help("On your music server").accessibilityLabel("On your music server")
+                }
                 if playlist.smart {
                     Spacer()
                     Image(systemName: "sparkles").font(.needle(.caption2)).foregroundStyle(.secondary)
@@ -237,7 +242,7 @@ struct PlaylistRow: View {
                 Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadPlaylists() }
             }
         } message: {
-            Text("Your music files are untouched.")
+            Text(playlist.server ? "It is deleted on your music server too. Your music files are untouched." : "Your music files are untouched.")
         }
     }
 

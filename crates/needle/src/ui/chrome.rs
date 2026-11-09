@@ -475,6 +475,18 @@ impl AppView {
                                     Page::Playlist(playlist.id.clone()),
                                     cx,
                                 )
+                                // A music server's playlist: a small server icon, as its songs have.
+                                .when(
+                                    playlist.server.is_some() && self.settings.server_mark && !rail,
+                                    |el| {
+                                        el.child(
+                                            glyph("server")
+                                                .flex_shrink_0()
+                                                .size(px(11.))
+                                                .text_color(p.ink_3),
+                                        )
+                                    },
+                                )
                                 .on_mouse_down(MouseButton::Right, {
                                     let id = playlist.id.clone();
                                     cx.listener(move |this, event: &MouseDownEvent, _, cx| {

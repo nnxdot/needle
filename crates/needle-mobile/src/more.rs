@@ -91,6 +91,9 @@ pub struct PlaylistDetail {
     /// Its own picture, if it has one (else the page shows its songs' covers).
     #[uniffi(default = None)]
     pub artwork: Option<String>,
+    /// It lives on a music server: changes to it, and deleting it, go to the server too.
+    #[uniffi(default = false)]
+    pub server: bool,
 }
 
 fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database::Library) -> Stats {
@@ -348,6 +351,7 @@ impl Needle {
                 .unzip()
         };
         Ok(PlaylistDetail {
+            server: playlist.server.is_some(),
             artwork: playlist.cover.clone(),
             id: playlist.id,
             name: playlist.name,
