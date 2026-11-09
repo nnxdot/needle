@@ -268,7 +268,13 @@ struct AlbumProblemsView: View {
         .navigationDestination(isPresented: $lookingUpAll) {
             LookUpAllView(albums: albums ?? []) { Task { await load() } }
         }
-        .task { await load() }
+        .task {
+            await load()
+            #if DEBUG
+            // For testing from a shell: -look-up-all starts Look up all.
+            if CommandLine.arguments.contains("-look-up-all"), online, (albums?.count ?? 0) > 1 { lookingUpAll = true }
+            #endif
+        }
     }
 
     private func load() async {
