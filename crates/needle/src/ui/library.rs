@@ -1467,6 +1467,23 @@ impl AppView {
             .flex_col()
             .child(with_scrollbar(list, &self.grid_scroll))
             .children(self.letter_bar(columns, cx))
+            // Measure the grid on the sheet, so the A–Z bar's letters fit what is really
+            // there; draw again when it changed.
+            .child({
+                let room = self.letter_room.clone();
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, _| {
+                        let height = f32::from(bounds.size.height);
+                        if (room.get() - height).abs() > 0.5 {
+                            room.set(height);
+                            window.request_animation_frame();
+                        }
+                    },
+                )
+                .absolute()
+                .size_full()
+            })
             .into_any_element()
     }
 

@@ -609,6 +609,9 @@ pub struct AppView {
     list_scroll: UniformListScrollHandle,
     /// How far the header above the list was folded when last drawn, from 0 to 1.
     header_fold: std::cell::Cell<f32>,
+    /// The height of the grid beside the A–Z bar, as last drawn (0 before), so the bar holds
+    /// as many letters as fit on the sheet.
+    letter_room: std::rc::Rc<std::cell::Cell<f32>>,
     /// The window's content height at the last frame, for parts that must fit it.
     window_height: f32,
     grid_scroll: UniformListScrollHandle,
@@ -1320,6 +1323,7 @@ impl AppView {
             focus,
             list_scroll: UniformListScrollHandle::new(),
             header_fold: std::cell::Cell::new(0.),
+            letter_room: Default::default(),
             window_height: 800.,
             grid_scroll: UniformListScrollHandle::new(),
             scroll_memory: Default::default(),
