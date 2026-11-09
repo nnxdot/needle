@@ -407,12 +407,14 @@ struct PlaylistsView: View {
                         Text(playlist.name).lineLimit(1)
                         HStack(spacing: 4) {
                             // A playlist on a music server, marked as its songs are.
-                            if playlist.server && store.app.serverMark {
+                            // Read-only ones always: they behave differently.
+                            if playlist.server && (store.app.serverMark || playlist.readOnly) {
                                 Image(systemName: "server.rack").font(.needle(.caption2)).accessibilityLabel("On your music server")
                             }
                             Text(playlist.smart ? "Smart playlist" : count(Int(playlist.songs), "song"))
+                            if playlist.readOnly { Text("· Read-only on the server") }
                         }
-                        .font(.needle(.subheadline)).foregroundStyle(.secondary)
+                        .font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }
