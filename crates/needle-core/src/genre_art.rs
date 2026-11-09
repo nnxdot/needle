@@ -256,6 +256,15 @@ pub fn key(genre: &str) -> String {
     }
 }
 
+/// The genres in one genre tag: several when a tagger wrote them with `;` or a NUL between
+/// (ID3v2.4). A space is part of a genre's name ("Classic Rock"), never a split.
+fn genres_in(field: &str) -> impl Iterator<Item = &str> {
+    field
+        .split([';', '\0'])
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+}
+
 /// One genre after merging: its name, spellings, songs, and plays.
 #[derive(Clone, Debug, Default)]
 struct Merged {
@@ -283,11 +292,7 @@ impl Library {
         for row in rows {
             let (field, plays) = row?;
             // Several genres in one tag, as some taggers write them.
-            for genre in field
-                .split([';', '\0'])
-                .map(str::trim)
-                .filter(|g| !g.is_empty())
-            {
+            for genre in genres_in(&field) {
                 let k = key(genre);
                 if k.is_empty() {
                     continue;
@@ -342,7 +347,12 @@ impl Library {
                 }
             })
             .collect();
-        let aspect = aspect.clamp(0.4, 4.);
+        // A size not known yet (0 / 0) is no number: the spirals would never find a place.
+        let aspect = if aspect.is_finite() {
+            aspect.clamp(0.4, 4.)
+        } else {
+            1.
+        };
         Ok(match kind {
             ArtKind::Cloud => cloud(items, &weights, aspect),
             ArtKind::Bubbles => bubbles(items, &weights, aspect),
@@ -365,11 +375,7 @@ impl Library {
         let mut ids = vec![];
         for row in rows {
             let (id, field) = row?;
-            if field
-                .split([';', ' '])
-                .map(str::trim)
-                .any(|g| !g.is_empty() && keys.contains(&key(g)))
-            {
+            if genres_in(&field).any(|g| keys.contains(&key(g))) {
                 ids.push(id);
             }
         }
@@ -691,6 +697,43 @@ mod tests {
             library.songs_of_genres(&pop.spellings, 500).unwrap().len(),
             2
         );
+    }
+
+    #[test]
+    fn a_two_word_genre_plays_and_one_word_matches_only_itself() {
+        let (_dir, library) = library(&[
+            ("Classic Rock", 2),
+            ("Hip Hop", 3),
+            ("Rock", 1),
+            ("Hard Rock", 4),
+            ("Indie Rock; Pop", 5),
+        ]);
+        let art = library.genre_art(ArtKind::Bubbles, false, 1.5, 50).unwrap();
+        let songs = |name: &str| {
+            let item = art.items.iter().find(|i| i.genre == name).unwrap();
+            assert_eq!(
+                library.songs_of_genres(&item.spellings, 500).unwrap().len(),
+                item.songs,
+                "{name} plays as many songs as its picture counts"
+            );
+            item.songs
+        };
+        assert_eq!(songs("Classic Rock"), 2);
+        assert_eq!(songs("Hip Hop"), 3);
+        assert_eq!(songs("Rock"), 1, "Hard Rock and Indie Rock are not Rock");
+        assert_eq!(songs("Pop"), 5);
+    }
+
+    #[test]
+    fn a_size_that_is_no_number_still_lays_out() {
+        let (_dir, library) = library(&[("Rock", 3), ("Jazz", 2)]);
+        for kind in [ArtKind::Bubbles, ArtKind::Cloud] {
+            for aspect in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+                let art = library.genre_art(kind, false, aspect, 50).unwrap();
+                assert_eq!(art.items.len(), 2);
+                assert!(art.height.is_finite());
+            }
+        }
     }
 
     #[test]
