@@ -544,7 +544,7 @@ struct NowPlayingView: View {
                 .pressBounce(favoriteTaps)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(favorite ? "Unfavorite" : "Favorite")
+        .accessibilityLabel(favorite ? "Remove from Favorites" : "Add to Favorites")
         // Only for a tap: not when the star is read for a song that is a favourite.
         .sensoryFeedback(.success, trigger: favoriteTaps) { _, _ in store.app.haptics }
     }

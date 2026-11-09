@@ -425,7 +425,7 @@ struct SelectionActions: ToolbarContent {
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue(songs) }
             Menu {
                 Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
-                Button("Favorite", systemImage: "heart") {
+                Button("Add to Favorites", systemImage: "heart") {
                     let ids = songs.map(\.id)
                     Task {
                         _ = await store.ask { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }
