@@ -131,7 +131,7 @@ impl AppView {
         if self
             .playlists
             .iter()
-            .any(|p| super::playlist_saves::takes_songs(p))
+            .any(super::playlist_saves::takes_songs)
         {
             entries.push(Entry::Sub {
                 icon: "playlist",
@@ -984,7 +984,7 @@ impl AppView {
         if self
             .playlists
             .iter()
-            .any(|p| super::playlist_saves::takes_songs(p))
+            .any(super::playlist_saves::takes_songs)
         {
             entries.push(Entry::item_keep(
                 "playlist",
