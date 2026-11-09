@@ -19,6 +19,8 @@ pub struct FloatView {
     app: WeakEntity<AppView>,
     main: AnyWindowHandle,
     hovered: bool,
+    /// The window glass last asked of the system, and whether it was dark.
+    glass_applied: Option<(super::glass::Material, bool)>,
     /// Pressed and not yet moved: moving now moves the window; letting go is a click.
     pressed: Option<Point<Pixels>>,
     _observe: Subscription,
@@ -58,6 +60,7 @@ impl AppView {
                     app: weak.clone(),
                     main,
                     hovered: false,
+                    glass_applied: None,
                     pressed: None,
                     _observe: cx.observe(&app, |_, _, cx| cx.notify()),
                 });
@@ -193,7 +196,7 @@ impl Render for FloatView {
             window.remove_window();
             return div().into_any_element();
         };
-        let (current, playing, position, favorite) = {
+        let (current, playing, position, favorite, material) = {
             let a = app.read(cx);
             let current = a.playback.current.clone();
             let favorite = current.as_ref().is_some_and(|c| {
@@ -203,8 +206,25 @@ impl Render for FloatView {
                     .map_or(c.track.rating, |t| t.rating)
                     >= 4
             });
-            (current, a.playback.playing, a.playback.position, favorite)
+            (
+                current,
+                a.playback.playing,
+                a.playback.position,
+                favorite,
+                a.material(),
+            )
         };
+        // The card is a pane of the app's glass: the same window glass behind it as Needle's
+        // own window, so its see-through fill shows Mica, Acrylic, or the desktop.
+        if self.glass_applied != Some((material, p.dark)) {
+            super::glass::apply(window, material, p.dark);
+            self.glass_applied = Some((material, p.dark));
+        }
+        use super::glass::Material;
+        let see_through = matches!(
+            material,
+            Material::Mica | Material::Acrylic | Material::Clear
+        );
         let track = current.as_ref().map(|c| &c.track);
         let progress = track
             .filter(|t| t.duration > 0.)
@@ -280,19 +300,32 @@ impl Render for FloatView {
                         }
                     })),
             );
+        // Its corners are the window's: Windows 11 rounds this window by 8 px (`round_corners`);
+        // Windows 10 and Linux keep it square. A rounder card would leave slivers of the bare
+        // window in its corners.
+        let radius = if super::glass::windows_11() {
+            super::glass::SMALL
+        } else {
+            0.
+        };
+        // Tinted glass with the cover's colour from the left, as the floating player; solid
+        // where no window glass shows behind it. The edge light and outline, no shadow: the
+        // card is the whole window.
+        let fill = super::glass::tinted(&p, if see_through { 0.9 } else { 1. });
+        let from = super::motion::mix(fill.opacity(1.), p.glow, if p.dark { 0.22 } else { 0.14 })
+            .opacity(fill.a);
         let card = div()
             .id("float")
             .size_full()
             .relative()
             .overflow_hidden()
-            .rounded(px(14.))
-            .bg(p.raised)
-            .border_1()
-            .border_color(if p.dark {
-                hsla(0., 0., 1., 0.1)
-            } else {
-                hsla(0., 0., 0., 0.1)
-            })
+            .rounded(px(radius))
+            .bg(linear_gradient(
+                90.,
+                linear_color_stop(from, 0.),
+                linear_color_stop(fill, 0.5),
+            ))
+            .map(|el| super::glass::edge(el, super::glass::Lift::Flat, cx))
             .text_color(p.ink)
             .flex()
             .items_center()
@@ -333,7 +366,7 @@ impl Render for FloatView {
                 div()
                     .size(px(72.))
                     .flex_shrink_0()
-                    .rounded(px(10.))
+                    .rounded(px(super::glass::SMALL))
                     .overflow_hidden()
                     .child(artwork(track, 72., cx)),
             )

@@ -172,17 +172,20 @@ pub fn probe(
     .size_full()
 }
 
-/// Windows 11 is build 22000 and later.
+/// Windows 11 is build 22000 and later. Read once.
 pub fn windows_11() -> bool {
     #[cfg(windows)]
     {
-        read_string(
-            windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-            "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-            "CurrentBuildNumber",
-        )
-        .and_then(|b| b.trim().parse::<u32>().ok())
-        .is_some_and(|b| b >= 22000)
+        static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *FOUND.get_or_init(|| {
+            read_string(
+                windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+                "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                "CurrentBuildNumber",
+            )
+            .and_then(|b| b.trim().parse::<u32>().ok())
+            .is_some_and(|b| b >= 22000)
+        })
     }
     #[cfg(not(windows))]
     false
