@@ -10,9 +10,11 @@ struct SettingsView: View {
     @State private var songs: UInt32?
     /// What's new or About, opened from the card's buttons.
     @State private var opened: Route?
+    /// In Settings' two columns (an iPad's wide window): the page open beside the list.
+    var selection: Binding<Route?>? = nil
 
     var body: some View {
-        List {
+        List(selection: selection) {
             Section {
                 header
             }
@@ -76,10 +78,10 @@ struct SettingsView: View {
             // Two buttons in one row, each opening its own page (links in a list row would all
             // open with a tap anywhere on it).
             HStack(spacing: 10) {
-                Button { opened = .whatsNew } label: {
+                Button { open(.whatsNew) } label: {
                     Label("What's new", systemImage: "sparkles").frame(maxWidth: .infinity)
                 }
-                Button { opened = .about } label: {
+                Button { open(.about) } label: {
                     Label("About", systemImage: "info.circle").frame(maxWidth: .infinity)
                 }
             }
@@ -88,6 +90,11 @@ struct SettingsView: View {
             .font(.needle(.subheadline).weight(.medium))
         }
         .padding(.vertical, 6)
+    }
+
+    /// What's new or About: beside the list in two columns, else on a page of their own.
+    private func open(_ route: Route) {
+        if let selection { selection.wrappedValue = route } else { opened = route }
     }
 
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
@@ -103,6 +110,57 @@ struct SettingsView: View {
                 }
             }
             .padding(.vertical, 1)
+        }
+    }
+}
+
+/// Settings in a wide window, as the Mac's Settings window: a large sheet with the sections at
+/// the left and the section's page at the right. In a narrow one (or a sheet made narrow), the
+/// iPhone's list of pages.
+struct SettingsSplit: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var page: Route? = .settingsPlayback
+    @State private var path = NavigationPath()
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        Group {
+            if width >= 640 {
+                NavigationSplitView {
+                    SettingsView(selection: $page)
+                        .toolbar { done }
+                        .navigationSplitViewColumnWidth(min: 300, ideal: 330, max: 380)
+                } detail: {
+                    NavigationStack(path: $path) {
+                        RoutePage(route: page ?? .settingsPlayback).routes()
+                    }
+                    // Each section starts on its own page.
+                    .id(page)
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                NavigationStack {
+                    SettingsView().routes().toolbar { done }
+                }
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .scrollEdgeEffectStyle(.soft, for: .all)
+        .readsWide()
+        #if DEBUG
+        // Test builds: -settings <page> opens Settings on that page.
+        .onAppear {
+            let pages: [String: Route] = ["appearance": .settingsAppearance, "sound": .settingsSound, "library": .settingsLibrary,
+                                          "fixlibrary": .fixLibrary, "sources": .sources, "about": .about, "whatsnew": .whatsNew, "playback": .settingsPlayback]
+            if let name = UserDefaults.standard.string(forKey: "settings-page"), let route = pages[name] { page = route }
+        }
+        #endif
+    }
+
+    private var done: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { dismiss() }
         }
     }
 }

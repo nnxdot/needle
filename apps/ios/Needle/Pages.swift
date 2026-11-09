@@ -60,6 +60,7 @@ struct ScanPill: View {
 /// and artists, each with a line saying what it holds.
 struct HomeView: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     @State private var home: Home?
     @State private var favorites: [Album] = []
     /// What played on this day one and five years ago.
@@ -109,8 +110,14 @@ struct HomeView: View {
         .themed()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: Route.settings) { Image(systemName: "gearshape") }
-                    .accessibilityLabel("Settings")
+                // In a wide window Settings is a large sheet of its own, as on the Mac.
+                if wide {
+                    Button { store.showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                } else {
+                    NavigationLink(value: Route.settings) { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                }
             }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .folder], allowsMultipleSelection: true) { result in
@@ -296,7 +303,10 @@ struct LibraryView: View {
     @Environment(Store.self) private var store
     @State private var added: [Album] = []
 
-    private let rows: [(String, String, Route)] = [
+    private var rows: [(String, String, Route)] { Self.parts }
+
+    /// The Library's parts: its page's rows, and their own entries in an iPad's sidebar.
+    static let parts: [(String, String, Route)] = [
         ("Playlists", "music.note.list", .playlists),
         ("Artists", "music.microphone", .artists),
         ("Albums", "square.stack", .albums),
