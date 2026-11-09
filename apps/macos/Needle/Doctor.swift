@@ -10,6 +10,30 @@ struct DoctorPage: View {
     @State private var confirmForget = false
 
     var body: some View {
+        // One page that scrolls: the cards, then the tool, whose own list scrolls inside a box
+        // about the window's height. (Fixed above the tool, the cards squeezed it to nothing in
+        // a small window.)
+        GeometryReader { geo in
+            ScrollView {
+                page(toolHeight: max(380, geo.size.height - 130))
+            }
+        }
+        .task(id: store.libraryVersion) {
+            health = JSON.decode(LibraryHealth.self, await store.load { $0.libraryHealthJson() })
+        }
+        .confirmationDialog("Forget \(count(health?.gone ?? 0, "song")) whose file is gone?", isPresented: $confirmForget) {
+            Button("Forget Them", role: .destructive) {
+                Task {
+                    if let n = await store.ask({ try $0.forgetGone() }) { store.notify("Forgot \(count(Int(n), "song")).") }
+                    store.libraryChanged()
+                }
+            }
+        } message: {
+            Text("They leave the library. Their plays stay in your history, and nothing on disk changes.")
+        }
+    }
+
+    private func page(toolHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Fix my library").font(store.display(28))
@@ -27,28 +51,18 @@ struct DoctorPage: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 420)
-            switch tab {
-            case "Covers": CoversTab()
-            case "Tags": TagsTab()
-            case "Organize": OrganizeTab()
-            default: DuplicatesTab()
-            }
-        }
-        .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .task(id: store.libraryVersion) {
-            health = JSON.decode(LibraryHealth.self, await store.load { $0.libraryHealthJson() })
-        }
-        .confirmationDialog("Forget \(count(health?.gone ?? 0, "song")) whose file is gone?", isPresented: $confirmForget) {
-            Button("Forget Them", role: .destructive) {
-                Task {
-                    if let n = await store.ask({ try $0.forgetGone() }) { store.notify("Forgot \(count(Int(n), "song")).") }
-                    store.libraryChanged()
+            Group {
+                switch tab {
+                case "Covers": CoversTab()
+                case "Tags": TagsTab()
+                case "Organize": OrganizeTab()
+                default: DuplicatesTab()
                 }
             }
-        } message: {
-            Text("They leave the library. Their plays stay in your history, and nothing on disk changes.")
+            .frame(height: toolHeight, alignment: .top)
         }
+        .padding(28)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     /// The cards: what is wrong, how much, and what a click does.
