@@ -181,7 +181,7 @@ struct NumbersPage: View {
                 ShelfTitle(title: "\(title) · \(total.formatted())", detail: note, all: nil)
                 PagedRow(tile: 140, spacing: 18, middle: 70) {
                     LazyHStack(alignment: .top, spacing: 18) {
-                        ForEach(albums) { album in AlbumTile(album: album, side: 140) }
+                        ForEach(albums) { album in AlbumTile(album: album, side: 140, place: "numbers") }
                     }
                     .padding(.horizontal, 2)
                     .padding(.bottom, 4)

@@ -122,7 +122,7 @@ struct SearchPage: View {
                 ShelfTitle(title: "Albums", detail: nil, all: .albums)
                 PagedRow(tile: 156, spacing: 18, middle: 78) {
                     LazyHStack(alignment: .top, spacing: 18) {
-                        ForEach(found.albums) { AlbumTile(album: $0, side: 156) }
+                        ForEach(found.albums) { AlbumTile(album: $0, side: 156, place: "search") }
                     }
                     .padding(.horizontal, 2)
                 }

@@ -105,8 +105,11 @@ final class Store {
     /// An album's, artist's, or playlist's page has scrolled its big title away: the title bar
     /// shows the name instead.
     var headerFolded = false
-    /// The album tile just chosen (its own id), whose cover grows into the album page's.
-    var travelingTile: UUID?
+    /// The album tile just chosen ("<place>|<album's rule>"), whose cover grows into the album
+    /// page's, and back into the tile on Back. Kept while its album's page shows, and let go of
+    /// once the way back has been flown (or another page opens).
+    var travelingTile: String?
+    @ObservationIgnored private var landing: Task<Void, Never>?
     /// The namespace the traveling cover moves in (the main window's).
     @ObservationIgnored var coverSpace: Namespace.ID?
     /// The song the details panel describes: the last one clicked.
@@ -735,13 +738,33 @@ final class Store {
         searchQuiet = false
         sort = nil
         selectedTracks = []
+        let from = route
         route = to
         big = false
         headerFolded = false
+        followTravel(from: from, to: to)
         // A page without a colour of its own goes back to the theme's. From one album or
         // artist to another, the colour stays until the next one's is found: no flash between.
         // Never in an animation (see `setPageTint`).
         if pageTint != nil, !to.isPaged { pageTint = nil }
+    }
+
+    /// The traveling cover (see `travelingTile`): kept on the way to its album's page and while
+    /// it shows; leaving it, kept for the flight back (the tile it came from may show again),
+    /// then let go of once the page's change is done. Any other page: let go of at once.
+    private func followTravel(from: Route, to: Route) {
+        landing?.cancel()
+        guard let tile = travelingTile else { return }
+        let album = { (route: Route) -> Bool in
+            if case .album(_, _, let query) = route { return tile.hasSuffix("|" + query) }
+            return false
+        }
+        if album(to) { return }
+        guard album(from) else { travelingTile = nil; return }
+        landing = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            if !Task.isCancelled, !album(route) { travelingTile = nil }
+        }
     }
 
     /// An album or artist page's colour, once found; only while that page is still open.

@@ -188,7 +188,7 @@ struct SongsHeader: View {
         let seed = album.album + album.displayAlbumArtist
         return HStack(alignment: .bottom, spacing: 28) {
             Cover(path: album.artwork, seed: seed, side: store.headerFolded ? 64 : 232, corner: store.headerFolded ? 6 : 12)
-                .modifier(TravelingCover(id: album.album + "|" + album.displayAlbumArtist, on: store.travelingTile != nil))
+                .modifier(TravelingCover(id: albumQuery, on: store.travelingTile?.hasSuffix("|" + albumQuery) == true))
                 // The album's moving cover (beside its songs or on the server), as in the big player.
                 .overlay {
                     MovingCoverLayer(songID: album.id, on: store.settings.animatedCovers && store.motion)
@@ -280,6 +280,12 @@ struct SongsHeader: View {
         if case .playlist = route { return store.pagePlaylist?.name ?? "Playlist" }
         if route == .songs && !store.search.isEmpty { return "Results" }
         return route.title
+    }
+
+    /// The album's own rule, which names it (see `Store.travelingTile`).
+    private var albumQuery: String {
+        if case .album(_, _, let query) = route { return query }
+        return ""
     }
 
     /// An album page shows its first song's cover and details.

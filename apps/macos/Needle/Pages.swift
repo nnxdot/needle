@@ -118,7 +118,7 @@ struct Shelf: View {
                 ShelfTitle(title: title, detail: detail, all: .albums)
                 PagedRow(tile: 156, spacing: 18, middle: 78) {
                     LazyHStack(alignment: .top, spacing: 18) {
-                        ForEach(albums) { album in AlbumTile(album: album, side: 156) }
+                        ForEach(albums) { album in AlbumTile(album: album, side: 156, place: title) }
                     }
                     .padding(.horizontal, 2)
                     .padding(.bottom, 4)
@@ -193,17 +193,21 @@ struct AlbumTile: View {
     private var store: Store { .shared }
     let album: AlbumSummary
     let side: CGFloat
+    /// Where on its page the tile is (a shelf's title, "albums"): the same album may show on
+    /// two shelves, and only the one clicked is the cover that flies to the album and back.
+    var place = ""
     @State private var hover = false
     /// The cover's own colour, for the light behind it under the pointer.
     @State private var glow: Color?
-    /// This tile, among others showing the same album.
-    @State private var me = UUID()
+
+    /// This tile, among others showing the same album (see `Store.travelingTile`).
+    private var me: String { place + "|" + album.query }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             ZStack(alignment: .bottomTrailing) {
                 Cover(path: album.artwork, seed: album.album + album.artist, side: side, corner: 8)
-                    .modifier(TravelingCover(id: album.album + "|" + album.artist, on: store.travelingTile == me))
+                    .modifier(TravelingCover(id: album.query, on: store.travelingTile == me))
                     // Under the pointer the cover lifts a little, with a soft light in its own colour.
                     .shadow(color: hover ? (glow ?? .black).opacity(0.55) : .black.opacity(0.15), radius: hover ? 16 : 6, y: hover ? 6 : 4)
                     .offset(y: hover && store.motion ? -2 : 0)
@@ -285,7 +289,7 @@ struct AlbumsPage: View {
                 RecordCrate(albums: albums ?? [])
             } else {
                 TileGrid(title: "Albums", summary: albums.map { count($0.count, "album") }) {
-                    ForEach(albums ?? []) { AlbumTile(album: $0, side: 172) }
+                    ForEach(albums ?? []) { AlbumTile(album: $0, side: 172, place: "albums") }
                 }
             }
         }
@@ -517,7 +521,7 @@ struct ArtistPage: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Albums").font(.needle(.title3).weight(.semibold))
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
-                            ForEach(albums ?? []) { AlbumTile(album: $0, side: 172) }
+                            ForEach(albums ?? []) { AlbumTile(album: $0, side: 172, place: "artist") }
                         }
                     }
                 }
