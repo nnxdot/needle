@@ -165,7 +165,8 @@ fun WelcomeGuide(open: (Route) -> Unit) {
 @Composable
 private fun Choice(icon: ImageVector, title: String, detail: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer).clickable(onClick = onClick).padding(16.dp),
+        // A plain row, a soft line under it from where its words start (DESIGN.md › Rows).
+        Modifier.fillMaxWidth().softLine(start = 76.dp).clip(RowShape).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {

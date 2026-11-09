@@ -1605,7 +1605,8 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         live.forEachIndexed { i, band ->
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
+                // Plain rows, a soft line between them (DESIGN.md: nothing is filled).
+                Modifier.fillMaxWidth().then(if (i < live.lastIndex) Modifier.softLine() else Modifier).padding(vertical = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     var open by remember { mutableStateOf(false) }
