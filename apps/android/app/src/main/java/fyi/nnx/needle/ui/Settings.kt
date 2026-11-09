@@ -198,7 +198,7 @@ enum class SettingsSection(val title: String, val summary: String, val icon: Ima
     Playback("Playback", "Crossfade and even loudness", Icons.Rounded.PlayCircle, Color(0xFF7FB8E8)),
     Sound("Sound", "Equalizer, balance, and headphones", Icons.Rounded.Equalizer, Color(0xFFB39DDB)),
     Appearance("Appearance", "Colours, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
-    Scrobbling("Scrobbling", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
+    Scrobbling("Online services", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
     Discord("Discord", "Show what you play on your profile", Icons.Rounded.Forum, Color(0xFF8C9EFF)),
     Plugins("Plugins", "NetEase lyrics, effects, and commands", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
     Computer("Your computer", "Control Needle there, play its music here", Icons.Rounded.Computer, Color(0xFF9FB4E8)),
@@ -685,7 +685,7 @@ private fun PlaybackSettingsPage() {
             }
         }
         val keep = { if (query != s.autoplayQuery && problem == null) { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") } }
-        ExpandRow(Icons.Rounded.AllInclusive, "Keep playing", "Songs that match a search", s.autoplayQuery.ifBlank { "Off" }) {
+        ExpandRow(Icons.Rounded.AllInclusive, "When the queue runs out", "Songs that match a search", s.autoplayQuery.ifBlank { "Off" }) {
             OutlinedTextField(
                 query, { query = it },
                 label = { Text("Search") },
@@ -1027,9 +1027,9 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         }
     }
     Group("Colour") {
-        SwitchRow("Pages in their cover's colours", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
+        SwitchRow("Colours from covers", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
         Divider()
-        SwitchRow("Colours from what's playing", "The whole app takes the song's colours", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
+        SwitchRow("Colours from the music", "The whole app takes the song's colours", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
         Divider()
         SwitchRow("Mini player in the song's colour", "Otherwise it matches the page", app.miniPlayerColored, icon = Icons.Rounded.SmartDisplay) { on -> update { it.copy(miniPlayerColored = on) } }
         if (Build.VERSION.SDK_INT >= 31) {

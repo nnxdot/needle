@@ -141,7 +141,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                         Column(Modifier.clip(RoundedCornerShape(24.dp)).background(groupColor())) {
                             LookCards(BuiltInLooks, app.theme) { id -> NeedleApp.instance.updateApp { it.copy(theme = id) } }
                             Divider()
-                            SwitchRow("Colours from what's playing", "The whole app takes the song's colours", app.ambientColors, icon = androidx.compose.material.icons.Icons.Rounded.AutoAwesome) { on ->
+                            SwitchRow("Colours from the music", "The whole app takes the song's colours", app.ambientColors, icon = androidx.compose.material.icons.Icons.Rounded.AutoAwesome) { on ->
                                 NeedleApp.instance.updateApp { it.copy(ambientColors = on) }
                             }
                         }

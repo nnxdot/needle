@@ -56,7 +56,8 @@ import fyi.nnx.needle.core.Artist
 import kotlinx.coroutines.launch
 
 /** The orders the Artists list can take (the core's `artist_order`), as people see them. */
-val ArtistOrders = listOf("name" to "Name", "most_played" to "Most played", "most_songs" to "Most songs", "recently_added" to "Recently added")
+// The Mac's words (Pages.swift), the same in every app.
+val ArtistOrders = listOf("name" to "A–Z", "most_played" to "Most played", "most_songs" to "Most songs", "recently_added" to "Newest")
 
 /**
  * Sort and Only album artists for the Artists list: a menu from the sort button, as the other

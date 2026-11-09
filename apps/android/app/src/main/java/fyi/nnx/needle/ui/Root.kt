@@ -291,7 +291,7 @@ fun NeedleRoot() {
             kotlinx.coroutines.delay(50)
         }
     }
-    // Settings › Appearance › Colours from what is playing: every page in the song's colours.
+    // Settings › Appearance › Colours from the music: every page in the song's colours.
     CoverTheme(if (app.ambientColors) playingArt else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this, LocalHinge provides hinge) {

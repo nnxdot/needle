@@ -128,7 +128,7 @@ plays and the one main button.
   colour). A change of cover blends over, never snaps.
 - The top of those pages and the player: the cover, huge, blurred, and slowly drifting
   (`CoverBackdrop`). The pages run up under the status bar and down behind the dock.
-- Everything else: the theme's own background; with "Colours from what's playing" on, the
+- Everything else: the theme's own background; with "Colours from the music" on, the
   whole app takes the playing song's scheme.
 
 ## Stays Android
