@@ -1,5 +1,8 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.DataSaverOn
 import androidx.compose.material.icons.rounded.DeleteSweep
@@ -11,6 +14,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import android.content.Context
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1553,6 +1557,30 @@ private fun DiscordSettingsPage() {
 
 // ---------- About
 
+/**
+ * The log file being written, to Android's share sheet (an email, a chat, Files): copied where
+ * the share sheet may read it first, as lyric cards are.
+ */
+private fun shareLog(context: Context) {
+    NeedleApp.instance.scope.launch(Dispatchers.Main) {
+        val file = withContext(Dispatchers.IO) {
+            runCatching {
+                val log = File(core.logFile())
+                File(context.cacheDir, "logs").apply { mkdirs() }.resolve(log.name.ifBlank { "needle.log" }).also { log.copyTo(it, overwrite = true) }
+            }.getOrNull()
+        } ?: return@launch showMessage("There is no log yet")
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, "Needle log")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        tryOpen("app to share with") {
+            context.startActivity(Intent.createChooser(send, "Share the log file").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+}
+
 @Composable
 private fun AboutPage(open: (Route) -> Unit) {
     val context = LocalContext.current
@@ -1574,12 +1602,31 @@ private fun AboutPage(open: (Route) -> Unit) {
             }
         }
     }
-    Group("Privacy") {
+    Group("Privacy and help") {
         var crashes by remember { mutableStateOf(core.crashReports()) }
         SwitchRow("Send crash reports", "Without file paths or names", crashes, icon = Icons.Rounded.BugReport) { on ->
             crashes = on
             background { core.setCrashReports(on) }
         }
+        Divider()
+        // As the Mac's Settings › Your data: the log to share, and a report to paste in an email.
+        SettingRow(
+            Icons.Rounded.Description, "Log file", "What Needle does and any errors, kept on this phone",
+            Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) { shareLog(context) },
+        ) { Icon(Icons.Rounded.Share, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Divider()
+        SettingRow(
+            Icons.Rounded.ContentCopy, "Copy error report", "Without file paths or your name",
+            Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                NeedleApp.instance.scope.launch(Dispatchers.Main) {
+                    val report = withContext(Dispatchers.IO) { runCatching { core.errorReport() }.getOrNull() }
+                    if (report == null) return@launch showMessage("Could not make an error report")
+                    context.getSystemService(android.content.ClipboardManager::class.java)
+                        ?.setPrimaryClip(android.content.ClipData.newPlainText("Needle error report", report))
+                    showMessage("Copied an error report, without file paths or your name. Paste it in an email to dot@nnx.fyi.")
+                }
+            },
+        )
     }
     Group {
         LinkRow("Website", "needle.nnx.fyi", Icons.Rounded.Language) { visit("https://needle.nnx.fyi") }

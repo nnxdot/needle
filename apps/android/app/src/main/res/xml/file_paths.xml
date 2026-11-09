@@ -4,4 +4,6 @@
     <cache-path name="updates" path="updates/" />
     <!-- Lyric cards, to share. -->
     <cache-path name="cards" path="cards/" />
+    <!-- The log file, to share from Settings › About. -->
+    <cache-path name="logs" path="logs/" />
 </paths>
