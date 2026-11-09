@@ -496,6 +496,24 @@ struct PlayButtons: View {
 
 /// Springs down a little while held, as Liquid Glass controls do; with Reduce motion it only
 /// dims a little.
+/// A page (or a part of one) that could not be read: what went wrong, in Needle's words, and
+/// Try Again. Shown instead of an empty page.
+struct LoadProblem: View {
+    let title: String
+    let words: String
+    let retry: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(words)
+        } actions: {
+            Button("Try Again", action: retry)
+        }
+    }
+}
+
 struct Pressable: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let reduced = Motion.reduced

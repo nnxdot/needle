@@ -87,6 +87,7 @@ struct NowPlayingWidget: Widget {
 
 struct NowPlayingView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var rendering
     let snapshot: Snapshot
 
     var body: some View {
@@ -136,7 +137,7 @@ struct NowPlayingView: View {
                             .frame(width: 40, height: 40)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .background(Circle().fill(buttonFill))
                 }
                 Spacer()
                 Text(title).font(.subheadline.bold()).lineLimit(1)
@@ -155,7 +156,16 @@ struct NowPlayingView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .background(Capsule().fill(buttonFill))
+    }
+
+    /// The buttons' plain fill. A widget is drawn ahead of time and shown still, so glass that
+    /// answers a touch (`glassEffect(.interactive())`) has nothing to answer there; and on a
+    /// tinted or clear Home Screen the system puts the whole widget on its own glass, where
+    /// glass of ours would be glass on glass. A soft light fill over the blurred cover reads
+    /// as a control in full colour, and a fainter one takes the tint.
+    private var buttonFill: Color {
+        .white.opacity(rendering == .fullColor ? 0.18 : 0.12)
     }
 
     private var backdrop: some View {

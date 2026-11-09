@@ -95,8 +95,19 @@ struct RootView: View {
                              "scrobbling": [.settings, .settingsScrobbling], "library": [.settings, .settingsLibrary],
                              "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")],
                              "whatsnew": [.settings, .whatsNew], "crate": [.albums, .crate], "numbers": [.numbers], "genremap": [.genreMap], "artists": [.artists], "year": [.wrapped],
-                             "playerbuttons": [.settings, .settingsAppearance, .playerButtons]][args[i + 1]] {
+                             "playerbuttons": [.settings, .settingsAppearance, .playerButtons],
+                             "about": [.settings, .about], "sound": [.settings, .settingsSound], "fixlibrary": [.settings, .fixLibrary],
+                             "missingtags": [.settings, .fixLibrary, .albumProblems], "playlists": [.playlists]][args[i + 1]] {
                 paths[place] = NavigationPath(route)
+            }
+            // -playlist <name> opens that playlist's page, from Playlists.
+            if let i = args.firstIndex(of: "-playlist"), args.indices.contains(i + 1) {
+                let name = args[i + 1]
+                Task {
+                    if let found = await store.load({ try $0.playlists().first { $0.name == name } }) ?? nil {
+                        paths[place] = NavigationPath([Route.playlists, Route.playlist(found)])
+                    }
+                }
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
             if args.contains("-show-welcome") { welcomeTest = true }

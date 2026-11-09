@@ -180,7 +180,7 @@ struct NowPlayingView: View {
             if !now.title.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { phone.send("favorite") } label: { Image(systemName: now.favorite ? "heart.fill" : "heart") }
-                        .accessibilityLabel(now.favorite ? "Unfavorite" : "Favorite")
+                        .accessibilityLabel(now.favorite ? "Remove from Favorites" : "Add to Favorites")
                 }
             }
         }

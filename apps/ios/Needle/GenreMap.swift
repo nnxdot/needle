@@ -135,6 +135,10 @@ struct GenreMapView: View {
     @State private var art: GenreArt?
     /// The view and order `art` was laid out for ("cloud|false").
     @State private var artFor = ""
+    /// Why the cloud or bubbles could not be laid out, and for which view and order.
+    @State private var artProblem: (String, String)?
+    /// Goes up with Try Again.
+    @State private var tries = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -162,7 +166,10 @@ struct GenreMapView: View {
                                 Text("By plays").tag(true)
                             }
                             .pickerStyle(.segmented)
-                            if let art, artFor == "\(view)|\(byPlays)" {
+                            if let artProblem, artProblem.0 == "\(view)|\(byPlays)" {
+                                LoadProblem(title: view == "cloud" ? "Could not make the cloud" : "Could not make the bubbles",
+                                            words: artProblem.1) { tries += 1 }
+                            } else if let art, artFor == "\(view)|\(byPlays)" {
                                 Text(art.items.isEmpty ? (byPlays ? "Nothing played yet." : "No genres yet.")
                                      : "\(count(art.items.count, "genre")). \(view == "cloud" ? "As big as" : "Grouped by family, as big as") \(byPlays ? "their plays" : "their songs"). Tap one to play it.")
                                     .font(.needle(.subheadline)).foregroundStyle(store.colors.muted)
@@ -201,14 +208,21 @@ struct GenreMapView: View {
         }
         .navigationTitle("Genre map")
         .themed()
-        .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)") {
+        .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)|\(tries)") {
             guard view != "map" else { return }
             let (kind, plays) = (view, byPlays)
             // Upright on a phone: a little taller than wide.
-            let json = await store.load { $0.genreArtJson(kind: kind, byPlays: plays, aspect: 0.8) } ?? ""
+            let result = await store.attempt { try $0.genreArtJson(kind: kind, byPlays: plays, aspect: 0.8) }
             // Switched to another view or order meanwhile: that one has its own load.
             guard !Task.isCancelled, kind == view, plays == byPlays else { return }
-            art = try? JSONDecoder().decode(GenreArt.self, from: Data(json.utf8))
+            switch result {
+            case .success(let json):
+                art = try? JSONDecoder().decode(GenreArt.self, from: Data(json.utf8))
+                artProblem = art == nil ? ("\(kind)|\(plays)", "Needle could not read its own answer.") : nil
+            case .failure(let error):
+                art = nil
+                artProblem = ("\(kind)|\(plays)", error.words)
+            }
             artFor = "\(kind)|\(plays)"
         }
         .task(id: store.libraryVersion) {

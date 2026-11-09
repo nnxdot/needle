@@ -508,6 +508,31 @@ final class Store {
         return await Task.detached { try? work(core) }.value
     }
 
+    /// Reads a value away from the screen, or the words of what went wrong, for a page that
+    /// shows its own error (never an empty page).
+    nonisolated func attempt<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> Result<T, Problem> {
+        let core = core
+        return await Task.detached { Result { try work(core) }.mapError { Problem(words: Self.words($0)) } }.value
+    }
+
+    /// What went wrong, in Needle's words.
+    struct Problem: Error, Sendable {
+        let words: String
+    }
+
+    /// Tells the person where a playlist change went: `done` when it went as asked, the
+    /// core's note when it did not, and the copy's name when it went to a copy (then never
+    /// `done`, which names the playlist asked for).
+    func told(_ saved: PlaylistSaved, done: String?) {
+        if let copy = saved.copyName {
+            message = (saved.note.map { $0 + ". " } ?? "") + "Saved in “\(copy)” instead."
+        } else if let note = saved.note {
+            message = note
+        } else if let done {
+            message = done
+        }
+    }
+
     // MARK: - Settings
 
     /// A title font saved in the app's own settings (test builds before 2.0's core) moves once
@@ -627,6 +652,15 @@ final class Store {
 
     /// Opens the player (if that is on) once a song plays: a radio station takes a moment to
     /// make, and an empty player showed until then.
+    /// Plays songs from both artists that flow from one to the other (a blend), as on the Mac.
+    func blend(_ first: String, _ second: String) {
+        message = "Tuning in…"
+        playedWhenReady()
+        Task {
+            if let n = await ask({ try $0.startBlend(first: first, second: second) }) { message = "\(first) × \(second): \(n) songs." }
+        }
+    }
+
     func playedWhenReady() {
         guard app.openPlayerOnPlay else { return }
         let before = local?.queueVersion
