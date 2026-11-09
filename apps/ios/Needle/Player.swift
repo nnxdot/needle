@@ -93,7 +93,7 @@ struct MiniPlayer: View {
 
 /// The line being sung, under the song's name in the mini player: apart, so only it follows
 /// the time. Fades in at each new line; a faint ♪ while none is sung.
-private struct MiniLyricLine: View {
+struct MiniLyricLine: View {
     @Environment(Store.self) private var store
     let lines: [LyricLine]
 
@@ -157,8 +157,24 @@ struct NowPlayingView: View {
     @State private var sideways = false
     /// The lit glass at the player's foot moves from Lyrics to Up Next as one piece.
     @Namespace private var footGlass
+    /// A wide window (an iPad's, on its side): the cover and the controls at the left, and the
+    /// lyrics or the queue in a pane of their own beside them.
+    @State private var twoParts = false
+    /// The pane beside the cover in a wide window: "lyrics", "queue", or "" while it is closed.
+    @AppStorage(NowPlayingView.sidePaneKey) private var side = "lyrics"
+    @Environment(\.wide) private var wide
 
     enum Pane { case cover, lyrics, queue }
+
+    /// The pane beside the cover, kept between times the player opens (the floating bar's
+    /// Lyrics and Up Next set it too).
+    static let sidePaneKey = "player-side-pane"
+
+    /// What shows where the cover is: in two parts always the look (the pane has the rest).
+    private var shownPane: Pane { twoParts ? .cover : pane }
+
+    /// The covers and the looks may grow on an iPad's screen.
+    private var coverMost: CGFloat { wide ? 520 : 360 }
 
     private var reduceMotion: Bool { systemReduceMotion || store.app.reduceMotion }
 
@@ -167,6 +183,8 @@ struct NowPlayingView: View {
         let seed = (song?.album ?? "") + (song?.artist ?? "")
         let app = store.app
         let look = look
+        // In two parts the lyrics and the queue have their own pane: the look always shows.
+        let pane = twoParts ? Pane.cover : self.pane
         // On its side the cover stands at the left, as on Android, never filling the page.
         let fills = app.immersiveCover && look == "cover" && !sideways
         let immersive = fills && pane == .cover
@@ -200,50 +218,11 @@ struct NowPlayingView: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
-            VStack(spacing: 0) {
-                top(song)
-                // The iPhone Duo open: the look and the song's controls side by side, parted
-                // along the screen's fold (or above and below it, held as a tent); closed, or
-                // on any other phone, one above the other.
-                GeometryReader { geo in
-                    Group {
-                    switch split(geo) {
-                    case .phone:
-                        VStack(spacing: 0) {
-                            stage(song, seed: seed, look: look, immersive: immersive, room: geo.size)
-                            panel(song)
-                        }
-                    case .beside(let left, let gap):
-                        // As on Android: on a short screen (a phone on its side) the song and
-                        // its controls are a little smaller, and scroll if they still do not fit.
-                        let short = geo.size.height < 480
-                        HStack(spacing: 0) {
-                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive, room: CGSize(width: left, height: geo.size.height)) }
-                                .frame(width: left)
-                            Color.clear.frame(width: gap)
-                            ScrollView(.vertical) {
-                                VStack(spacing: 0) { panel(song, compact: short) }
-                                    .frame(minHeight: geo.size.height)
-                            }
-                            .scrollBounceBehavior(.basedOnSize)
-                            .scrollIndicators(.hidden)
-                            .environment(\.compactPlayer, short)
-                        }
-                    case .stacked(let above, let gap):
-                        VStack(spacing: 0) {
-                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive, room: CGSize(width: geo.size.width, height: above)) }
-                                .frame(height: above)
-                            Color.clear.frame(height: gap)
-                            panel(song)
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    }
-                    .frame(width: geo.size.width, height: geo.size.height)
-                }
+            if twoParts {
+                wideLayout(song, seed: seed, look: look)
+            } else {
+                phoneLayout(song, seed: seed, look: look, immersive: immersive)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
         }
         .modifier(HingeWatch(changes: $hingeChanges))
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { sideways = $0 }
@@ -260,21 +239,73 @@ struct NowPlayingView: View {
         .onChange(of: song == nil) { _, gone in if gone { dismiss() } }
         // The screen stays on while the player shows (Keep the screen on, under The player), or
         // while the lyrics show (the same switch under Lyrics).
-        .onChange(of: app.keepScreenOnPlayer || (pane == .lyrics && app.keepScreenOnLyrics), initial: true) { _, on in
+        .onChange(of: app.keepScreenOnPlayer || ((twoParts ? side == "lyrics" : self.pane == .lyrics) && app.keepScreenOnLyrics), initial: true) { _, on in
             UIApplication.shared.isIdleTimerDisabled = on
         }
         .grain(app.grain)
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        .modifier(WideWatch(twoParts: $twoParts, side: $side, pane: $pane, dismiss: { dismiss() }))
         #if DEBUG
         .onAppear {
-            if CommandLine.arguments.contains("-show-lyrics") { pane = .lyrics }
-            if CommandLine.arguments.contains("-show-queue") { pane = .queue }
+            if CommandLine.arguments.contains("-show-lyrics") { self.pane = .lyrics; side = "lyrics" }
+            if CommandLine.arguments.contains("-show-queue") { self.pane = .queue; side = "queue" }
         }
         #endif
         // The player is always dark: its page is the cover's own dark colours, whatever the
         // theme (light text and glass on them, and a light status bar), and its signs white.
         .tint(.white)
         .preferredColorScheme(.dark)
+    }
+
+    /// One part, as on a phone: the look, then the song and its controls (side by side on a
+    /// phone on its side, parted along the iPhone Duo's fold).
+    private func phoneLayout(_ song: Song?, seed: String, look: String, immersive: Bool) -> some View {
+        VStack(spacing: 0) {
+            top(song)
+            // The iPhone Duo open: the look and the song's controls side by side, parted
+            // along the screen's fold (or above and below it, held as a tent); closed, or
+            // on any other phone, one above the other.
+            GeometryReader { geo in
+                Group {
+                switch split(geo) {
+                case .phone:
+                    VStack(spacing: 0) {
+                        stage(song, seed: seed, look: look, immersive: immersive, room: geo.size)
+                        panel(song)
+                    }
+                case .beside(let left, let gap):
+                    // As on Android: on a short screen (a phone on its side) the song and
+                    // its controls are a little smaller, and scroll if they still do not fit.
+                    let short = geo.size.height < 480
+                    HStack(spacing: 0) {
+                        VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive, room: CGSize(width: left, height: geo.size.height)) }
+                            .frame(width: left)
+                        Color.clear.frame(width: gap)
+                        ScrollView(.vertical) {
+                            VStack(spacing: 0) { panel(song, compact: short) }
+                                .frame(minHeight: geo.size.height)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .scrollIndicators(.hidden)
+                        .environment(\.compactPlayer, short)
+                    }
+                case .stacked(let above, let gap):
+                    VStack(spacing: 0) {
+                        VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive, room: CGSize(width: geo.size.width, height: above)) }
+                            .frame(height: above)
+                        Color.clear.frame(height: gap)
+                        panel(song)
+                        Spacer(minLength: 0)
+                    }
+                }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 8)
+        // An iPad held upright, or a narrow window: the phone's player, never stretched.
+        .frame(maxWidth: 620)
     }
 
     /// How the player parts on a wide or folding screen.
@@ -310,13 +341,13 @@ struct NowPlayingView: View {
     /// queue pane, under the song small).
     @ViewBuilder
     private func stage(_ song: Song?, seed: String, look: String, immersive: Bool, room: CGSize) -> some View {
-        switch pane {
+        switch shownPane {
         case .cover:
             if look == "record" {
                 // The cover as a turning record, its arm resting on it; still while
                 // paused or with Reduce motion.
                 Spacer(minLength: 8)
-                RecordDisc(side: max(120, min(330, room.width - 16, room.height - 48)), spinning: store.playback?.playing == true && !reduceMotion) {
+                RecordDisc(side: max(120, min(wide ? 500 : 330, room.width - 16, room.height - 48)), spinning: store.playback?.playing == true && !reduceMotion) {
                     Artwork(path: song?.artwork, seed: seed, size: 500)
                 }
                 .gesture(swipeToSkip)
@@ -327,7 +358,7 @@ struct NowPlayingView: View {
             } else if look == "visualizer" {
                 // The visualizer in the cover's place, on the cover's colours.
                 Spacer(minLength: 8)
-                Visualizer().frame(maxWidth: 340)
+                Visualizer().frame(maxWidth: wide ? 520 : 340)
                     .contentShape(.rect)
                     .gesture(swipeToSkip)
                 Spacer(minLength: 16)
@@ -354,7 +385,7 @@ struct NowPlayingView: View {
     /// at the foot.
     @ViewBuilder
     private func panel(_ song: Song?, compact: Bool = false) -> some View {
-        if pane == .cover { title(song, compact: compact) }
+        if shownPane == .cover { title(song, compact: compact) }
         SeekBar(duration: song?.duration ?? 0, loop: loop).padding(.top, compact ? 8 : 16)
         controls.padding(.top, compact ? -8 : 0)
         if store.onComputer {
@@ -378,7 +409,20 @@ struct NowPlayingView: View {
         .frame(height: 34)
         .contentShape(.rect)
         .onTapGesture { dismiss() }
-        .overlay(alignment: .trailing) { if pane == .cover { lookButton } }
+        .overlay(alignment: .trailing) { if shownPane == .cover { lookButton } }
+        // In a wide window, a plain Close a pointer finds at once.
+        .overlay(alignment: .leading) {
+            if wide {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.down").font(.body.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Close the player")
+            }
+        }
         .gesture(DragGesture(minimumDistance: 10).onEnded { g in
             if g.translation.height > 80 { dismiss() }
         })
@@ -460,7 +504,7 @@ struct NowPlayingView: View {
                 .aspectRatio(1, contentMode: .fit)
                 // The moving cover (Moving covers on) plays in the square or the record too,
                 // cropped to it, while the cover pane shows.
-                .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion && pane == .cover) }
+                .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion && shownPane == .cover) }
                 .clipShape(round ? AnyShape(.circle) : AnyShape(.soft(Corner.player)))
                 .overlay { if round { Circle().fill(.black).frame(width: 26).overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2)) } }
         }
@@ -469,7 +513,7 @@ struct NowPlayingView: View {
         .scaleEffect(playing || round || reduceMotion ? 1 : 0.84)
         .offset(x: reduceMotion ? 0 : swipe)
         .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.62), value: playing)
-        .frame(maxHeight: 360)
+        .frame(maxHeight: coverMost)
         .gesture(store.app.swipeCover ? DragGesture(minimumDistance: 20)
             .onChanged { g in if abs(g.translation.width) > abs(g.translation.height) { swipe = g.translation.width * 0.6 } }
             .onEnded { g in
@@ -667,8 +711,11 @@ struct NowPlayingView: View {
     }
 
     private func paneButton(_ which: Pane, symbol: String) -> some View {
-        let on = pane == which
-        return Button { pane = on ? .cover : which } label: {
+        let name = which == .lyrics ? "lyrics" : "queue"
+        let on = twoParts ? side == name : pane == which
+        return Button {
+            if twoParts { side = on ? "" : name } else { pane = on ? .cover : which }
+        } label: {
             Image(systemName: on && which == .lyrics ? "quote.bubble.fill" : symbol)
                 .font(.needle(.title3).weight(on ? .semibold : .regular))
                 .foregroundStyle(.white.opacity(on ? 1 : 0.7))
@@ -681,6 +728,155 @@ struct NowPlayingView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(which == .lyrics ? "Lyrics" : "Up Next")
         .accessibilityAddTraits(on ? .isSelected : [])
+        .hoverEffect(.highlight)
+    }
+
+    /// A wide window: the look, the song, and its controls at the left, sized for the screen;
+    /// the lyrics or the queue in a floating pane of glass at the right.
+    private func wideLayout(_ song: Song?, seed: String, look: String) -> some View {
+        HStack(spacing: 28) {
+            VStack(spacing: 0) {
+                top(song)
+                GeometryReader { geo in
+                    VStack(spacing: 0) {
+                        stage(song, seed: seed, look: look, immersive: false, room: CGSize(width: geo.size.width, height: geo.size.height - 300))
+                        panel(song)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+            }
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
+            if !side.isEmpty {
+                PlayerSidePane(side: $side, song: song)
+                    .frame(width: 380)
+                    .padding(.vertical, 12)
+                    .transition(Motion.transition(.move(edge: .trailing).combined(with: .opacity)))
+            }
+        }
+        .padding(.leading, 32)
+        .padding(.trailing, side.isEmpty ? 32 : 16)
+        .padding(.bottom, 8)
+    }
+}
+
+/// The pane beside the cover in a wide window, as the Mac's side panel: Lyrics and Up Next as
+/// its tabs, on one floating pane of glass in the cover's colour (22-point corners). What is on
+/// it is plain, never glass on glass.
+struct PlayerSidePane: View {
+    @Environment(Store.self) private var store
+    @Binding var side: String
+    let song: Song?
+    @AppStorage("translateLyrics") private var translate = false
+    @Namespace private var tabs
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 4) {
+                tab("Lyrics", "lyrics")
+                tab("Up Next", "queue")
+                Spacer(minLength: 8)
+                if side == "lyrics" {
+                    Button { withFade(.smooth(duration: 0.3)) { translate.toggle() } } label: {
+                        Image(systemName: "translate")
+                            .font(.needle(.body).weight(translate ? .semibold : .regular))
+                            .foregroundStyle(.white.opacity(translate ? 1 : 0.7))
+                            .frame(width: 36, height: 36)
+                            .background(.white.opacity(translate ? 0.18 : 0), in: .circle)
+                            .contentShape(.circle)
+                    }
+                    .buttonStyle(.plain)
+                    .hoverEffect(.highlight)
+                    .accessibilityLabel(translate ? "Hide the translation" : "Translate the lyrics")
+                    .accessibilityAddTraits(translate ? .isSelected : [])
+                }
+                Button { side = "" } label: {
+                    Image(systemName: "xmark").font(.needle(.subheadline).weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(width: 36, height: 36)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .hoverEffect(.highlight)
+                .accessibilityLabel("Close the pane")
+            }
+            Group {
+                if side == "queue" {
+                    QueuePane(onPane: true)
+                } else {
+                    LyricsPane(song: song, onPane: true)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+        }
+        .padding(16)
+        .frame(maxHeight: .infinity)
+        .glassEffect(.regular.tint((store.coverColor ?? .clear).opacity(0.18)), in: .soft(Corner.large))
+        .animation(Motion.fade(.easeInOut(duration: 0.25)), value: side)
+    }
+
+    /// One of the pane's tabs: plain words, the open one on a soft light fill that glides.
+    private func tab(_ title: String, _ value: String) -> some View {
+        let on = side == value
+        return Button { withMotion(.smooth(duration: 0.3)) { side = value } } label: {
+            Text(title)
+                .font(.needle(.subheadline).weight(.semibold))
+                .foregroundStyle(.white.opacity(on ? 1 : 0.65))
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background {
+                    if on { Capsule().fill(.white.opacity(0.16)).matchedGeometryEffect(id: "tab", in: tabs) }
+                }
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// A key that closes what shows (the player, a tool): Esc, from a hardware keyboard.
+struct EscapeKey: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button("Close", action: action)
+            .keyboardShortcut(.escape, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The player's watches for a wide window: whether it is wide enough for two parts, the pane
+/// asked for from the floating bar or the keyboard, and Esc.
+private struct WideWatch: ViewModifier {
+    @Environment(Store.self) private var store
+    @Binding var twoParts: Bool
+    @Binding var side: String
+    @Binding var pane: NowPlayingView.Pane
+    let dismiss: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // Two parts on a screen wide and tall enough (an iPad on its side), never on a phone.
+            .onGeometryChange(for: Bool.self) { $0.size.width >= 940 && $0.size.height >= 600 && $0.size.width > $0.size.height } action: { now in
+                withMotion(.smooth(duration: 0.3)) { twoParts = now }
+            }
+            .motion(.spring(response: 0.45, dampingFraction: 0.85), value: side)
+            // Esc closes the player, as the grabber and a swipe down do.
+            .background { EscapeKey { dismiss() } }
+            // Asked from the floating bar or the keyboard: the lyrics or the queue.
+            .onChange(of: store.playerPane, initial: true) { _, asked in
+                guard let asked else { return }
+                store.playerPane = nil
+                side = asked
+                pane = asked == "lyrics" ? .lyrics : .queue
+            }
+            .onChange(of: twoParts) { _, now in
+                // Back to one part: what the pane showed opens there.
+                if !now, side == "lyrics" || side == "queue", self.pane == .cover { self.pane = side == "lyrics" ? .lyrics : .queue }
+            }
     }
 }
 
@@ -771,6 +967,7 @@ struct BigButton: View {
                 .contentShape(.circle)
         }
         .buttonStyle(Held(held: $held))
+        .hoverEffect(.highlight)
     }
 
     struct Held: ButtonStyle {
@@ -1148,6 +1345,8 @@ struct LyricsPane: View {
     var stage = false
     /// Told whether the song has any lyrics, once they are looked up.
     var found: ((Bool) -> Void)? = nil
+    /// On the player's pane of glass (a wide window): its buttons are plain.
+    var onPane = false
     @State private var lyrics: Lyrics?
     @State private var loaded = false
     /// Online lookups are on (LRCLIB and the lyrics plugins).
@@ -1182,7 +1381,7 @@ struct LyricsPane: View {
                             }
                         }
                         // Plain glass: the player's white tint made a prominent one white on white.
-                        .buttonStyle(.glass)
+                        .buttonStyle(onPane ? AnyPrimitiveButtonStyle(.bordered) : AnyPrimitiveButtonStyle(.glass))
                         .fontWeight(.semibold)
                     }
                     if let song, !song.onComputer, lyrics?.instrumental != true {
@@ -1193,9 +1392,9 @@ struct LyricsPane: View {
                                 await load()
                             }
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(onPane ? AnyPrimitiveButtonStyle(.bordered) : AnyPrimitiveButtonStyle(.glass))
                         Button("Add and time them") { store.sheet = .timing(song) }
-                            .buttonStyle(.glass)
+                            .buttonStyle(onPane ? AnyPrimitiveButtonStyle(.bordered) : AnyPrimitiveButtonStyle(.glass))
                     }
                 }
                 .padding(.vertical, 20)
@@ -1370,6 +1569,8 @@ private struct KaraokeLine: View {
 /// The songs up next: tap one to play it, swipe to take it out, drag to move it.
 struct QueuePane: View {
     @Environment(Store.self) private var store
+    /// On the player's pane of glass (a wide window): its pills are plain fills.
+    var onPane = false
     /// Presses of Shuffle and Repeat, to bounce their signs.
     @State private var shuffles = 0
     @State private var repeats = 0
@@ -1378,12 +1579,12 @@ struct QueuePane: View {
         VStack(alignment: .leading, spacing: 14) {
             GlassEffectContainer(spacing: 4) {
                 HStack(spacing: 12) {
-                    Button { shuffles += 1; store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn, bounce: shuffles) }
+                    Button { shuffles += 1; store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn, bounce: shuffles, plain: onPane) }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Shuffle")
                         .accessibilityValue(store.choices.shuffleStays && !store.onComputer ? (store.shuffleOn ? "On" : "Off") : "")
                     Button { repeats += 1; store.cycleRepeat() } label: {
-                        Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off, bounce: repeats)
+                        Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off, bounce: repeats, plain: onPane)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Repeat")
@@ -1451,6 +1652,8 @@ struct Pill: View {
     let symbol: String
     let on: Bool
     var bounce = 0
+    /// On a pane of glass: a plain fill, never glass on glass.
+    var plain = false
 
     var body: some View {
         Image(systemName: symbol)
@@ -1458,10 +1661,12 @@ struct Pill: View {
             .pressBounce(bounce)
             .foregroundStyle(on ? Color.black.opacity(0.8) : .white)
             .frame(maxWidth: .infinity)
-            .frame(height: 40)
-            .glassEffect(on ? .regular.tint(.white.opacity(0.8)).interactive() : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
+            .frame(height: plain ? 36 : 40)
+            .background { if plain { Capsule().fill(.white.opacity(on ? 0.85 : 0.12)) } }
+            .glassEffect(plain ? .identity : on ? .regular.tint(.white.opacity(0.8)).interactive() : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
             .contentShape(.capsule)
             .contentTransition(.symbolEffect(.replace))
+            .hoverEffect(.highlight)
     }
 }
 
