@@ -2857,6 +2857,14 @@ impl AppView {
         else {
             return;
         };
+        // Never offered; kept out here too.
+        if playlist_saves::read_only(&playlist) {
+            self.fail(format!(
+                "“{}” is read-only on your music server.",
+                playlist.name
+            ));
+            return;
+        }
         // As shown when the change was made: only the change is saved (see
         // `Library::save_playlist_changes`).
         let opened = playlist.clone();
@@ -2913,7 +2921,7 @@ impl AppView {
         };
         self.playlists
             .iter()
-            .find(|p| &p.id == id && p.query.is_none())
+            .find(|p| &p.id == id && playlist_saves::takes_songs(p))
             .filter(|_| self.sort == Sort::Default && self.search_text(cx).is_empty())
             .cloned()
     }

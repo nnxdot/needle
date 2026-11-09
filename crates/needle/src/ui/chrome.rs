@@ -527,8 +527,10 @@ impl AppView {
                                         this.open_playlist_menu(id.clone(), event.position, cx)
                                     })
                                 })
+                                // Songs dropped on it are added; not on a smart playlist, nor
+                                // one read-only on its server.
                                 .when(
-                                    playlist.query.is_none(),
+                                    super::playlist_saves::takes_songs(playlist),
                                     |el| {
                                         let id = playlist.id.clone();
                                         el.drag_over::<super::flow::DraggedTracks>(

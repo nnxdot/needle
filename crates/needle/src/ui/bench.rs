@@ -428,6 +428,13 @@ impl AppView {
                             .detach();
                         }
                     }
+                    // "playlist:Road trip": a playlist's page, by its name.
+                    Some(("playlist", name)) => {
+                        if let Some(list) = v.playlists.iter().find(|p| p.name == name) {
+                            let page = Page::Playlist(list.id.clone());
+                            open(v, page, window, cx)
+                        }
+                    }
                     // "album:Hana Mori/Bloom Season": one album's page.
                     Some(("album", which)) => {
                         let (artist, album) = which.split_once('/').unwrap_or(("", which));
@@ -472,6 +479,35 @@ impl AppView {
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(4)).await;
                 let _ = view.update_in(cx, |v, window, cx| v.open_palette(window, cx));
+            })
+            .detach();
+        }
+        // For screenshots: a right-click menu, once the page is up (NEEDLE_SHOW_MENU: "track"
+        // for the first song's, "track:playlists" with Add to playlist open, or
+        // "playlist:Road trip" for a sidebar playlist's).
+        if let Ok(which) = std::env::var("NEEDLE_SHOW_MENU") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(5)).await;
+                let _ = view.update(cx, |v, cx| {
+                    let at = point(px(460.), px(300.));
+                    match which.split_once(':') {
+                        Some(("playlist", name)) => {
+                            if let Some(id) =
+                                v.playlists.iter().find(|p| p.name == name).map(|p| p.id.clone())
+                            {
+                                v.open_playlist_menu(id, point(px(150.), px(420.)), cx);
+                            }
+                        }
+                        Some(("track", "playlists")) => {
+                            v.open_menu(0, at, cx);
+                            if let Some(menu) = v.menu.as_mut() {
+                                menu.sub = Some("playlists");
+                            }
+                        }
+                        _ => v.open_menu(0, at, cx),
+                    }
+                    cx.notify();
+                });
             })
             .detach();
         }

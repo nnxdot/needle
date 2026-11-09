@@ -18,6 +18,17 @@ use std::collections::VecDeque;
 type Done =
     Box<dyn FnOnce(&mut AppView, Result<Saved, String>, &mut Window, &mut Context<AppView>)>;
 
+/// A music server's playlist this person may only read (another person's public playlist, or
+/// a server's smart playlist): it is not renamed, deleted, or changed in Needle.
+pub(super) fn read_only(playlist: &Playlist) -> bool {
+    playlist.server.as_ref().is_some_and(|s| s.read_only)
+}
+
+/// A playlist songs can be added to: one of picked songs, not read-only on its server.
+pub(super) fn takes_songs(playlist: &Playlist) -> bool {
+    playlist.query.is_none() && !read_only(playlist)
+}
+
 /// The save's note for the person, as a sentence ("“Mix” is read-only on the server; your
 /// version is kept as “Mix 2”."), when it did not go just as asked.
 pub(super) fn saved_note(saved: &Saved) -> Option<String> {

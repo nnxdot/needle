@@ -154,6 +154,8 @@ impl AppView {
                 p.name.clone(),
                 if p.query.is_some() {
                     "Smart playlist"
+                } else if super::playlist_saves::read_only(p) {
+                    "Read-only on the server"
                 } else {
                     "Playlist"
                 },
