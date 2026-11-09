@@ -29,6 +29,7 @@ mod menus;
 mod mini;
 mod motion;
 mod moving;
+mod music_folders;
 mod now_playing;
 mod pages;
 mod palette;
@@ -391,6 +392,8 @@ pub struct Selection {
 
 enum Event {
     Imported(ScanProgress),
+    /// A music folder was stopped (`music_folders`): its path, and how many songs left.
+    FolderRemoved(String, Result<usize, String>),
     Error(String),
     Loaded(u64, Vec<Track>, usize),
     Groups(u64, Vec<library::Group>),
@@ -641,6 +644,11 @@ pub struct AppView {
     sender: crossbeam_channel::Sender<Event>,
     scan: Option<ScanProgress>,
     cancel: Arc<AtomicBool>,
+    /// Settings › Library: the music folder asked about (Stop reading), the one being
+    /// stopped, and whether that waits for a scan to stop first (`music_folders`).
+    folder_asked: Option<String>,
+    folder_removing: Option<String>,
+    folder_after_scan: bool,
     toast: Option<Toast>,
     query_error: Option<String>,
     explanation: Option<String>,
@@ -1361,6 +1369,9 @@ impl AppView {
             sender,
             scan: None,
             cancel: Arc::new(AtomicBool::new(false)),
+            folder_asked: None,
+            folder_removing: None,
+            folder_after_scan: false,
             toast: None,
             query_error: None,
             explanation: None,
@@ -1756,13 +1767,17 @@ impl AppView {
                         self.total = self.library.count().unwrap_or(0);
                         self.refresh(cx);
                         self._watcher = watch(&self.library, &self.sender);
+                        self.scan_ended();
                     } else {
                         self.scan = Some(progress);
                     }
                 }
+                Event::FolderRemoved(root, result) => self.folder_removed(root, result, cx),
                 Event::Error(error) => {
                     self.fail(error);
-                    self.scan = None;
+                    if self.scan.take().is_some() {
+                        self.scan_ended();
+                    }
                     self.lookup_busy = false;
                     self.loading = false;
                 }

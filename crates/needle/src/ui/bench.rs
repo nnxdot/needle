@@ -356,6 +356,17 @@ impl AppView {
                         open(v, Page::Settings, window, cx);
                         let down: f32 = down.parse().unwrap_or(0.);
                         v.settings_scroll.set_offset(point(px(0.), px(-down)));
+                        // NEEDLE_SHOW_FOLDER: "ask" asks to stop reading the first music
+                        // folder; "remove" stops reading it (use a copy of a data folder).
+                        if let Ok(how) = std::env::var("NEEDLE_SHOW_FOLDER")
+                            && let Some(root) = v.library.roots().unwrap_or_default().first()
+                        {
+                            if how == "remove" {
+                                v.remove_folder(root.clone(), cx);
+                            } else {
+                                v.folder_asked = Some(root.clone());
+                            }
+                        }
                         // NEEDLE_SHOW_OPEN: settings cards to open, such as "output-device,lastfm".
                         if let Ok(open) = std::env::var("NEEDLE_SHOW_OPEN") {
                             for id in open.split(',') {
