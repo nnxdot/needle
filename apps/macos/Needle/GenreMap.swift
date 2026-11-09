@@ -360,7 +360,7 @@ struct GenreArtView: View {
                 .foregroundStyle(tone(item, strong: lit))
                 .fixedSize()
                 .scaleEffect(lit ? 1.06 : 1)
-                .animation(.easeOut(duration: 0.12), value: lit)
+                .animation(Store.shared.motion ? .easeOut(duration: 0.12) : nil, value: lit)
         } else {
             let r = item.size * scale
             ZStack {

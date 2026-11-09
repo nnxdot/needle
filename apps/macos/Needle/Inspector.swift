@@ -12,7 +12,7 @@ struct Inspector: View {
             HStack(spacing: 2) {
                 ForEach(Store.Panel.allCases, id: \.self) { panel in
                     let on = store.panel == panel
-                    Button { withAnimation(.snappy(duration: 0.25)) { store.panel = panel } } label: {
+                    Button { withAnimation(store.motion ? .snappy(duration: 0.25) : nil) { store.panel = panel } } label: {
                         Text(panel.rawValue)
                             .font(.needle(.callout).weight(.semibold))
                             .foregroundStyle(on ? colors.ink : colors.ink2)

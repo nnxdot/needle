@@ -133,7 +133,7 @@ struct OpenRow<Content: View>: View {
                 Text(value).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             .contentShape(Rectangle())
-            .onTapGesture { withAnimation(.snappy(duration: 0.2)) { open.toggle() } }
+            .onTapGesture { withAnimation(Store.shared.motion ? .snappy(duration: 0.2) : nil) { open.toggle() } }
             .accessibilityElement(children: .combine)
             .accessibilityValue(value)
         }

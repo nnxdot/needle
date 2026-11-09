@@ -71,7 +71,7 @@ struct MainWindow: View {
             }
             if store.palette {
                 CommandPalette()
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .transition(store.motion ? .opacity.combined(with: .scale(scale: 0.98)) : .opacity)
                     .zIndex(3)
             }
             if store.settings.grain > 0.001 {
@@ -720,7 +720,7 @@ struct ToastView: View {
             .padding(.horizontal, 16)
             .pane(Capsule())
             .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(store.motion ? .move(edge: .bottom).combined(with: .opacity) : .opacity)
             .id(toast.id)
         }
     }

@@ -215,7 +215,7 @@ struct AlbumTile: View {
                     }
                     .buttonStyle(.plain)
                     .padding(8)
-                    .transition(.scale.combined(with: .opacity))
+                    .transition(store.motion ? .scale.combined(with: .opacity) : .opacity)
                 }
             }
             Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)

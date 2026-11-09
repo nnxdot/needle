@@ -215,7 +215,7 @@ struct SongsHeader: View {
         .padding(.horizontal, 28)
         .padding(.top, store.headerFolded ? 14 : 30)
         .padding(.bottom, store.headerFolded ? 12 : 22)
-        .animation(store.motion ? .smooth(duration: 0.3) : .easeInOut(duration: 0.15), value: store.headerFolded)
+        .animation(store.motion ? .smooth(duration: 0.3) : nil, value: store.headerFolded)
         .padding(.trailing, panelInset)
         .background(alignment: .top) { HeaderBackdrop(path: album.artwork, seed: seed) }
         .task(id: album.artwork ?? seed) {
@@ -579,7 +579,8 @@ struct Skeleton: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(on ? 1 : 0.45)
+        // Still, half way, with Reduce motion (turned on while it breathes too).
+        .opacity(store.motion ? (on ? 1 : 0.45) : 0.7)
         .onAppear {
             guard store.motion else { return }
             withAnimation(.easeInOut(duration: 0.7).repeatForever()) { on = true }

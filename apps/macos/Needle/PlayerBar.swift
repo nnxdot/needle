@@ -415,7 +415,7 @@ struct ThinBar: View {
         .frame(height: area)
         .opacity(enabled ? 1 : 0.5)
         .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
+        .animation(Store.shared.motion ? .easeOut(duration: 0.12) : nil, value: hover)
         .onChange(of: pressing) { _, now in if !now { finish() } }
         .onDisappear { finish() }
         .accessibilityElement()

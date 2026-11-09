@@ -23,6 +23,8 @@ final class Store {
     /// sidebar redrew every row of the song table).
     private(set) var colors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
     private(set) var motion = true
+    /// Reduce motion is on in System Settings (Settings › Appearance says so).
+    private(set) var systemStill = false
     private(set) var displayFont = "system"
     /// The text font's setting (Settings › Appearance › Text); the window is drawn anew for it.
     private(set) var textFont = "system"
@@ -211,6 +213,11 @@ final class Store {
             checkForUpdate(force: false)
             // Folders changed while Needle was closed: the watcher sees only what comes after.
             core.rescan()
+        }
+        // Reduce motion turned on or off in System Settings: followed at once, not at the next
+        // change of the look.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshLook() }
         }
         // A drive plugged in: its folders are read and watched again.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] note in
@@ -516,13 +523,13 @@ final class Store {
     }
 
     private func show(_ next: Toast) {
-        withAnimation(.snappy) { toast = next }
+        withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = next }
         NSAccessibility.post(element: NSApp!, notification: .announcementRequested,
                              userInfo: [.announcement: next.text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         toastTask?.cancel()
         toastTask = Task {
             try? await Task.sleep(for: .seconds(next.error ? 14 : 6))
-            if !Task.isCancelled, toast?.id == next.id { withAnimation(.snappy) { toast = nil } }
+            if !Task.isCancelled, toast?.id == next.id { withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = nil } }
         }
     }
 
@@ -621,7 +628,9 @@ final class Store {
         let plain = pageTint == nil ? look : lookNow(paged: false)
         if plain != plainColors { plainColors = plain }
         if plain.accent != playerAccent { playerAccent = plain.accent }
-        let still = settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let system = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if system != systemStill { systemStill = system }
+        let still = settings.reduceMotion || system
         if motion == still { motion = !still }
         if displayFont != settings.displayFont { displayFont = settings.displayFont }
         if textFont != settings.textFont {
