@@ -551,18 +551,23 @@ private fun GenreArt(art: org.json.JSONObject, cloud: Boolean, play: (String, Li
                                 val p = measurable.measure(constraints.copy(minWidth = 0, maxWidth = Int.MAX_VALUE))
                                 layout(p.width, p.height) { p.place((x.dp.roundToPx() - p.width / 2), (y.dp.roundToPx() - p.height / 2)) }
                             }
-                            .clickable { play(genre, spellings) },
+                            .clickable(onClickLabel = "Play shuffled") { play(genre, spellings) },
                     ) {
                         Text(genre, color = tone, fontSize = font.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, lineHeight = font.sp)
                     }
                 } else {
+                    // Every bubble has its name for TalkBack (a small one shows none), and a ring
+                    // round it with a remote's focus.
+                    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                     Box(
                         Modifier
                             .offset((x - size).dp, (y - size).dp)
                             .size((size * 2).dp)
+                            .focusRing(interaction, corner = size.dp)
                             .clip(CircleShape)
                             .background(tone.copy(alpha = 0.9f))
-                            .clickable { play(genre, spellings) },
+                            .semantics { contentDescription = genre }
+                            .clickable(interactionSource = interaction, indication = androidx.compose.material3.ripple(), onClickLabel = "Play shuffled") { play(genre, spellings) },
                         contentAlignment = Alignment.Center,
                     ) {
                         // As big as fits, its longest word on one line; no name when too small.
