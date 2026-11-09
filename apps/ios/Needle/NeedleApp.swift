@@ -160,6 +160,14 @@ struct RootView: View {
             }
             // -artist <name>, -album <title>: open that page.
             let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
+            // -font-test <title font>: 8 s in, changes the title and text fonts (the text font
+            // to Inter, or back to Plain with "system"), as Settings does, to see the page stay.
+            if let font = value("-font-test") {
+                Task {
+                    try? await Task.sleep(for: .seconds(8))
+                    store.updateChoices { $0.displayFont = font; $0.textFont = font == "system" ? "system" : "inter" }
+                }
+            }
             if let name = value("-artist") { store.opening = .artist(name) }
             // -sleep <minutes> starts the sleep timer, -speed <times> plays at that speed, and
             // -sheet sleep|speed|timing opens that sheet (timing: the song playing), a few seconds in.
