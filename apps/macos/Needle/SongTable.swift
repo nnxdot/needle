@@ -38,7 +38,9 @@ struct SongTable: View {
 
     private var albumView: Bool { if case .album = route { true } else { false } }
     /// A playlist of picked songs in its own order: songs can be moved about and taken out.
-    private var arrangeable: Bool { model.playlistID != nil && store.sort == nil && store.search.isEmpty }
+    private var arrangeable: Bool {
+        model.playlistID != nil && model.playlist?.readOnly != true && store.sort == nil && store.search.isEmpty
+    }
     private var compact: Bool { store.compactRows }
 
     private var rows: [SongRow] {
@@ -68,8 +70,10 @@ struct SongTable: View {
             .dropDestination(for: String.self) { index, ids in
                 guard arrangeable, let playlist = model.playlistID else { return }
                 let before = index < rows.count ? rows[index].track.id : nil
-                store.run { try $0.placeInPlaylist(id: playlist, ids: ids, before: before) }
-                Task { try? await Task.sleep(for: .milliseconds(150)); store.libraryChanged() }
+                Task {
+                    guard let saved = await store.ask({ try $0.placeInPlaylist(id: playlist, ids: ids, before: before) }) else { return }
+                    store.playlistSaved(saved, from: playlist, follow: true, done: nil)
+                }
             }
         }
         .tableStyle(.inset(alternatesRowBackgrounds: false))
@@ -243,10 +247,10 @@ struct SongTable: View {
 
     private func removeFromPlaylist(_ playlist: String, _ ids: [String]) {
         Task {
-            guard let n = await store.ask({ try $0.removeSongsFromPlaylist(id: playlist, ids: ids) }) else { return }
+            guard let saved = await store.ask({ try $0.removeSongsFromPlaylist(id: playlist, ids: ids) }) else { return }
             selection = []
-            store.notify("Took \(count(Int(n), "song")) out of “\(model.playlist?.name ?? "the playlist")”.")
-            store.libraryChanged()
+            store.playlistSaved(saved, from: playlist, follow: true,
+                                done: "Took \(count(Int(saved.changed), "song")) out of “\(model.playlist?.name ?? "the playlist")”.")
         }
     }
 

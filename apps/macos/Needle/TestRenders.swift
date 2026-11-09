@@ -1,4 +1,5 @@
 #if DEBUG
+import Carbon.HIToolbox
 import SwiftUI
 
 /// Test builds: pictures of a view drawn on its own (ImageRenderer), with no window, for when
@@ -24,12 +25,20 @@ import SwiftUI
 ///   `--test-sandbox-add <path>` when given, lists the folders and albums, plays
 ///   `--test-sandbox-play <path>` when given (or what came through Open), then writes what
 ///   plays, once a second for 10 seconds. `<file>` is in the app's container when relative.
+/// - `--headless`: no window on screen and no Dock icon (pictures are drawn offscreen).
+/// - `--test-scan <folder>`: the volume to 0, that music folder read, then quits.
+/// - `--test-206 <folder>`: round 2 of 2.0.6, silent: shortcuts everywhere, theme export,
+///   Look up all (MusicBrainz), a read-only server playlist, Fix my library's error, and the
+///   Radio page, as words (206.txt) and offscreen pictures; then quits.
 @MainActor
 enum TestRenders {
     static func start() {
         let args = CommandLine.arguments
         let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
         let store = Store.shared
+        if args.contains("--headless") { hideAll() }
+        if let folder = value("--test-scan") { Task { await testScan(store, folder) } }
+        if let folder = value("--test-206") { Task { await test206(store, folder) } }
         if let title = value("--test-play") {
             Task {
                 try? await Task.sleep(for: .seconds(4))
@@ -310,6 +319,194 @@ enum TestRenders {
         render(MiniPlayer().frame(width: 300, height: 300), to: "\(folder)/mini.png")
         MiniPlayer.showControls = false
         note("done")
+    }
+
+    // MARK: - 2.0.6, round 2
+
+    /// `--headless`: the app hides at once, with no Dock icon and no window on screen; pictures
+    /// are drawn offscreen.
+    static func hideAll() {
+        NSApp.setActivationPolicy(.prohibited)
+        NSApp.hide(nil)
+        NotificationCenter.default.addObserver(forName: NSApplication.didUnhideNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { NSApp.hide(nil) }
+        }
+    }
+
+    /// `--test-scan <folder>`: the volume to 0, then the music folder read; quits when done.
+    static func testScan(_ store: Store, _ folder: String) async {
+        store.setVolume(0)
+        store.set(["welcomed": true, "online_media": true])
+        try? await Task.sleep(for: .seconds(2))
+        _ = await store.ask { try $0.addFolder(path: folder) }
+        try? await Task.sleep(for: .seconds(2))
+        for _ in 0..<60 where store.scan.running { try? await Task.sleep(for: .seconds(1)) }
+        try? await Task.sleep(for: .seconds(2))
+        NSApp.terminate(nil)
+    }
+
+    /// `--test-206 <folder>`: round 2's checks and pictures, silent (the volume to 0 first, and
+    /// nothing is played), into <folder>: what the calls answer in 206.txt, and the real views
+    /// drawn offscreen (no window on screen). Quits when done.
+    static func test206(_ store: Store, _ folder: String) async {
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        var lines: [String] = []
+        func note(_ line: String) {
+            lines.append(line)
+            try? lines.joined(separator: "\n").write(toFile: folder + "/206.txt", atomically: true, encoding: .utf8)
+        }
+        store.setVolume(0)
+        store.set(["welcomed": true, "online_media": true, "theme": "dark", "music_colors": false])
+        try? await Task.sleep(for: .seconds(3))
+        note("volume \(store.settings.volume), playing \(store.isPlaying), sandboxed \(ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil)")
+
+        // Shortcuts everywhere: keys held, keys taken, a press delivered, and let go.
+        store.set(["global_shortcuts": [["play", "ctrl-alt-shift-f17"], ["volume_up", "ctrl-alt-shift-f18"],
+                                        ["volume_down", "ctrl-alt-shift-f19"], ["next", "ctrl-alt-shift-f16"]]])
+        GlobalKeys.testOn = true
+        GlobalKeys.apply()
+        note("hot keys held: \(GlobalKeys.heldCount), taken: \(GlobalKeys.taken.sorted())")
+        var other: EventHotKeyRef?
+        let again = RegisterEventHotKey(UInt32(kVK_F17), UInt32(controlKey | optionKey | shiftKey),
+                                        EventHotKeyID(signature: 0x5445_5354, id: 1), GetApplicationEventTarget(), 0, &other)
+        note("the same keys registered a second time: status \(again) (\(again == noErr ? "accepted" : "refused"))")
+        if let other { UnregisterEventHotKey(other) }
+        if !store.isPlaying {
+            GlobalKeys.testPress("volume_up")
+            try? await Task.sleep(for: .milliseconds(500))
+            note("after Volume up's hot key: volume \(store.playback?.volume ?? store.settings.volume)")
+            GlobalKeys.testPress("volume_down")
+            try? await Task.sleep(for: .milliseconds(500))
+            note("after Volume down's hot key: volume \(store.playback?.volume ?? store.settings.volume)")
+        }
+        store.setVolume(0)
+        await snapshot(Form { GlobalShortcutsSection() }.formStyle(.grouped).frame(width: 620, height: 470), dark: true, to: folder + "/keyboard.png")
+        GlobalKeys.testOn = false
+        GlobalKeys.apply()
+        note("switch off: hot keys held \(GlobalKeys.heldCount)")
+        GlobalKeys.testOn = nil
+
+        // Theme files to share.
+        let themes = store.core.themesFolder()
+        try? FileManager.default.createDirectory(atPath: themes, withIntermediateDirectories: true)
+        try? "name = \"Test Night\"\nauthor = \"Needle tests\"\n".write(toFile: themes + "/test-night.toml", atomically: true, encoding: .utf8)
+        switch await store.read({ try $0.exportTheme(id: "custom:test-night") }) {
+        case .success(let file): note("export theme: file name \(file.fileName), \(file.text.count) characters")
+        case .failure(let failure): note("export theme failed: \(failure.message)")
+        }
+        switch await store.read({ try $0.exportTheme(id: "custom:not-there") }) {
+        case .success: note("export of a missing theme: no error (wrong)")
+        case .failure(let failure): note("export of a missing theme: \(failure.message)")
+        }
+
+        // Look up all, for real (MusicBrainz), and the matches written.
+        let problems = await store.load { $0.albumProblems() } ?? []
+        note("albums with gaps: \(problems.map { "\($0.album) (\($0.problems.joined(separator: ", ")))" })")
+        var bulk = TagsTab.Bulk(total: problems.count)
+        for (i, p) in problems.enumerated() {
+            let (album, artist, ids) = (p.album, p.artist, p.songIds)
+            let result = await store.read { try $0.lookUpSureMatch(album: album, artist: artist, songIds: ids, start: i == 0) }
+            switch result {
+            case .success(let match?):
+                note("look up “\(album)”: sure match \(match.release.title) (\(match.release.year)), \(match.changes) songs change")
+                bulk.found.append(TagsTab.Found(album: p, match: match))
+                bulk.chosen.insert(match.release.id)
+            case .success(nil): note("look up “\(album)”: no sure match")
+            case .failure(let failure):
+                note("look up “\(album)”: could not ask (\(failure.message))")
+                bulk.failed += 1
+            }
+            bulk.done = i + 1
+        }
+        bulk.finished = true
+        await snapshot(TagsTab(bulk: bulk).padding(20).frame(width: 760, height: 420).background(store.colors.canvas), dark: true, to: folder + "/lookup-all.png")
+        if !bulk.chosen.isEmpty {
+            let ids = Array(bulk.chosen)
+            switch await store.read({ try $0.applySureMatches(releaseIds: ids) }) {
+            case .success(let report): note("write: \(report.saved) songs saved, failed \(report.failed)")
+            case .failure(let failure): note("write failed: \(failure.message)")
+            }
+            note("albums with gaps after writing: \((await store.load { $0.albumProblems() } ?? []).map(\.album))")
+        }
+
+        // A read-only playlist on a music server (put in the test library before the start).
+        store.reloadPlaylists()
+        try? await Task.sleep(for: .seconds(1))
+        if let readOnly = store.playlists.first(where: \.readOnly) {
+            note("read-only playlist: \(readOnly.name), server \(readOnly.server)")
+            let route = Route.playlist(readOnly.id)
+            store.navigate(route)
+            let model = SongsModel()
+            await model.load(store, route)
+            note("its page: \(model.total) songs, arrangeable \(model.playlist?.readOnly == false)")
+            await snapshot(VStack(alignment: .leading, spacing: 0) {
+                SongsHeader(route: route, model: model)
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(store.playlists, id: \.id) { PlaylistRow(playlist: $0, rail: false) }
+                }
+                .padding(16)
+                .frame(width: 260, alignment: .leading)
+            }
+            .frame(width: 900, height: 470, alignment: .topLeading).background(store.colors.canvas), dark: true, to: folder + "/read-only.png")
+            // Adding to it from elsewhere: refused here, never "Added …".
+            store.addToPlaylist(readOnly, model.tracks.prefix(1).map(\.id))
+            try? await Task.sleep(for: .milliseconds(300))
+            note("adding to it: “\(store.toast?.text ?? "nothing said")”")
+            // The core itself, asked to add a song not in it: where the song went.
+            let inside = Set(model.tracks.map(\.id))
+            let all = await store.load { try $0.songs().map(\.id) } ?? []
+            let (id, songs) = (readOnly.id, all.filter { !inside.contains($0) }.prefix(1).map { $0 })
+            switch await store.read({ try $0.addSongsToPlaylist(id: id, ids: songs) }) {
+            case .success(let saved):
+                note("core add: id \(saved.id), copy \(saved.copyId ?? "none") “\(saved.copyName ?? "")”, note “\(saved.note ?? "none")”, changed \(saved.changed)")
+                store.playlistSaved(saved, from: id, follow: true, done: "Added (wrong if shown)")
+                try? await Task.sleep(for: .milliseconds(300))
+                note("said: “\(store.toast?.text ?? "nothing")”, page now \(store.route)")
+            case .failure(let failure): note("core add failed: \(failure.message)")
+            }
+            switch await store.read({ try $0.deletePlaylist(id: id) }) {
+            case .success: note("delete: done (wrong for read-only)")
+            case .failure(let failure): note("delete: \(failure.message)")
+            }
+        } else {
+            note("no read-only playlist in the test library")
+        }
+
+        // Fix my library when the core cannot read the library.
+        DoctorPage.testError = "database disk image is malformed"
+        store.navigate(.doctor)
+        await snapshot(DoctorPage().frame(width: 900, height: 330).background(store.colors.canvas), dark: true, to: folder + "/doctor-error.png")
+        DoctorPage.testError = nil
+
+        // The Radio page, night and day.
+        for dark in [true, false] {
+            store.set(["theme": dark ? "dark" : "light"])
+            try? await Task.sleep(for: .seconds(1))
+            await snapshot(RadioPage().frame(width: 1100, height: 900).background(store.colors.canvas), dark: dark,
+                           to: folder + "/radio-\(dark ? "night" : "day").png", settle: 4)
+        }
+        store.set(["theme": "dark"])
+        note("volume at the end \(store.settings.volume), playing \(store.isPlaying)")
+        note("done")
+        NSApp.terminate(nil)
+    }
+
+    /// A real view drawn offscreen: in a window that is never put on screen, given `settle`
+    /// seconds for its `.task`s to load, then drawn into a picture.
+    private static func snapshot(_ view: some View, dark: Bool, to path: String, settle: Double = 2) async {
+        let host = NSHostingView(rootView: AnyView(view.environment(\.colorScheme, dark ? .dark : .light)))
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = host
+        try? await Task.sleep(for: .seconds(settle))
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        window.contentView = nil
     }
 
     private static func render(_ view: some View, to path: String) {

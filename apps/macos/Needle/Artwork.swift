@@ -159,6 +159,12 @@ enum Covers {
 
     @MainActor private static var pageColors: [String: NSColor] = [:]
 
+    /// A page's colour already found (see `pageColor`), at once, or none yet.
+    @MainActor
+    static func knownPageColor(_ path: String?, seed: String) -> NSColor? {
+        pageColors[stamp(path) ?? "seed:" + seed]
+    }
+
     /// The average colour of the picture's lowest rows.
     nonisolated static func footColor(_ path: String) -> (Double, Double, Double)? {
         guard let cg = cgImage(path, size: 64) else { return nil }

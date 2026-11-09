@@ -48,6 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keys = Keys.install { [weak self] in self?.store }
+        // Keys everywhere, when they are on (Settings › Keyboard).
+        MainActor.assumeIsolated { GlobalKeys.apply() }
+        // Siri and Spotlight learn the playlists' names for "Play <playlist> in Needle".
+        NeedleShortcuts.updateAppShortcutParameters()
         #if DEBUG
         MainActor.assumeIsolated { TestRenders.start() }
         #endif
@@ -181,6 +185,7 @@ struct NeedleCommands: Commands {
             Button("Recently Added") { store.navigate(.recent) }.keyboardShortcut("6")
             Button("Listening History") { store.navigate(.history) }.keyboardShortcut("7")
             Button("Folders") { store.navigate(.folders) }
+            Button("Radio") { store.navigate(.radio) }
             Divider()
             if let current = store.current {
                 Button("Go to the Album Playing") { store.navigate(current.albumRoute) }

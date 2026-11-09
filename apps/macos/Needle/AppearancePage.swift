@@ -24,6 +24,7 @@ struct AppearanceSettings: View {
                     ThemeCard(mode: theme.id, name: theme.name, about: theme.readOnly ? "From \(theme.id.dropFirst(7).split(separator: "/").first ?? "")" : theme.author.isEmpty ? "Your theme" : "By \(theme.author)", theme: theme)
                         .contextMenu {
                             Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
+                            Button("Export…") { export(theme) }
                             Button("Show the file") { store.reveal(theme.path) }
                             if !theme.readOnly {
                                 Button("Delete", role: .destructive) { delete(theme) }
@@ -35,6 +36,7 @@ struct AppearanceSettings: View {
             HStack {
                 if let theme = store.customTheme {
                     Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
+                    Button("Export…") { export(theme) }
                 }
                 Button("New theme…") { newTheme = true }
                 Spacer()
@@ -188,6 +190,25 @@ struct AppearanceSettings: View {
         panel.allowedContentTypes = [UTType(filenameExtension: "toml") ?? .plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         store.importTheme(url)
+    }
+
+    /// Saves a theme as a file to share (as on Windows): a friend drops it on Needle to add it.
+    private func export(_ theme: ThemeFile) {
+        let id = theme.id
+        Task {
+            guard let file = await store.ask({ try $0.exportTheme(id: id) }) else { return }
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = file.fileName
+            panel.allowedContentTypes = [UTType(filenameExtension: "toml") ?? .plainText]
+            panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try file.text.write(to: url, atomically: true, encoding: .utf8)
+                store.notify("Saved \((url.path as NSString).abbreviatingWithTildeInPath). Send it to a friend, or drop it on Needle to add it.")
+            } catch {
+                store.fail("Could not save the theme: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func delete(_ theme: ThemeFile) {

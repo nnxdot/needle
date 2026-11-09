@@ -55,6 +55,10 @@ struct PlaylistEditor: View {
                     .disabled(!playlist.id.isEmpty)
                 }
             }
+            if playlist.readOnly {
+                Label("Read-only on the server: your changes are saved as a playlist of your own.", systemImage: "server.rack")
+                    .font(.needle(.callout)).foregroundStyle(.secondary)
+            }
             if smart { rules } else {
                 Text(playlist.trackIds.isEmpty
                      ? "An empty playlist. Add songs from any song's menu (Add to Playlist), or drag them onto it in the sidebar."
@@ -66,7 +70,7 @@ struct PlaylistEditor: View {
                 if let problem { Text(problem).font(.needle(.caption)).foregroundStyle(store.colors.danger).lineLimit(2) }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(playlist.id.isEmpty ? "Make playlist" : "Save") { save() }
+                Button(playlist.id.isEmpty ? "Make playlist" : playlist.readOnly ? "Save as a copy" : "Save") { save() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || saving)
@@ -197,20 +201,17 @@ struct PlaylistEditor: View {
         let before = playlist.id.isEmpty ? nil : (try? encoder.encode(playlist)).map { String(decoding: $0, as: UTF8.self) }
         let (picture, clear, isNew, title, old) = (picture, clearPicture, playlist.id.isEmpty, name, playlist.id)
         Task {
-            guard let id = await store.ask({ try $0.savePlaylistJson(json: json, beforeJson: before) }) else { saving = false; return }
+            guard let saved = await store.ask({ try $0.savePlaylistJson(json: json, beforeJson: before) }) else { saving = false; return }
+            // The person's version: the playlist, or the copy it went to (read-only on the
+            // server, or changed there meanwhile). The picture is part of their version.
+            let mine = saved.copyId ?? saved.id
             if picture != nil || clear {
-                _ = await store.ask { try $0.setPlaylistPicture(id: id, path: picture) }
+                _ = await store.ask { try $0.setPlaylistPicture(id: mine, path: picture) }
             }
-            // Another id back: the playlist left while it was being edited (its server removed
-            // it), and the core kept the edit as a playlist of this Mac's own.
-            let copied = !isNew && id != old
-            store.notify(isNew ? "Made “\(title)”." : copied ? "“\(title)” was removed meanwhile, so it is saved as a copy on this Mac." : "Saved “\(title)”.")
-            store.libraryChanged()
-            if isNew {
-                store.navigate(.playlist(id))
-            } else if copied {
-                store.playlistMoved(from: old, to: id)
-            }
+            // The core's note says where it went when that was not as asked: a copy (named),
+            // or a new id when the playlist left meanwhile; the window follows it there.
+            store.playlistSaved(saved, from: isNew ? "" : old, follow: true, done: isNew ? "Made “\(title)”." : "Saved “\(title)”.")
+            if isNew { store.navigate(.playlist(mine)) }
             dismiss()
         }
     }
@@ -254,10 +255,13 @@ struct AddSongs: View {
     @State private var text = ""
     @State private var found: [Track] = []
     @State private var added: Set<String> = []
+    /// Where songs go: the playlist, or the copy the first add went to (it changed on the
+    /// server meanwhile), so the next adds do not make another copy each.
+    @State private var target: (id: String, name: String)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add songs to “\(playlist.name)”").font(.needle(.title2).weight(.semibold))
+            Text("Add songs to “\(target?.name ?? playlist.name)”").font(.needle(.title2).weight(.semibold))
             TextField("Search your songs, or type a rule", text: $text).textFieldStyle(.roundedBorder)
             List(found) { track in
                 HStack(spacing: 10) {
@@ -296,12 +300,17 @@ struct AddSongs: View {
     }
 
     private func add(_ ids: [String]) {
-        let id = playlist.id
+        let (id, name) = target ?? (playlist.id, playlist.name)
         Task {
-            if let n = await store.ask({ try $0.addSongsToPlaylist(id: id, ids: ids) }) {
-                added.formUnion(ids)
-                store.notify(n == 0 ? "Already in “\(playlist.name)”." : "Added \(count(Int(n), "track")) to “\(playlist.name)”.")
-                store.libraryChanged()
+            guard let saved = await store.ask({ try $0.addSongsToPlaylist(id: id, ids: ids) }) else { return }
+            added.formUnion(ids)
+            let n = Int(saved.changed)
+            store.playlistSaved(saved, from: id, follow: true,
+                                done: n == 0 ? "Already in “\(name)”." : "Added \(count(n, "track")) to “\(name)”.")
+            if let copy = saved.copyId {
+                target = (copy, saved.copyName ?? name)
+            } else if saved.id != id {
+                target = (saved.id, name)
             }
         }
     }

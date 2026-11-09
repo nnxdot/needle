@@ -7,7 +7,14 @@ struct DoctorPage: View {
     private var store: Store { .shared }
     @State private var tab = "Duplicates"
     @State private var health: LibraryHealth?
+    /// The overview could not be read: why, in words (shown in its place, never an empty page).
+    @State private var healthError: String?
     @State private var confirmForget = false
+
+    #if DEBUG
+    /// Test pictures: the core's answer to give instead of reading the library (an error).
+    static var testError: String?
+    #endif
 
     var body: some View {
         // One page that scrolls: the cards, then the tool, whose own list scrolls inside a box
@@ -18,9 +25,7 @@ struct DoctorPage: View {
                 page(toolHeight: max(380, geo.size.height - 130))
             }
         }
-        .task(id: store.libraryVersion) {
-            health = JSON.decode(LibraryHealth.self, await store.load { $0.libraryHealthJson() })
-        }
+        .task(id: store.libraryVersion) { await readHealth() }
         .confirmationDialog("Forget \(count(health?.gone ?? 0, "song")) whose file is gone?", isPresented: $confirmForget) {
             Button("Forget Them", role: .destructive) {
                 Task {
@@ -37,7 +42,16 @@ struct DoctorPage: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Fix my library").font(store.display(28))
-                Text(health.map(\.summary) ?? "Checking your library…").foregroundStyle(store.colors.ink2)
+                if let healthError {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Label("Could not read your library: \(healthError)", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(store.colors.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Try again") { Task { await readHealth() } }.buttonStyle(.link)
+                    }
+                } else {
+                    Text(health.map(\.summary) ?? "Checking your library…").foregroundStyle(store.colors.ink2)
+                }
             }
             if let h = health, h.songs > 0 {
                 ProgressView(value: Double(h.fine), total: Double(max(h.songs, 1)))
@@ -63,6 +77,30 @@ struct DoctorPage: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    /// The overview from the core, or why it could not be read.
+    private func readHealth() async {
+        #if DEBUG
+        if let error = Self.testError {
+            health = nil
+            healthError = error
+            return
+        }
+        #endif
+        switch await store.read({ try $0.libraryHealthJson() }) {
+        case .success(let json):
+            if let read = JSON.decode(LibraryHealth.self, json) {
+                health = read
+                healthError = nil
+            } else {
+                health = nil
+                healthError = "its overview was not understood"
+            }
+        case .failure(let failure):
+            health = nil
+            healthError = failure.message
+        }
     }
 
     /// The cards: what is wrong, how much, and what a click does.
@@ -311,15 +349,44 @@ private struct CoversTab: View {
     }
 }
 
-private struct TagsTab: View {
+struct TagsTab: View {
     private var store: Store { .shared }
     @State private var problems: [AlbumProblem]?
     @State private var open: AlbumProblem?
     @State private var releases: [ReleaseChoice]?
+    /// Look up all: its progress, then the sure matches to tick and write.
+    @State private var bulk: Bulk?
+
+    init(bulk: Bulk? = nil) {
+        _bulk = State(initialValue: bulk)
+    }
+    @State private var bulkRun: Task<Void, Never>?
+    @State private var writing = false
+
+    /// Every album with gaps, looked up on MusicBrainz one after another; only sure matches
+    /// are kept, ticked, for the person to check before anything is written.
+    struct Bulk {
+        var done = 0
+        let total: Int
+        var failed = 0
+        var finished = false
+        var stopping = false
+        /// The albums matched for sure, each with its match.
+        var found: [Found] = []
+        /// The ticked ones, by release id.
+        var chosen: Set<String> = []
+    }
+
+    struct Found {
+        let album: AlbumProblem
+        let match: SureMatch
+    }
 
     var body: some View {
         Group {
-            if let open {
+            if let bulk {
+                bulkView(bulk)
+            } else if let open {
                 VStack(alignment: .leading, spacing: 10) {
                     Button { self.open = nil; releases = nil } label: { Label("Back to the list", systemImage: "chevron.left") }.buttonStyle(.link)
                     Text("\(open.album) · \(open.artist)").font(.needle(.title3).weight(.semibold))
@@ -346,24 +413,158 @@ private struct TagsTab: View {
                 if problems.isEmpty {
                     done("Album tags look complete", "Every album has a year, track numbers, and an album artist where needed.")
                 } else {
-                    // Two albums can share a name: each by its own songs.
-                    List(problems, id: \.songIds) { p in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(p.album.isEmpty ? "Unknown album" : p.album).fontWeight(.medium)
-                                Text("\(p.artist) · \(p.problems.joined(separator: ", "))").font(.needle(.caption)).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button("Look up") { lookUp(p) }.controlSize(.small)
-                        }
-                    }
+                    list(problems)
                 }
             } else {
                 busy("Checking album tags…")
             }
         }
         .task { problems = await store.load { $0.albumProblems() } }
+        // Leaving Fix my library stops a run between two albums.
+        .onDisappear { bulkRun?.cancel() }
     }
+
+    /// The albums with gaps, with Look up all above them (as on Windows).
+    private func list(_ problems: [AlbumProblem]) -> some View {
+        let online = store.settings.onlineMedia
+        return VStack(alignment: .leading, spacing: 10) {
+            if online && problems.count > 1 {
+                Button("Look up all") { lookUpAll(problems) }
+            }
+            Text(online
+                 ? "\(count(problems.count, "album")) with gaps in their tags. Look one up to match it with a release on MusicBrainz, or look them all up: Look up all keeps only sure matches for you to check. You see every change before anything is written, and Needle keeps a backup of each file."
+                 : "\(count(problems.count, "album")) with gaps in their tags. Turn on online lookups in Settings to match them on MusicBrainz.")
+                .font(.needle(.callout)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            // Two albums can share a name: each by its own songs.
+            List(problems, id: \.songIds) { p in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(p.album.isEmpty ? "Unknown album" : p.album).fontWeight(.medium)
+                        Text("\(p.artist) · \(p.problems.joined(separator: ", "))").font(.needle(.caption)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Look up") { lookUp(p) }.controlSize(.small).disabled(!online)
+                }
+            }
+        }
+    }
+
+    // MARK: Look up all
+
+    private func bulkView(_ bulk: Bulk) -> some View {
+        let found = bulk.found.count == 1 ? "1 sure match" : "\(bulk.found.count.formatted()) sure matches"
+        let status = bulk.finished
+            ? "Looked up \(bulk.done) of \(bulk.total): \(found). Untick any you do not want, then write them; Needle keeps a backup of each file."
+            : "Looking up \(bulk.done) of \(bulk.total) on MusicBrainz (about a second or two each): \(found) so far. You can write them once it ends, or stop it."
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Button { closeBulk() } label: { Label("Back to the list", systemImage: "chevron.left") }.buttonStyle(.link)
+                Spacer()
+                if !bulk.finished {
+                    Button(bulk.stopping ? "Stopping…" : "Stop") { stopBulk() }.disabled(bulk.stopping)
+                } else {
+                    Button("Write \(count(bulk.chosen.count, "album"))") { writeBulk() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(bulk.chosen.isEmpty || writing)
+                }
+            }
+            if !bulk.finished {
+                ProgressView(value: Double(bulk.done), total: Double(max(bulk.total, 1))).tint(store.colors.accent)
+            }
+            Text(status).font(.needle(.callout)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if bulk.failed > 0 {
+                Text("\(count(bulk.failed, "album")) could not be looked up (no connection, or MusicBrainz was busy).")
+                    .font(.needle(.caption)).foregroundStyle(.secondary)
+            }
+            List(bulk.found, id: \.match.release.id) { item in
+                matchRow(item, chosen: bulk.chosen.contains(item.match.release.id))
+            }
+        }
+    }
+
+    /// A sure match: ticked to be written, its album, and what it changes.
+    private func matchRow(_ item: Found, chosen: Bool) -> some View {
+        let release = item.match.release
+        let about = [release.title, release.artist, release.year > 0 ? String(release.year) : "", release.country].filter { !$0.isEmpty }
+        let changes = Int(item.match.changes)
+        let id = release.id
+        return Toggle(isOn: Binding(get: { chosen }, set: { on in
+            if on { bulk?.chosen.insert(id) } else { bulk?.chosen.remove(id) }
+        })) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.album.album.isEmpty ? "Unknown album" : item.album.album).fontWeight(.medium).lineLimit(1)
+                Text("\(item.album.artist) · \(about.joined(separator: " · ")) · \(changes == 1 ? "1 song changes" : "\(changes) songs change")")
+                    .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .toggleStyle(.checkbox)
+        .disabled(writing)
+    }
+
+    /// One album after another (MusicBrainz takes one request a second); Stop ends the run
+    /// after the album being looked up.
+    private func lookUpAll(_ list: [AlbumProblem]) {
+        bulkRun?.cancel()
+        bulk = Bulk(total: list.count)
+        bulkRun = Task {
+            for (i, p) in list.enumerated() {
+                if Task.isCancelled { break }
+                let (album, artist, ids, start) = (p.album, p.artist, p.songIds, i == 0)
+                let result = await store.read { try $0.lookUpSureMatch(album: album, artist: artist, songIds: ids, start: start) }
+                // Closed meanwhile: nothing more to show.
+                guard bulk != nil else { return }
+                switch result {
+                case .success(let match):
+                    if let match {
+                        bulk?.found.removeAll { $0.match.release.id == match.release.id }
+                        bulk?.found.append(Found(album: p, match: match))
+                        bulk?.chosen.insert(match.release.id)
+                    }
+                case .failure:
+                    bulk?.failed += 1
+                }
+                bulk?.done = i + 1
+            }
+            bulk?.finished = true
+            bulk?.stopping = false
+        }
+    }
+
+    private func stopBulk() {
+        bulk?.stopping = true
+        bulkRun?.cancel()
+    }
+
+    private func closeBulk() {
+        bulkRun?.cancel()
+        bulkRun = nil
+        bulk = nil
+    }
+
+    /// Writes the ticked matches into their albums' songs.
+    private func writeBulk() {
+        guard let bulk, !bulk.chosen.isEmpty else { return }
+        let ids = Array(bulk.chosen)
+        let albums = bulk.found.filter { bulk.chosen.contains($0.match.release.id) }.count
+        writing = true
+        Task {
+            if let report = await store.ask({ try $0.applySureMatches(releaseIds: ids) }) {
+                let songs = Int(report.saved)
+                if report.failed.isEmpty {
+                    store.notify("Updated \(count(songs, "song")) in \(count(albums, "album")). Needle kept a backup of each file.")
+                } else {
+                    store.fail("Updated \(songs); \(report.failed.count) failed: \(report.failed.joined(separator: "; "))")
+                }
+                self.bulk = nil
+                problems = await store.load { $0.albumProblems() }
+                store.libraryChanged()
+            }
+            writing = false
+        }
+    }
+
+    // MARK: One album
 
     private func lookUp(_ p: AlbumProblem) {
         open = p

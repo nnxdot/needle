@@ -614,6 +614,15 @@ final class Store {
         return await Task.detached { try? work(core) }.value
     }
 
+    /// Reads a value away from the window, or what went wrong, in words: for a page that shows
+    /// a failure in its own place (never as an empty page).
+    nonisolated func read<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> Result<T, Failure> {
+        let core = core
+        return await Task.detached {
+            do { return .success(try work(core)) } catch { return .failure(Failure(message: error.message)) }
+        }.value
+    }
+
     // MARK: - Settings
 
     /// Changes the settings named in `patch` (the desktop's names; objects merge), saves them,
@@ -961,18 +970,43 @@ final class Store {
     }
 
     /// A playlist saved under a new id (a copy of one that left): its page, and the way back to
-    /// it, go to the new one.
-    func playlistMoved(from old: String, to new: String) {
+    /// it, go to the new one. With `follow`, the window goes there from any page.
+    func playlistMoved(from old: String, to new: String, follow: Bool = true) {
         let (before, after) = (Route.playlist(old), Route.playlist(new))
         back = back.map { $0 == before ? after : $0 }
         forward = forward.map { $0 == before ? after : $0 }
         if route == before {
             route = after
             headerFolded = false
-        } else {
+        } else if follow {
             navigate(after)
         }
         reloadPlaylists()
+    }
+
+    /// Tells the person where a change to a playlist went, and where their version now lives.
+    /// `done` is what to say when it went just as asked. When it did not (the playlist is
+    /// read-only on its server, changed there meanwhile, or left), the core's note says so and
+    /// names the copy; never "Added …" for songs that went to a copy. With `follow` (the
+    /// person was editing that playlist), the window goes to the copy.
+    func playlistSaved(_ saved: PlaylistSaved, from old: String, follow: Bool, done: String?) {
+        if let note = saved.note {
+            notify(note.hasSuffix(".") ? note : note + ".")
+        } else if let name = saved.copyName {
+            notify("Saved as a copy, “\(name)”.")
+        } else if let done {
+            notify(done)
+        }
+        let mine = saved.copyId ?? saved.id
+        if !old.isEmpty, mine != old {
+            if saved.copyId == nil {
+                // The playlist itself left Needle and lives on under a new id.
+                playlistMoved(from: old, to: mine, follow: follow)
+            } else if follow || route == .playlist(old) {
+                navigate(.playlist(mine))
+            }
+        }
+        libraryChanged()
     }
 
     /// Deletes a playlist; only once the core has done so does Needle say it is deleted (offline,
@@ -1128,10 +1162,15 @@ final class Store {
 
     func addToPlaylist(_ playlist: Playlist, _ ids: [String]) {
         let id = playlist.id
+        guard !playlist.readOnly else {
+            notify("“\(playlist.name)” is read-only on the server.")
+            return
+        }
         Task {
-            guard let added = await ask({ try $0.addSongsToPlaylist(id: id, ids: ids) }) else { return }
-            notify(added == 0 ? "Already in “\(playlist.name)”." : "Added \(count(Int(added), "track")) to “\(playlist.name)”.")
-            libraryChanged()
+            guard let saved = await ask({ try $0.addSongsToPlaylist(id: id, ids: ids) }) else { return }
+            let added = Int(saved.changed)
+            playlistSaved(saved, from: id, follow: false,
+                          done: added == 0 ? "Already in “\(playlist.name)”." : "Added \(count(added, "track")) to “\(playlist.name)”.")
         }
     }
 

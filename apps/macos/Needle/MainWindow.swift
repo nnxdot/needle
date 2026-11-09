@@ -87,7 +87,11 @@ struct MainWindow: View {
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
         .frame(minWidth: Store.leastWidth(store.settings), minHeight: 620)
-        .onAppear { Store.makeRoom(Store.leastWidth(store.settings)) }
+        .onAppear {
+            Store.makeRoom(Store.leastWidth(store.settings))
+            // A key everywhere can open the mini player.
+            GlobalKeys.openMini = { [openWindow] in openWindow(id: "mini") }
+        }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             drop(providers)
             return true
@@ -183,7 +187,7 @@ struct MainWindow: View {
                 if let album = albums.first(where: { $0.album == title }) { store.navigate(album.route) }
             }
         }
-        // For the website's pictures: `--page albums|songs|artists|home|genremap|numbers|doctor` opens that page,
+        // For the website's pictures: `--page albums|songs|artists|home|radio|genremap|numbers|doctor` opens that page,
         // `--panel queue|details|lyrics` the side panel on that, and `--play-album <title>`
         // plays that album from its first song, `--seek <seconds>` into it.
         switch value("--page") {
@@ -191,6 +195,7 @@ struct MainWindow: View {
         case "songs": store.navigate(.songs)
         case "artists": store.navigate(.artists)
         case "home": store.navigate(.home)
+        case "radio": store.navigate(.radio)
         case "genremap": store.navigate(.genreMap)
         case "year": store.navigate(.wrapped(store.reviewYear))
         case "timing": store.navigate(.timing)
@@ -672,6 +677,7 @@ struct PageView: View {
         Group {
             switch store.route {
             case .home: library { HomePage() }
+            case .radio: library { RadioPage() }
             case .albums: library { AlbumsPage() }
             case .artists: library { ArtistsPage() }
             case .artist(let name): ArtistPage(name: name)

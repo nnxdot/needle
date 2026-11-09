@@ -3,6 +3,8 @@ import Foundation
 /// A page of the main window.
 enum Route: Hashable {
     case home
+    /// Stations and quick mixes.
+    case radio
     case songs
     case albums
     case artists
@@ -37,6 +39,7 @@ enum Route: Hashable {
     var title: String {
         switch self {
         case .home: "Home"
+        case .radio: "Radio"
         case .songs: "Songs"
         case .albums: "Albums"
         case .artists: "Artists"

@@ -939,6 +939,7 @@ struct KeyboardSettings: View {
     ]
 
     var body: some View {
+        GlobalShortcutsSection()
         Section {
             ForEach(keys, id: \.1) { key, what in
                 LabeledContent(what) {
@@ -947,6 +948,8 @@ struct KeyboardSettings: View {
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
             }
+        } header: {
+            GroupHeader(title: "In Needle")
         }
     }
 }

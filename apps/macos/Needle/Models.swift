@@ -160,6 +160,9 @@ struct PlaylistModel: Codable, Identifiable, Hashable {
     var server: ServerLink? = nil
 
     var smart: Bool { query != nil }
+    /// On a music server that lets this person only read it (another person's playlist, a
+    /// smart one there): its name and songs cannot change here, and it cannot be deleted.
+    var readOnly: Bool { server?.readOnly == true }
 
     static func new() -> PlaylistModel {
         PlaylistModel(id: "", name: "", query: nil, trackIds: [], updatedAt: 0, description: "", cover: nil, rules: nil)
@@ -173,6 +176,8 @@ struct ServerLink: Codable, Hashable {
     var name: String
     var songs: [String]
     var comment: String
+    /// The server lets this person only read it.
+    var readOnly: Bool? = nil
 }
 
 struct RuleSet: Codable, Hashable {
@@ -286,6 +291,9 @@ struct NeedleSettings: Decodable, Equatable {
     var tray = false
     /// The sleep timer puts the Mac to sleep when it ends.
     var sleepComputer = false
+    /// Keys that work everywhere (Settings › Keyboard): pairs of an action and its keys, as
+    /// ["play", "ctrl-alt-space"], shared with Windows. Held only while the Mac's switch is on.
+    var globalShortcuts: [[String]] = []
     /// The big player's seek bar: "shape", "wave", "line", or "thick".
     var seekStyle = "shape"
     /// What makes an album: "tags" (album artist and album) or "folder".
@@ -456,11 +464,17 @@ func day(_ seconds: Int?) -> String {
     return Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(.dateTime.day().month(.abbreviated).year())
 }
 
+/// What went wrong reading something, in words (see `Store.read`).
+struct Failure: Error, Sendable {
+    let message: String
+}
+
 extension Error {
     /// What went wrong, in words: the message of an error from Needle's core (whose own
     /// description is its Swift name), or the system's description.
     var message: String {
         if let needle = self as? NeedleError, case .Failed(let text) = needle { return text }
+        if let failure = self as? Failure { return failure.message }
         return localizedDescription
     }
 }

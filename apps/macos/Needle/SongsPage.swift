@@ -249,6 +249,12 @@ struct SongsHeader: View {
                         .font(.needle(.title3).weight(.medium))
                 }
                 Text(summary(album)).font(.needle(.callout)).foregroundStyle(colors.ink2)
+                if model.playlist?.readOnly == true {
+                    // The server mark, and why nothing here can change.
+                    Label("Read-only on the server", systemImage: "server.rack")
+                        .font(.needle(.callout)).foregroundStyle(colors.ink2)
+                        .help("Its name and songs come from your music server, which lets you only read it.")
+                }
                 if let description = playlist?.description, !description.isEmpty {
                     Text(description).font(.needle(.callout)).foregroundStyle(colors.ink2).lineLimit(2)
                 }
@@ -329,14 +335,19 @@ struct SongsHeader: View {
                     .accessibilityLabel(kept ? "Stop keeping on this computer" : "Keep on this computer")
             }
             if let playlist = model.playlist {
-                if !playlist.smart {
+                // A read-only server playlist: no adding, renaming, or deleting here.
+                if !playlist.smart && !playlist.readOnly {
                     Button { store.addingTo = playlist } label: { Label("Add songs", systemImage: "plus") }.glassButton()
                 }
-                Button { store.editor = playlist } label: { Label("Edit", systemImage: "pencil") }.glassButton()
+                if !playlist.readOnly {
+                    Button { store.editor = playlist } label: { Label("Edit", systemImage: "pencil") }.glassButton()
+                }
                 Menu {
                     Button("Export as M3U8…") { exportPlaylist(playlist) }
-                    Divider()
-                    Button("Delete Playlist…", role: .destructive) { confirmDelete = true }
+                    if !playlist.readOnly {
+                        Divider()
+                        Button("Delete Playlist…", role: .destructive) { confirmDelete = true }
+                    }
                 } label: { Image(systemName: "ellipsis") }
                     .menuIndicator(.hidden)
                     .fixedSize()
