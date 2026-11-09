@@ -500,7 +500,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(display("Stations from your favourites", 20.))
+                    .child(display("Stations from your favorites", 20.))
                     .child(faint(
                         "Each starts with the song, then plays songs that flow from it.",
                         cx,
