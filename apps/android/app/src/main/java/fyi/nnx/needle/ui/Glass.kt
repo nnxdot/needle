@@ -407,7 +407,7 @@ fun GlassSheet(
     val shown = sheetState.targetValue != SheetValue.Hidden
     val cover = glassCover(art).takeIf { art != null }
     // Past the foot of the tallest sheet: the screen's height.
-    val reach = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val reach = with(LocalDensity.current) { androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDp() }
     val dark = darkPage()
     // Reduce motion: the sheet comes and goes at once, with no slide; its shade still fades.
     StillSheetMotion(reduceMotion()) {

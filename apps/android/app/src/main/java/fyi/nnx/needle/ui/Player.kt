@@ -1692,7 +1692,7 @@ private fun UpNextPanel(version: ULong, titled: Boolean = true) {
                 }
                 SwipeToDismissBox(
                     // The rows slide when one goes or moves (Reorder.kt).
-                    modifier = movingRow(reorder).then(if (onComputer) Modifier else Modifier.reorderRow(reorder, i)),
+                    modifier = Modifier.movingRow(this, reorder).then(if (onComputer) Modifier else Modifier.reorderRow(reorder, i)),
                     state = dismiss,
                     // The computer's queue cannot be changed from here, so its rows do not swipe.
                     enableDismissFromStartToEnd = !onComputer,

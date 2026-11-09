@@ -472,7 +472,7 @@ private fun LazyListScope.songList(
     val keys = songKeys(list)
     itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
         // A list that changes in place (a playlist's): its rows slide when one goes or moves.
-        val moving = if (reorder != null || remove != null) movingRow(reorder) else Modifier
+        val moving = if (reorder != null || remove != null) Modifier.movingRow(this, reorder) else Modifier
         Box(moving.entrance(i).then(if (reorder != null) Modifier.reorderRow(reorder, i) else Modifier)) {
             SongRow(
                 song, playing == song.id, open,

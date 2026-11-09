@@ -73,15 +73,15 @@ fun rememberReorder(count: Int, move: (from: Int, to: Int) -> Unit): Reorder =
  * after a drag, whose rows stand in their new places already, and not with Reduce motion.
  */
 @Composable
-fun androidx.compose.foundation.lazy.LazyItemScope.movingRow(reorder: Reorder?): Modifier {
-    if (reduceMotion()) return Modifier
+fun Modifier.movingRow(item: androidx.compose.foundation.lazy.LazyItemScope, reorder: Reorder?): Modifier {
+    if (reduceMotion()) return this
     val dragged = reorder != null && android.os.SystemClock.uptimeMillis() - reorder.droppedAt < 400
-    return Modifier.animateItem(
+    return with(item) { this@movingRow.animateItem(
         placementSpec = if (dragged) null else androidx.compose.animation.core.spring(
             stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
             visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1),
         ),
-    )
+    ) }
 }
 
 /** The row's place while one is dragged: the dragged one follows the finger, others step aside. */
