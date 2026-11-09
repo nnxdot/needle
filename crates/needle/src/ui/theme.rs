@@ -575,8 +575,11 @@ pub fn apply(p: Palette, cx: &mut App) {
         }
     } else if p.glass {
         // Windows and Linux glass: tinted glass, solid enough to read over the page.
-        // Busy text under a pane shows through as ghosts, so panes stay well above 80%.
-        super::glass::tinted(&p, 0.97)
+        // Busy text under a pane shows through as ghosts, so panes stay well above 80%. On
+        // the light look even 3% let album names behind the palette read through (dark
+        // covers on a pale pane), so light panes are solid: the tint, the edge light, and
+        // the shadow keep them glass.
+        super::glass::tinted(&p, if p.dark { 0.97 } else { 1. })
     } else {
         super::glass::tinted(&p, 1.)
     };
