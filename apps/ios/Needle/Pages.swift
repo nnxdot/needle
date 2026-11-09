@@ -19,20 +19,37 @@ struct Shelf<Content: View>: View {
     }
 }
 
-/// Needle reading the music folder, on glass, while it works.
+/// Needle reading the music folder, on glass, over the top of the page while it works: only
+/// for a read that takes more than about a second (a quick look at start came and went, and
+/// pushed the page down and back up).
 struct ScanPill: View {
     @Environment(Store.self) private var store
+    @State private var shown = false
 
     var body: some View {
-        if store.scan.running {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(store.scan.imported > 0 ? "Reading your music… \(count(Int(store.scan.imported), "song"))" : "Reading your music…")
-                    .font(.needle(.footnote).weight(.medium))
+        ZStack {
+            if shown {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(store.scan.imported > 0 ? "Reading your music… \(count(Int(store.scan.imported), "song"))" : "Reading your music…")
+                        .font(.needle(.footnote).weight(.medium))
+                }
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .glassEffect(.regular, in: .capsule)
+                .padding(.top, 4)
+                .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
             }
-            .padding(.horizontal, 14).padding(.vertical, 9)
-            .glassEffect(.regular, in: .capsule)
-            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(false)
+        .task(id: store.scan.running) {
+            guard store.scan.running else {
+                if shown { withFade { shown = false } }
+                return
+            }
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled, store.scan.running else { return }
+            withMotion(.snappy) { shown = true }
         }
     }
 }
@@ -57,17 +74,18 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ScanPill().frame(maxWidth: .infinity)
                 if let home {
                     if home.recent.isEmpty && home.added.isEmpty && home.mostPlayed.isEmpty {
                         empty
                     } else {
-                        NowCard().padding(.horizontal).padding(.top, 6)
+                        NowCard()
                         if let reviewYear { YearHomeCard(year: reviewYear).padding(.horizontal).padding(.top, 14) }
                         shelf("Jump back in", "Albums you played last", home.recent, route: .history)
                         shelf("New in your library", "Added most recently", home.added, route: .albums)
-                        shelf("On repeat", "Your most played albums", home.mostPlayed, route: .albums)
-                        shelf("Favorites", "Albums with the songs you love", favorites, route: .albums)
+                        // The arrows open the lists the shelves come from: the most played (in
+                        // Listening), and the songs you love.
+                        shelf("On repeat", "Your most played albums", home.mostPlayed, route: .stats)
+                        shelf("Favorites", "Albums with the songs you love", favorites, route: .favorites)
                         ForEach(days, id: \.yearsAgo) { day in
                             shelf(day.yearsAgo == 1 ? "A year ago today" : "\(day.yearsAgo) years ago today",
                                   Date(timeIntervalSince1970: TimeInterval(day.day)).formatted(date: .long, time: .omitted) + " · " + count(Int(day.listens), "song"),
@@ -86,6 +104,7 @@ struct HomeView: View {
             }
             .padding(.bottom, 24)
         }
+        .overlay(alignment: .top) { ScanPill() }
         .navigationTitle(greeting)
         .themed()
         .toolbar {
@@ -127,7 +146,7 @@ struct HomeView: View {
         if !albums.isEmpty {
             SectionTitle(title: title, route: route, detail: detail)
             Shelf {
-                ForEach(albums) { AlbumTile(album: $0) }
+                ForEach(albums) { AlbumTile(album: $0, shelf: title) }
             }
         }
     }
@@ -150,50 +169,67 @@ struct HomeView: View {
 }
 
 /// The song playing, at the top of Home, as on the Mac: its cover, "Playing now", the song and
-/// "artist · album", and a round Play/Pause in the accent. A tap opens the player.
+/// "artist · album", and a round Play/Pause in the accent. A tap opens the player. It comes in
+/// and goes softly when music starts or ends.
 struct NowCard: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if let song = store.playback?.current {
-            let playing = store.playback?.playing == true
-            let colors = store.colors
-            HStack(spacing: 14) {
-                Button { store.showPlayer = true } label: {
-                    HStack(spacing: 14) {
-                        Artwork(path: song.artwork, seed: song.album + song.artist, size: 200)
-                            .frame(width: 72, height: 72)
-                            .clipShape(.rect(cornerRadius: 8))
-                            .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(playing ? "Playing now" : "Paused").font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.accent)
-                            Text(song.title).font(.needle(.headline)).lineLimit(1)
-                            Text([song.artist, song.album].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens the player")
-                Button { store.toggle() } label: {
-                    Image(systemName: playing ? "pause.fill" : "play.fill")
-                        .font(.needle(.title3))
-                        .foregroundStyle(colors.onAccent)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 48, height: 48)
-                        .background(colors.accent, in: .circle)
-                }
-                .buttonStyle(Pressable())
-                .accessibilityLabel(playing ? "Pause" : "Resume")
-                .sensoryFeedback(.impact(weight: .light), trigger: playing) { _, _ in store.app.haptics }
+        ZStack {
+            if let song = store.playback?.current {
+                NowCardBody(song: song)
+                    .padding(.horizontal).padding(.top, 6)
+                    .transition(Motion.transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity)))
             }
-            .padding(12)
-            // Glass in the playing cover's colour (the accent until it is known), faint so the
-            // words read on it.
-            .glassEffect(.regular.tint((store.coverColor ?? colors.accent).opacity(0.22)), in: .rect(cornerRadius: 16))
         }
+        .animation(Motion.fade(.smooth(duration: 0.35)), value: store.playingID == nil)
+    }
+}
+
+private struct NowCardBody: View {
+    @Environment(Store.self) private var store
+    let song: Song
+    /// Presses of Play/Pause here: the buzz is for them only.
+    @State private var presses = 0
+
+    var body: some View {
+        let playing = store.isPlaying
+        let colors = store.colors
+        HStack(spacing: 14) {
+            Button { store.showPlayer = true } label: {
+                HStack(spacing: 14) {
+                    Artwork(path: song.artwork, seed: song.album + song.artist, size: 200)
+                        .frame(width: 72, height: 72)
+                        .clipShape(.soft(Corner.cover))
+                        .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(playing ? "Playing now" : "Paused").font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.accent)
+                        Text(song.title).font(.needle(.headline)).lineLimit(1)
+                        Text([song.artist, song.album].filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the player")
+            Button { presses += 1; store.toggle() } label: {
+                Image(systemName: playing ? "pause.fill" : "play.fill")
+                    .font(.needle(.title3))
+                    .foregroundStyle(colors.onAccent)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 48, height: 48)
+                    .background(colors.accent, in: .circle)
+            }
+            .buttonStyle(Pressable())
+            .accessibilityLabel(playing ? "Pause" : "Resume")
+            .sensoryFeedback(.impact(weight: .light), trigger: presses) { _, _ in store.app.haptics }
+        }
+        .padding(12)
+        // Glass in the playing cover's colour (the accent until it is known), faint so the
+        // words read on it.
+        .glassEffect(.regular.tint((store.coverColor ?? colors.accent).opacity(0.22)), in: .soft(Corner.large))
     }
 }
 
@@ -266,7 +302,7 @@ struct LibraryView: View {
         ("Albums", "square.stack", .albums),
         ("Songs", "music.note", .songs),
         ("Genres", "guitars", .genres),
-        ("Favorites", "star", .favorites),
+        ("Favorites", "heart", .favorites),
         ("Recently added", "clock", .recent),
         ("Folders", "folder", .folders),
         ("Listening history", "clock.arrow.circlepath", .history),
@@ -276,7 +312,6 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                ScanPill()
                 VStack(spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
                         NavigationLink(value: row.2) {
@@ -293,16 +328,19 @@ struct LibraryView: View {
                         if i < rows.count - 1 { Divider().padding(.leading, 58) }
                     }
                 }
-                .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                // A plain group in the page's raised colour: rows are content, and glass is kept
+                // for the controls over it.
+                .background(store.colors.card, in: .soft(Corner.large))
                 .padding(.horizontal)
                 .padding(.top, 8)
                 if !added.isEmpty {
                     SectionTitle(title: "Recently added")
-                    AlbumGrid(albums: Array(added.prefix(12))).padding(.top, 10)
+                    AlbumGrid(albums: Array(added.prefix(12)), shelf: "recently added").padding(.top, 10)
                 }
             }
             .padding(.bottom, 24)
         }
+        .overlay(alignment: .top) { ScanPill() }
         .navigationTitle("Library")
         .themed()
         .refreshable { store.rescan() }
@@ -314,11 +352,13 @@ struct LibraryView: View {
 
 struct AlbumGrid: View {
     let albums: [Album]
+    /// Which grid on the page, for the cover the album's page grows from.
+    var shelf = "grid"
 
     var body: some View {
         // Two to a row on a phone held upright, more on its side.
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 18) {
-            ForEach(albums) { AlbumTile(album: $0, width: nil) }
+            ForEach(albums) { AlbumTile(album: $0, width: nil, shelf: shelf) }
         }
         .padding(.horizontal)
     }
@@ -362,7 +402,7 @@ struct PlaylistsView: View {
         List(playlists ?? []) { playlist in
             NavigationLink(value: Route.playlist(playlist)) {
                 HStack(spacing: 14) {
-                    PlaylistCover(playlist: playlist).frame(width: 56, height: 56).clipShape(.rect(cornerRadius: 8))
+                    PlaylistCover(playlist: playlist).frame(width: 56, height: 56).clipShape(.soft(Corner.cover))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(playlist.name).lineLimit(1)
                         HStack(spacing: 4) {
@@ -411,11 +451,14 @@ struct GenresView: View {
     }
 }
 
-/// Genres as coloured tiles, with their name on glass.
+/// Genres as tiles of their covers, with their name on a plain label in the page's raised
+/// colour (content, not glass).
 struct GenreTiles: View {
+    @Environment(Store.self) private var store
     let genres: [Genre]
 
     var body: some View {
+        let colors = store.colors
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
             ForEach(genres) { genre in
                 NavigationLink(value: Route.genre(genre.name)) {
@@ -424,11 +467,12 @@ struct GenreTiles: View {
                         .frame(maxWidth: .infinity)
                         .overlay(alignment: .bottomLeading) {
                             Text(genre.name).font(.needle(.subheadline).bold()).lineLimit(1)
-                                .padding(.horizontal, 12).padding(.vertical, 7)
-                                .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                                .foregroundStyle(colors.text)
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(colors.card.opacity(0.92), in: .soft(Corner.small))
                                 .padding(8)
                         }
-                        .clipShape(.rect(cornerRadius: 18))
+                        .clipShape(.soft(Corner.middle))
                 }
                 .buttonStyle(Pressable())
             }
@@ -472,6 +516,12 @@ struct AlbumView: View {
     @State private var selecting = false
     @State private var selected = Set<String>()
     @State private var pastHeader = false
+    /// The page's height: the cover at its top is never taller than about 60% of it (on a
+    /// phone on its side, a square cover the width of the page put the songs two screens down).
+    @State private var pageHeight: CGFloat = 0
+
+    /// The cover's side at the top of the page.
+    private var headerSide: CGFloat { pageHeight > 0 ? pageHeight * 0.6 : .infinity }
 
     init(album: Album) {
         self.album = album
@@ -503,8 +553,9 @@ struct AlbumView: View {
         .listStyle(.plain)
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > $0.containerSize.width * 0.8 } action: { _, past in
-            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > min($0.containerSize.width, headerSide) * 0.8 } action: { _, past in
+            withFade(.easeOut(duration: 0.2)) { pastHeader = past }
         }
         .paged(look)
         // The name moves into the bar once the cover has scrolled away.
@@ -532,6 +583,7 @@ struct AlbumView: View {
         VStack(spacing: 0) {
             Artwork(path: album.artwork, seed: album.title + album.artist, size: 1200)
                 .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: headerSide, maxHeight: headerSide)
                 .frame(maxWidth: .infinity)
                 // The album's moving cover, as in the player: Moving covers on, no Reduce motion,
                 // and on mobile data only one already here unless On mobile data is on.
@@ -539,7 +591,7 @@ struct AlbumView: View {
                     MovingCoverLayer(song: songs?.first, on: store.app.animatedCovers && !systemReduceMotion && !store.app.reduceMotion)
                         .clipped()
                 }
-                .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 230) }
+                .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: min(230, headerSide * 0.5)) }
                 .modifier(Stretchy())
             VStack(spacing: 5) {
                 Text(album.title).font(.needle(.title).bold()).multilineTextAlignment(.center)
@@ -569,7 +621,7 @@ struct AlbumView: View {
                 SectionTitle(title: "More by \(album.artist)", route: .artist(album.artist))
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(more) { AlbumTile(album: $0, width: 150) }
+                        ForEach(more) { AlbumTile(album: $0, width: 150, shelf: "more by") }
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 10)
@@ -617,6 +669,7 @@ struct Fade: View {
 /// album in its own box, the top songs, and the albums.
 struct ArtistView: View {
     @Environment(Store.self) private var store
+    @Environment(\.zoomScope) private var scope
     let name: String
     @State private var top: [Song] = []
     @State private var albums: [Album]?
@@ -628,6 +681,8 @@ struct ArtistView: View {
     @State private var pastHeader = false
     /// Goes up when one of their pictures is chosen or reset, to read them again.
     @State private var pictures = 0
+    /// The page's height: the picture at its top is at most about 60% of it.
+    @State private var pageHeight: CGFloat = 0
 
     init(name: String) {
         self.name = name
@@ -655,15 +710,16 @@ struct ArtistView: View {
                 }
                 if let albums, !albums.isEmpty {
                     SectionTitle(title: "Albums")
-                    AlbumGrid(albums: albums).padding(.top, 10)
+                    AlbumGrid(albums: albums, shelf: "albums").padding(.top, 10)
                 }
             }
             .padding(.bottom, 24)
         }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 450 } action: { _, past in
-            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
+        .onScrollGeometryChange(for: Bool.self) { [headerHeight] in $0.contentOffset.y > headerHeight - 140 } action: { _, past in
+            withFade(.easeOut(duration: 0.2)) { pastHeader = past }
         }
         .paged(look)
         .navigationTitle(pastHeader ? name : "")
@@ -713,6 +769,12 @@ struct ArtistView: View {
         albums?.max { ($0.year, $0.title) < ($1.year, $1.title) }
     }
 
+    /// The picture's height: 590 points, or about 60% of the page when that is less (a phone on
+    /// its side), with room left for the name and the buttons over its foot.
+    private var headerHeight: CGFloat {
+        pageHeight > 0 ? max(300, min(590, pageHeight * 0.6)) : 590
+    }
+
     /// As Apple Music's: the picture tall across the top, the logo (or name) in the middle
     /// near its foot, and under it a large Play between Shuffle and Radio.
     private func header(_ look: PageColors) -> some View {
@@ -720,10 +782,10 @@ struct ArtistView: View {
         // made the whole page wider than the screen.
         Color.clear
             .frame(maxWidth: .infinity)
-            .frame(height: 590)
+            .frame(height: headerHeight)
             .overlay { Artwork(path: picture, seed: name, size: 1400) }
             .clipped()
-            .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 330) }
+            .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: headerHeight * 0.56) }
             .modifier(Stretchy())
             .overlay(alignment: .bottom) {
                 VStack(spacing: 18) {
@@ -736,14 +798,15 @@ struct ArtistView: View {
                             .accessibilityLabel(name)
                     } else {
                         Text(name)
-                            .font(.needleTitle(size: 46, relativeTo: .largeTitle))
+                            .font(.needleTitle(size: headerHeight < 450 ? 34 : 46, relativeTo: .largeTitle))
                             .tracking(-1)
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                             .minimumScaleFactor(0.5)
                             .shadow(color: look.page.opacity(0.4), radius: 12)
                     }
-                    GlassEffectContainer(spacing: 26) {
+                    // The container's spacing under the gap: the buttons never melt together.
+                    GlassEffectContainer(spacing: 8) {
                         HStack(spacing: 26) {
                             Button { playAll(shuffled: true) } label: {
                                 Image(systemName: "shuffle").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
@@ -783,11 +846,13 @@ struct ArtistView: View {
     }
 
     private func featured(_ album: Album, _ look: PageColors) -> some View {
-        NavigationLink(value: Route.album(album)) {
+        let source = CoverSource.id(album, shelf: "latest", in: scope)
+        return NavigationLink(value: Route.albumFrom(album, source)) {
             HStack(spacing: 16) {
                 Artwork(path: album.artwork, seed: album.title + album.artist, size: 300)
                     .frame(width: 100, height: 100)
-                    .clipShape(.rect(cornerRadius: 10))
+                    .clipShape(.soft(Corner.cover))
+                    .modifier(CoverSource(id: source))
                     .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                 VStack(alignment: .leading, spacing: 3) {
                     if album.year > 0 {
@@ -797,15 +862,20 @@ struct ArtistView: View {
                     Text(count(Int(album.songs), "Song")).font(.needle(.subheadline)).foregroundStyle(look.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Plain, in the page's ink: the card is the one glass here.
                 Button { store.playAlbum(album) } label: {
-                    Image(systemName: "play.fill").frame(width: 30, height: 30)
+                    Image(systemName: "play.fill")
+                        .font(.needle(.body).weight(.semibold))
+                        .foregroundStyle(look.page)
+                        .offset(x: 1)
+                        .frame(width: 44, height: 44)
+                        .background(look.ink, in: .circle)
                 }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+                .buttonStyle(Pressable())
                 .accessibilityLabel("Play \(album.title)")
             }
             .padding(14)
-            .glassEffect(.regular.tint(look.ink.opacity(0.05)).interactive(), in: .rect(cornerRadius: 28))
+            .glassEffect(.regular.tint(look.ink.opacity(0.05)).interactive(), in: .soft(Corner.large))
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
