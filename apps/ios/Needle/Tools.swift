@@ -224,14 +224,32 @@ struct AlbumProblemsView: View {
     @Environment(Store.self) private var store
     @State private var albums: [AlbumProblem]?
     @State private var fixing: AlbumProblem?
+    /// Online lookups are on: albums can be matched on MusicBrainz.
+    @State private var online = false
+    @State private var lookingUpAll = false
 
     var body: some View {
-        List(Array((albums ?? []).enumerated()), id: \.offset) { _, album in
-            Button { fixing = album } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(album.album).foregroundStyle(.primary)
-                    Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary)
-                    Text(album.problems.joined(separator: " · ")).font(.needle(.caption)).foregroundStyle(.orange)
+        List {
+            if let albums, !albums.isEmpty {
+                Section {
+                    if online && albums.count > 1 {
+                        Button("Look up all") { lookingUpAll = true }
+                    }
+                } footer: {
+                    Text(online
+                         ? "\(count(albums.count, "album")) with gaps in their tags. Look one up to match it with a release on MusicBrainz, or look them all up: Look up all keeps only sure matches for you to check. You see every change before anything is written, and Needle keeps a backup of each file."
+                         : "\(count(albums.count, "album")) with gaps in their tags. Turn on online lookups in Settings to match them on MusicBrainz.")
+                }
+                Section {
+                    ForEach(Array(albums.enumerated()), id: \.offset) { _, album in
+                        Button { fixing = album } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(album.album).foregroundStyle(.primary)
+                                Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary)
+                                Text(album.problems.joined(separator: " · ")).font(.needle(.caption)).foregroundStyle(.orange)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -244,10 +262,143 @@ struct AlbumProblemsView: View {
         .sheet(item: Binding(get: { fixing.map(Identified.init) }, set: { fixing = $0?.value })) { item in
             NavigationStack { ReleasesView(album: item.value) { changed in
                 fixing = nil
-                if changed { Task { albums = await store.load { $0.albumProblems() } } }
+                if changed { Task { await load() } }
             } }
         }
-        .task { albums = await store.load { $0.albumProblems() } }
+        .navigationDestination(isPresented: $lookingUpAll) {
+            LookUpAllView(albums: albums ?? []) { Task { await load() } }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        albums = await store.load { $0.albumProblems() }
+        online = await store.load { try $0.playbackSettings().onlineMedia } ?? false
+    }
+}
+
+/// Look up all: every album with gaps, looked up on MusicBrainz one after another (about a
+/// second or two each), keeping only sure matches; the person unticks any they do not want,
+/// then writes them. Stop ends the look-up between two albums; going back drops it.
+struct LookUpAllView: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let albums: [AlbumProblem]
+    /// After matches were written: the list reads its albums again.
+    let written: () -> Void
+
+    /// An album matched for sure, ticked to be written.
+    struct Found: Identifiable {
+        let album: AlbumProblem
+        let match: SureMatch
+        var chosen = true
+        var id: String { match.release.id }
+    }
+
+    @State private var done = 0
+    @State private var failed = 0
+    @State private var found: [Found] = []
+    @State private var finished = false
+    @State private var writing = false
+    @State private var run: Task<Void, Never>?
+
+    var body: some View {
+        let chosen = found.filter(\.chosen).count
+        let sure = count(found.count, "sure match", "sure matches")
+        List {
+            Section {
+                Text(finished
+                     ? "Looked up \(done) of \(albums.count): \(sure). Untick any you do not want, then write them; Needle keeps a backup of each file."
+                     : "Looking up \(done) of \(albums.count) on MusicBrainz (about a second or two each): \(sure) so far. You can write them once it ends, or stop it.")
+                    .font(.needle(.subheadline)).foregroundStyle(.secondary)
+                if !finished {
+                    ProgressView(value: Double(done), total: Double(max(albums.count, 1)))
+                }
+                if failed > 0 {
+                    Text("\(count(failed, "album")) could not be looked up (no connection, or MusicBrainz was busy).")
+                        .font(.needle(.caption)).foregroundStyle(.secondary)
+                }
+            }
+            if !found.isEmpty {
+                Section {
+                    ForEach($found) { $item in
+                        Button { item.chosen.toggle() } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: item.chosen ? "checkmark.circle.fill" : "circle")
+                                    .font(.needle(.title3)).foregroundStyle(.tint)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.album.album).foregroundStyle(.primary).lineLimit(1)
+                                    Text(Self.about(item)).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!finished || writing)
+                        .accessibilityAddTraits(item.chosen ? .isSelected : [])
+                    }
+                }
+            }
+        }
+        .navigationTitle("Look up all")
+        .navigationBarTitleDisplayMode(.inline)
+        .themed()
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if finished {
+                    Button("Write \(count(chosen, "album"))") { write() }
+                        .disabled(chosen == 0 || writing)
+                } else {
+                    Button("Stop") { run?.cancel() }
+                }
+            }
+        }
+        .onAppear { if run == nil { start() } }
+        // Back to the list: the look-up stops between two albums.
+        .onDisappear { run?.cancel() }
+    }
+
+    /// "Artist · release · artist · year · country · 3 songs change", as on the computer.
+    private static func about(_ item: Found) -> String {
+        let release = item.match.release
+        var about = [release.title]
+        if !release.artist.isEmpty { about.append(release.artist) }
+        if release.year > 0 { about.append(String(release.year)) }
+        if !release.country.isEmpty { about.append(release.country) }
+        return ([item.album.artist] + about + [count(Int(item.match.changes), "song changes", "songs change")]).joined(separator: " · ")
+    }
+
+    private func start() {
+        let list = albums
+        run = Task {
+            for (i, album) in list.enumerated() {
+                if Task.isCancelled { break }
+                let (name, artist, ids, first) = (album.album, album.artist, album.songIds, i == 0)
+                switch await store.attempt({ try $0.lookUpSureMatch(album: name, artist: artist, songIds: ids, start: first) }) {
+                case .success(let match?): found.append(Found(album: album, match: match))
+                case .success(nil): break
+                case .failure: failed += 1
+                }
+                done = i + 1
+            }
+            withFade { finished = true }
+        }
+    }
+
+    private func write() {
+        let ids = found.filter(\.chosen).map(\.match.release.id)
+        let albums = ids.count
+        writing = true
+        Task {
+            if let report = await store.ask({ try $0.applySureMatches(releaseIds: ids) }) {
+                store.message = report.failed.isEmpty
+                    ? "Updated \(count(Int(report.saved), "song")) in \(count(albums, "album")). Needle kept a backup of each file."
+                    : "Updated \(report.saved); \(report.failed.count) failed: \(report.failed.joined(separator: "; "))"
+                store.libraryChanged()
+                written()
+                dismiss()
+            }
+            writing = false
+        }
     }
 }
 
