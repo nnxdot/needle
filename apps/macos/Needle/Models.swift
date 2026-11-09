@@ -81,16 +81,10 @@ struct Track: Codable, Identifiable, Hashable {
     }
 
     /// The format and resolution, as the desktop shows it: "FLAC 24/96", "MP3 320".
+    /// The core writes it (`Track::quality`), so every app says the same for the same song
+    /// ("DSD64", not "DSF 1/2822.4").
     var quality: String {
-        let name = format.uppercased()
-        let lossless = ["FLAC", "ALAC", "WAV", "AIFF", "APE", "WV", "DSF", "DFF"].contains(name)
-        if lossless, bitDepth > 0, sampleRate > 0 {
-            let khz = Double(sampleRate) / 1000
-            let rate = khz.rounded() == khz ? String(Int(khz)) : String(format: "%.1f", khz)
-            return "\(name) \(bitDepth)/\(rate)"
-        }
-        if bitrate > 0 { return "\(name) \(bitrate)" }
-        return name
+        trackQuality(format: format, bitDepth: Int64(bitDepth), sampleRate: Int64(sampleRate), bitrate: Int64(bitrate))
     }
 
     /// The album page for this song, grouped as the library groups albums.
