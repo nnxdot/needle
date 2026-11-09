@@ -1859,6 +1859,18 @@ impl Window {
             .set_background_appearance(background_appearance);
     }
 
+    /// Whether the system blurs what is behind a `Blurred` window, asked of the compositor now
+    /// (on Linux, KWin's blur protocol). Needle patch.
+    pub fn system_blur_available(&self) -> bool {
+        self.platform_window.system_blur_available()
+    }
+
+    /// Whether see-through parts of the window show what is behind it (on X11, only with a
+    /// compositing manager running). Needle patch.
+    pub fn transparency_available(&self) -> bool {
+        self.platform_window.transparency_available()
+    }
+
     /// Shows (or with `None`, takes away) the system's glass under a named part of the window.
     /// Regions stay until changed, so set them while painting (a `canvas` knows its bounds)
     /// and clear them when the part goes. On macOS this is Liquid Glass (macOS 26 and newer)

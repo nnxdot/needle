@@ -309,6 +309,12 @@ impl AppView {
             // Ambient covers the whole window with its own background.
             _ if !allowed || self.ambient_look() => Material::Solid,
             Material::Mica if !win11 => Material::Acrylic,
+            // Linux: real blur and a see-through window only where the compositor can show
+            // them; elsewhere Needle paints the glass in a solid window.
+            Material::Acrylic if cfg!(target_os = "linux") && !super::glass::system_blur() => {
+                Material::Painted
+            }
+            Material::Clear if !super::glass::see_through() => Material::Painted,
             m => m,
         }
     }
@@ -331,12 +337,11 @@ impl AppView {
         self.glass_look() && self.floating()
     }
 
-    /// Linux, where the desktop cannot blur: the window stays solid, and Needle paints the
-    /// glass (the cover's glow on the back layer's colour) itself.
+    /// Linux's cover glow (the default, and Blur or Clear where the desktop cannot show
+    /// them): the window stays solid, and Needle paints the glass (the cover's glow on the
+    /// back layer's colour) itself.
     pub(super) fn painted_glass(&self) -> bool {
-        cfg!(target_os = "linux")
-            && self.material() == super::glass::Material::Acrylic
-            && !super::glass::system_blur()
+        self.material() == super::glass::Material::Painted
     }
 
     /// The player and the side panel float over the page (Needle 2.0's layout, after the
@@ -395,6 +400,7 @@ impl AppView {
 
     /// Tell Windows which material to draw, when it or dark/light changed.
     pub(super) fn update_glass(&mut self, window: &mut Window, cx: &App) {
+        super::glass::probe_desktop(window);
         let key = (self.material(), theme::pal(cx).dark);
         if self.glass_applied != Some(key) {
             super::glass::apply(window, key.0, key.1);
@@ -555,7 +561,7 @@ impl AppView {
             && (self.settings.music_colors || self.painted_glass())
             && matches!(
                 self.material(),
-                Material::Mica | Material::Acrylic | Material::Clear
+                Material::Mica | Material::Acrylic | Material::Clear | Material::Painted
             )
     }
 

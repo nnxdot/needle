@@ -24,15 +24,24 @@ pub enum Material {
     Clear,
     /// macOS: the system backdrop, with the sidebar and the player on glass.
     Liquid,
+    /// Linux: Needle's own glass, the cover's glow behind panes in an opaque window. Safe on
+    /// every desktop; the default there.
+    Painted,
 }
 
 impl Material {
-    /// Linux: the settings value, name, and line of each choice (no Mica there).
-    pub const LINUX: [(&'static str, &'static str, &'static str); 3] = [
+    /// Linux: the settings value, name, and line of each choice. No Mica there: its value,
+    /// the default, is the cover's glow, which every desktop can show.
+    pub const LINUX: [(&'static str, &'static str, &'static str); 4] = [
+        (
+            "mica",
+            "Cover glow",
+            "Panes of glass over the playing cover's colours.",
+        ),
         (
             "acrylic",
             "Blur",
-            "Frosted glass where the desktop blurs (KDE); elsewhere the cover's colours.",
+            "Frosted glass: a blur of what is behind the window.",
         ),
         ("clear", "Clear", "See straight through, with no blur."),
         ("solid", "Solid", "No glass."),
@@ -73,8 +82,9 @@ impl Material {
             "solid" => Self::Solid,
             "acrylic" => Self::Acrylic,
             "clear" => Self::Clear,
-            // Linux has no Mica: the default "mica" is its blur.
-            _ if cfg!(target_os = "linux") => Self::Acrylic,
+            // Linux has no Mica: the default "mica" is the cover's glow, in a solid window,
+            // so a profile that never chose stays opaque.
+            _ if cfg!(target_os = "linux") => Self::Painted,
             _ => Self::Mica,
         }
     }
@@ -249,7 +259,8 @@ pub fn apply(
     window.set_dark_appearance(Some(dark));
     window.set_background_appearance(match material {
         Material::Clear | Material::Liquid => A::Transparent,
-        // Linux: blur only where the desktop does it; elsewhere Needle paints the glass.
+        // Windows 10's Acrylic, and Linux's blur where the compositor offers it (`material`
+        // falls back to Painted elsewhere).
         Material::Acrylic if !win11 && system_blur() => A::Blurred,
         _ => A::Opaque,
     });
@@ -297,29 +308,43 @@ pub fn liquid_on(cx: &App) -> bool {
     cfg!(target_os = "macos") && super::theme::pal(cx).back.a < 0.01
 }
 
-/// Linux: the desktop can blur what is behind the window. KWin offers this on Wayland
-/// (`org_kde_kwin_blur`, which the patched GPUI asks for with `Blurred`); other desktops show
-/// the window's see-through parts unblurred, so Needle keeps its window solid there and paints
-/// the cover's glow itself.
+/// Linux: what the desktop can do, asked of the compositor when the window first applies
+/// its glass: (blurs what is behind a window, shows see-through parts at all).
+#[cfg(target_os = "linux")]
+static DESKTOP: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+
+/// Linux: ask the compositor, once, whether it blurs (KWin's `org_kde_kwin_blur`, which the
+/// patched GPUI asks for with `Blurred`) and whether it composites see-through windows (always
+/// on Wayland; on X11 only with a compositing manager). Elsewhere nothing to ask.
+pub fn probe_desktop(
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] window: &Window,
+) {
+    #[cfg(target_os = "linux")]
+    DESKTOP.get_or_init(|| {
+        (
+            window.system_blur_available(),
+            window.transparency_available(),
+        )
+    });
+}
+
+/// The desktop blurs what is behind the window. On Linux, only where the compositor said so
+/// (until it is asked, no); Windows and macOS always can.
 pub fn system_blur() -> bool {
     #[cfg(target_os = "linux")]
     {
-        static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *FOUND.get_or_init(|| {
-            let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
-                || std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t == "wayland");
-            let kde = [
-                "XDG_CURRENT_DESKTOP",
-                "XDG_SESSION_DESKTOP",
-                "DESKTOP_SESSION",
-            ]
-            .iter()
-            .any(|key| {
-                std::env::var(key)
-                    .is_ok_and(|v| v.to_ascii_lowercase().contains("kde") || v.contains("plasma"))
-            });
-            wayland && kde
-        })
+        DESKTOP.get().is_some_and(|d| d.0)
+    }
+    #[cfg(not(target_os = "linux"))]
+    true
+}
+
+/// See-through parts of the window show the desktop. On Linux, only with a compositor (else
+/// they would be black); Windows and macOS always.
+pub fn see_through() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        DESKTOP.get().is_some_and(|d| d.1)
     }
     #[cfg(not(target_os = "linux"))]
     true

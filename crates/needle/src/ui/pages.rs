@@ -1488,7 +1488,7 @@ impl AppView {
         // Ambient paints its own background over the whole window, so no glass can show.
         let ambient = self.ambient_look();
         let detail = if ambient {
-            "Ambient background fills the window, so glass is off while it is on.".to_string()
+            "Ambient is on: the cover fills the window behind the glass panes.".to_string()
         } else if !allowed {
             "Windows' Transparency effects setting is off, so Needle stays solid. Turn it on in Windows Settings › Personalization › Colors.".to_string()
         } else if chosen == Material::Mica && !win11 {
@@ -1497,8 +1497,13 @@ impl AppView {
             && chosen == Material::Acrylic
             && !super::glass::system_blur()
         {
-            "Your desktop does not blur windows, so Needle shows the cover's colours instead."
+            "Your desktop does not blur windows, so Needle shows the cover glow instead."
                 .to_string()
+        } else if cfg!(target_os = "linux")
+            && chosen == Material::Clear
+            && !super::glass::see_through()
+        {
+            "No compositor is running, so Needle shows the cover glow instead.".to_string()
         } else {
             choices[index].2.to_string()
         };

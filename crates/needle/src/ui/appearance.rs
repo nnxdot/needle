@@ -538,11 +538,12 @@ impl AppView {
             let about = if cfg!(target_os = "macos") {
                 "Liquid Glass"
             } else if cfg!(target_os = "linux") {
-                // KDE on Wayland blurs; elsewhere Needle paints the cover's glow.
-                if super::glass::system_blur() {
-                    "Blur"
-                } else {
-                    "The cover's glow"
+                // What shows now: the desktop's blur or a clear window where the compositor
+                // can show them; otherwise Needle paints the cover's glow.
+                match self.material() {
+                    super::glass::Material::Acrylic => "Blur",
+                    super::glass::Material::Clear => "Clear",
+                    _ => "The cover's glow",
                 }
             } else if !allowed {
                 "Needs transparency on"
@@ -566,9 +567,10 @@ impl AppView {
                     if super::glass::Material::from_name(&this.settings.window_material)
                         == super::glass::Material::Solid
                     {
+                        // Linux: the cover glow ("mica" there), which every desktop shows.
                         this.settings.window_material = if cfg!(target_os = "macos") {
                             "glass"
-                        } else if win11 && cfg!(windows) {
+                        } else if (win11 && cfg!(windows)) || cfg!(target_os = "linux") {
                             "mica"
                         } else {
                             "acrylic"

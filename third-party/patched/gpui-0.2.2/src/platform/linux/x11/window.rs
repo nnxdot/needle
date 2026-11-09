@@ -1150,6 +1150,34 @@ impl X11WindowStatePtr {
 }
 
 impl PlatformWindow for X11Window {
+    // Needle patch: X11 has no blur here.
+    fn system_blur_available(&self) -> bool {
+        false
+    }
+
+    // Needle patch: see-through windows need a compositing manager, which owns the
+    // `_NET_WM_CM_S<screen>` selection while it runs.
+    fn transparency_available(&self) -> bool {
+        let root = self.0.state.borrow().x_root_window;
+        let xcb = &self.0.xcb;
+        let Some(screen) = xcb.setup().roots.iter().position(|s| s.root == root) else {
+            return false;
+        };
+        let name = format!("_NET_WM_CM_S{screen}");
+        let Some(atom) = xcb
+            .intern_atom(false, name.as_bytes())
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .filter(|reply| reply.atom != x11rb::NONE)
+        else {
+            return false;
+        };
+        xcb.get_selection_owner(atom.atom)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .is_some_and(|reply| reply.owner != x11rb::NONE)
+    }
+
     fn bounds(&self) -> Bounds<Pixels> {
         self.0.state.borrow().bounds
     }

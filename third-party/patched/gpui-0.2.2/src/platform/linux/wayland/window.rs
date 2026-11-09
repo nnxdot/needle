@@ -819,6 +819,11 @@ impl rwh::HasDisplayHandle for WaylandWindow {
 }
 
 impl PlatformWindow for WaylandWindow {
+    // Needle patch: blur only where the compositor offers `org_kde_kwin_blur_manager`.
+    fn system_blur_available(&self) -> bool {
+        self.borrow().globals.blur_manager.is_some()
+    }
+
     fn bounds(&self) -> Bounds<Pixels> {
         self.borrow().bounds
     }
