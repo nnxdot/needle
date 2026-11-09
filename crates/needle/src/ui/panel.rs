@@ -83,6 +83,15 @@ impl AppView {
         let floating = self.on_glass();
         // Windows and Linux: a frosted pane floating over the page's right side, as on the Mac.
         let frosted = self.floating() && !floating;
+        // The width inside the pane: the frosted pane is 18 px narrower than its column and
+        // has a 1 px edge on each side; the Mac's glass pane is padded 14 px.
+        let inner = if frosted {
+            width - 18. - 2.
+        } else if floating {
+            width - 28.
+        } else {
+            width
+        };
         div()
             .w(px(if frosted { width - 18. } else { width }))
             .flex_shrink_0()
@@ -158,7 +167,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .child(match self.panel {
-                        Panel::Details => self.details(width, cx).into_any_element(),
+                        Panel::Details => self.details(inner, cx).into_any_element(),
                         Panel::Queue => self.queue(cx).into_any_element(),
                         Panel::Lyrics => div()
                             .flex_1()
@@ -193,6 +202,7 @@ impl AppView {
             )
     }
 
+    /// The Details tab, `width` the width inside the pane.
     fn details(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let selected = self.selected_tracks();
@@ -294,7 +304,8 @@ impl AppView {
             .flex()
             .flex_col()
             .gap_4()
-            .child(artwork(Some(&track), if self.editing { 96. } else { width - 32. }, cx))
+            // The cover, inset as the text under it (16 px on each side).
+            .child(artwork(Some(&track), if self.editing { 96. } else { (width - 32.).floor() }, cx))
             .child(
                 div()
                     .flex()
