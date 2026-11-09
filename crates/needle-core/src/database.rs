@@ -486,13 +486,28 @@ impl Library {
         // it, or with one read before a sync moved it on. A server playlist stays one, and
         // changes to it go to the server (see `server_playlists`).
         let write = crate::server_playlists::writing();
-        let link = self.playlist_by_id(&playlist.id)?.and_then(|p| p.server);
+        let stored = self.playlist_by_id(&playlist.id)?;
+        let link = stored.as_ref().and_then(|p| p.server.clone());
         let mut playlist = std::borrow::Cow::Borrowed(playlist);
-        if playlist.server != link {
-            playlist.to_mut().server = link;
+        let mut copy = None;
+        match (&playlist.server, &stored) {
+            // Read before a sync moved it on: what the sync changed meanwhile is not undone.
+            (Some(seen), Some(stored)) if link.as_ref().is_some_and(|l| l != seen) => {
+                let (merged, clash) = crate::server_playlists::merge_save(&playlist, seen, stored);
+                *playlist.to_mut() = merged;
+                copy = clash;
+            }
+            _ => {
+                if playlist.server != link {
+                    playlist.to_mut().server = link;
+                }
+            }
         }
         if playlist.server.is_some() && playlist.query.is_some() {
             bail!("A playlist on your music server holds songs you pick; it cannot follow rules")
+        }
+        if let Some(copy) = &copy {
+            self.store_playlist(copy)?;
         }
         self.store_playlist(&playlist)?;
         drop(write);
