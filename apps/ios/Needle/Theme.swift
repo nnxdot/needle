@@ -181,6 +181,8 @@ struct ThemeEditorView: View {
     @State private var name = ""
     @State private var base = "dark"
     @State private var colors: [String: Color] = [:]
+    /// The theme as a file to share (its saved version), once it is written out.
+    @State private var file: URL?
 
     var body: some View {
         Form {
@@ -211,6 +213,11 @@ struct ThemeEditorView: View {
             }
             if let id {
                 Section {
+                    // As on the Mac: the theme's file, to send to a friend or open in Needle
+                    // on a computer.
+                    if let file {
+                        ShareLink(item: file) { Label("Export…", systemImage: "square.and.arrow.up") }
+                    }
                     Button("Delete theme", role: .destructive) {
                         if store.app.theme == id { store.updateApp { $0.theme = "night" } }
                         Task {
@@ -234,6 +241,14 @@ struct ThemeEditorView: View {
             name = theme.name
             base = theme.base
             colors = theme.colors.compactMapValues(Color.init(hex:))
+        }
+        .task(id: store.themes.first { $0.id == id }) {
+            guard let id, let export = await store.load({ try $0.exportTheme(id: id) }) else { file = nil; return }
+            // In a folder of its own, so it is shared under the theme's own file name.
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("theme-export", isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = folder.appendingPathComponent(export.fileName)
+            file = (try? export.text.write(to: url, atomically: true, encoding: .utf8)) != nil ? url : nil
         }
     }
 
