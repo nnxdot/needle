@@ -211,6 +211,8 @@ struct SongRow: View {
 
     var body: some View {
         let playing = store.playingID == song.id
+        // Settings › Appearance › Song rows: Compact fits more on the screen.
+        let compact = store.app.density == "compact"
         // The app's accent, not the tint: on a page in its cover's colours the tint is the
         // text's own colour, and the playing song did not stand out.
         let lit = AnyShapeStyle(store.colors.accent)
@@ -225,10 +227,10 @@ struct SongRow: View {
                     .frame(width: 24)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
-                        .frame(width: 48, height: 48)
-                        .clipShape(.soft(Corner.cover))
+                        .frame(width: compact ? 36 : 48, height: compact ? 36 : 48)
+                        .clipShape(.soft(compact ? Corner.smallCover : Corner.cover))
                 }
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: compact ? 0 : 2) {
                     Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
@@ -242,7 +244,7 @@ struct SongRow: View {
                 Menu {
                     SongMenu(song: song)
                 } label: {
-                    Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(.rect)
+                    Image(systemName: "ellipsis").frame(width: 44, height: compact ? 36 : 44).contentShape(.rect)
                 }
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("More for \(song.title)")

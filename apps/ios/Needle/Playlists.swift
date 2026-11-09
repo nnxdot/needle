@@ -27,7 +27,7 @@ struct PlaylistView: View {
             VStack(spacing: 6) {
                 PlaylistCover(playlist: current ?? playlist)
                     .frame(width: 230, height: 230)
-                    .clipShape(.rect(cornerRadius: 18))
+                    .clipShape(.soft(Corner.cover))
                     .shadow(color: .black.opacity(0.4), radius: 20, y: 12)
                     .padding(.bottom, 10)
                 Text(detail?.name ?? playlist.name).font(.needle(.title2).bold()).multilineTextAlignment(.center)
@@ -81,7 +81,7 @@ struct PlaylistView: View {
         }
         .listStyle(.plain)
         .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 300 } action: { _, past in
-            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
+            withFade(.easeOut(duration: 0.2)) { pastHeader = past }
         }
         .navigationTitle(pastHeader ? (detail?.name ?? playlist.name) : "")
         .navigationBarTitleDisplayMode(.inline)
@@ -308,7 +308,7 @@ struct AddToPlaylistView: View {
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        PlaylistCover(playlist: playlist).frame(width: 44, height: 44).clipShape(.rect(cornerRadius: 7))
+                        PlaylistCover(playlist: playlist).frame(width: 44, height: 44).clipShape(.soft(Corner.smallCover))
                         Text(playlist.name).foregroundStyle(.primary)
                     }
                 }
@@ -335,7 +335,7 @@ struct SelectionActions: ToolbarContent {
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue(songs) }
             Menu {
                 Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
-                Button("Favorite", systemImage: "star") {
+                Button("Favorite", systemImage: "heart") {
                     let ids = songs.map(\.id)
                     Task {
                         _ = await store.ask { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }

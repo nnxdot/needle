@@ -3,8 +3,9 @@ import AppIntents
 /// What Siri, Spotlight, and the Shortcuts app offer for Needle.
 struct NeedleShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
-        AppShortcut(intent: PlayFavouritesIntent(), phrases: ["Play my favourites in \(.applicationName)", "Play my favorites in \(.applicationName)"],
-                    shortTitle: "Play Favorites", systemImageName: "star.fill")
+        // Both spellings are heard; the words shown are American, as in the rest of Needle.
+        AppShortcut(intent: PlayFavouritesIntent(), phrases: ["Play my favorites in \(.applicationName)", "Play my favourites in \(.applicationName)"],
+                    shortTitle: "Play Favorites", systemImageName: "heart.fill")
         AppShortcut(intent: StartRadioIntent(), phrases: ["Play my radio in \(.applicationName)", "Start radio in \(.applicationName)"],
                     shortTitle: "Play My Radio", systemImageName: "dot.radiowaves.left.and.right")
         AppShortcut(intent: TogglePlaybackIntent(), phrases: ["Pause \(.applicationName)", "Play \(.applicationName)"],

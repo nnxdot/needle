@@ -222,8 +222,9 @@ struct RootView: View {
                 .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
                 .modifier(QuestionAlert(shown: true))
         }
-        .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest }, set: { if !$0 { welcomeTest = false } })) {
-            WelcomeView { where_, route in welcomeTest = false; go(where_, route) }
+        .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest || store.welcomeAgain },
+                                              set: { if !$0 { welcomeTest = false; store.welcomeAgain = false } })) {
+            WelcomeView { where_, route in welcomeTest = false; store.welcomeAgain = false; go(where_, route) }
         }
         .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
         .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
@@ -234,6 +235,7 @@ struct RootView: View {
             store.showPlayer = false
             go(place, route)
         }
+        .grain(store.app.grain)
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
     }

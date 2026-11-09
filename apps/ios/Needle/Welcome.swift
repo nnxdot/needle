@@ -47,7 +47,7 @@ struct WelcomeView: View {
                             Divider().padding(.leading, 58)
                             choice("laptopcomputer", .indigo, "Connect your computer", "Play its music here, and move what plays.") { finish(.home, .computer) }
                         }
-                        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                        .glassEffect(.regular, in: .soft(Corner.large))
                     }
 
                     Button { finish(.home, nil) } label: {
@@ -61,7 +61,7 @@ struct WelcomeView: View {
                                      icon: "exclamationmark.triangle.fill", tint: .orange)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .glassEffect(.regular, in: .soft(Corner.large))
                     .onChange(of: crashReports) { _, on in store.run { try $0.setCrashReports(on: on) } }
                 }
                 .padding(.horizontal, 20)
@@ -69,6 +69,11 @@ struct WelcomeView: View {
             }
         }
         .preferredColorScheme(.dark)
+        // Seen again from Settings: the switch shows the choice already made, so closing the
+        // guide never turns crash reports off.
+        .task {
+            if store.app.welcomed { crashReports = await store.load { $0.crashReports() } ?? false }
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .folder], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { store.importFiles(urls) }
             finish(.home, nil)

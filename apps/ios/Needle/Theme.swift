@@ -115,7 +115,45 @@ struct PageBackground: View {
     }
 }
 
+/// Film grain over the whole app (Settings › Appearance › Film grain), as on the Mac and
+/// Android: a fixed noise tile, blended softly over everything, never in the way of a touch.
+struct Grain: View {
+    /// 0 to 1.
+    let amount: Double
+
+    private static let tile: UIImage = {
+        let side = 128
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            let v = UInt8(truncatingIfNeeded: seed >> 56)
+            pixels[i] = v; pixels[i + 1] = v; pixels[i + 2] = v; pixels[i + 3] = 255
+        }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let cg = CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
+                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        return UIImage(cgImage: cg, scale: 2, orientation: .up)
+    }()
+
+    var body: some View {
+        Image(uiImage: Self.tile)
+            .resizable(resizingMode: .tile)
+            .blendMode(.overlay)
+            .opacity(min(max(amount, 0), 1) * 0.35)
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+    }
+}
+
 extension View {
+    /// Film grain over this, when Settings › Appearance › Film grain is on.
+    func grain(_ amount: Float) -> some View {
+        overlay { if amount > 0.001 { Grain(amount: Double(amount)) } }
+    }
+
     /// The theme's page, text, and accent on a screen.
     func themed() -> some View {
         modifier(Themed())
@@ -167,9 +205,9 @@ struct ThemeEditorView: View {
                     }
                 }
             } header: {
-                Text("Colours")
+                Text("Colors")
             } footer: {
-                Text("Colours you leave are the base's own. The same themes work in Needle on the desktop.")
+                Text("Colors you leave are the base's own. The same themes work in Needle on the desktop.")
             }
             if let id {
                 Section {

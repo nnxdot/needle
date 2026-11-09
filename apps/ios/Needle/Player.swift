@@ -258,9 +258,12 @@ struct NowPlayingView: View {
         .task(id: store.ratingVersion) { await readFavorite() }
         .fullScreenCover(isPresented: $showVisualizer) { VisualizerScreen() }
         .onChange(of: song == nil) { _, gone in if gone { dismiss() } }
-        .onChange(of: pane) { _, now in
-            UIApplication.shared.isIdleTimerDisabled = now == .lyrics && app.keepScreenOnLyrics
+        // The screen stays on while the player shows (Keep the screen on, under The player), or
+        // while the lyrics show (the same switch under Lyrics).
+        .onChange(of: app.keepScreenOnPlayer || (pane == .lyrics && app.keepScreenOnLyrics), initial: true) { _, on in
+            UIApplication.shared.isIdleTimerDisabled = on
         }
+        .grain(app.grain)
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         #if DEBUG
         .onAppear {
@@ -1038,7 +1041,7 @@ struct ImmersiveCover: View {
             }
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.5), value: tone)
+        .animation(Motion.fade(.easeInOut(duration: 0.5)), value: tone)
         .task(id: "\(song?.id ?? "")|\(animated)") {
             video = nil
             let colors = await PageColors.of(song?.artwork, seed: seed)
@@ -1539,7 +1542,9 @@ struct SpeakersView: View {
         }
         .navigationTitle("Play on")
         .navigationBarTitleDisplayMode(.inline)
-        .themed()
+        // Half height first, on the system's glass, as the other tools of the player.
+        .presentationDetents([.medium, .large])
+        .toolSheet(store)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) { Button("Play") { apply() } }
@@ -1674,7 +1679,7 @@ struct TimingView: View {
                         Button { choose(i, at: line.time, thisSong: thisSong) } label: {
                             HStack(alignment: .firstTextBaseline, spacing: 12) {
                                 Text(line.time.map(stamp) ?? "--:--.--")
-                                    .font(.system(size: 12, design: .monospaced))
+                                    .font(.scaled(12, relativeTo: .caption).monospaced())
                                     .foregroundStyle(selected == i ? ThemeColors.amber : colors.muted)
                                     .frame(width: 66, alignment: .leading)
                                 Group {
@@ -1690,7 +1695,7 @@ struct TimingView: View {
                                 Spacer(minLength: 0)
                             }
                             .padding(.horizontal, 12).padding(.vertical, 8)
-                            .background(isNext ? colors.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                            .background(isNext ? colors.accent.opacity(0.14) : .clear, in: .soft(Corner.small))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -1699,7 +1704,7 @@ struct TimingView: View {
                 }
                 .padding(.horizontal, 8)
             }
-            .onChange(of: next.line) { _, line in withAnimation { reader.scrollTo(line, anchor: .center) } }
+            .onChange(of: next.line) { _, line in withMotion(.smooth) { reader.scrollTo(line, anchor: .center) } }
         }
     }
 

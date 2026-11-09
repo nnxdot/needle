@@ -147,6 +147,8 @@ final class Store {
     /// A plugin's question, answered with text.
     var question: Question?
     var showPlayer = false
+    /// The welcome guide, asked for again (Settings › About).
+    var welcomeAgain = false
     /// A page to open, from a widget or a link.
     var opening: Route?
     /// A sheet over everything: adding to a playlist, tags, identifying, lyrics timing.
@@ -762,7 +764,7 @@ final class Store {
         case .favourites:
             run { core in
                 let ids = try core.favorites().map(\.id).shuffled()
-                guard !ids.isEmpty else { throw NeedleError.Failed(message: "No favourites yet") }
+                guard !ids.isEmpty else { throw NeedleError.Failed(message: "No favorites yet") }
                 try core.play(ids: ids, start: 0)
             }
         case .radio:
@@ -1066,7 +1068,7 @@ final class Store {
         Task {
             let image = await Covers.load(path, size: 40)
             let color = await Task.detached { image.flatMap(Self.mainColor(of:)) }.value
-            if colorFor == path { withAnimation(.easeInOut(duration: 0.5)) { coverColor = color } }
+            if colorFor == path { withFade(.easeInOut(duration: 0.5)) { coverColor = color } }
         }
     }
 

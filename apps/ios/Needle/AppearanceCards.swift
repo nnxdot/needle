@@ -36,16 +36,27 @@ struct AppearanceView: View {
             } header: {
                 Text("Look")
             }
-            Section("Colours") {
-                toggle("Colours from the song", "The app takes the playing song's colours.", "paintpalette.fill", .pink, \.ambientColors)
-                toggle("Colours from covers", "Pages take their cover's colours.", "square.on.circle", .orange, \.coverColors)
+            Section("Colors") {
+                toggle("Colors from the music", "Tint Needle with the cover that plays.", "paintpalette.fill", .pink, \.ambientColors)
+                toggle("Colors from covers", "Album and artist pages take their cover's colors.", "square.on.circle", .orange, \.coverColors)
                 ColorPicker(selection: Binding(
                     get: { Color(hex: app.accentColor) ?? ThemeColors.amber },
                     set: { c in store.updateApp { $0.accentColor = c.hex } }), supportsOpacity: false) {
-                    SettingLabel(title: "Accent", detail: app.accentColor.isEmpty ? "The theme's own" : "Your colour", icon: "circle.lefthalf.filled", tint: .blue)
+                    SettingLabel(title: "Accent", detail: app.accentColor.isEmpty ? "The theme's own" : "Your color", icon: "circle.lefthalf.filled", tint: .blue)
                 }
                 if !app.accentColor.isEmpty {
                     Button("Use the theme's accent") { store.updateApp { $0.accentColor = "" } }
+                }
+                // As on the Mac and Android: a fine texture over everything, 0 (off) to 100%.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        SettingLabel(title: "Film grain", detail: "A fine texture over the app.", icon: "circle.dotted", tint: .brown)
+                        Spacer()
+                        Text(app.grain <= 0.001 ? "Off" : "\(Int((app.grain * 100).rounded()))%").foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    Slider(value: Binding(get: { Double(app.grain) }, set: { v in store.updateApp { $0.grain = v < 0.03 ? 0 : Float((v * 100).rounded() / 100) } }), in: 0...1)
+                        .accessibilityLabel("Film grain")
+                        .accessibilityValue(app.grain <= 0.001 ? "Off" : "\(Int((app.grain * 100).rounded())) percent")
                 }
             }
             Section("The player") {
@@ -98,15 +109,23 @@ struct AppearanceView: View {
                 toggle("Volume slider", "Under the controls.", "speaker.wave.2.fill", .gray, \.volumeSlider)
                 toggle("Swipe the cover to skip", "Next or last song.", "hand.draw.fill", .gray, \.swipeCover)
                 toggle("Open the player on play", "When you choose a song.", "arrow.up.forward.app.fill", .gray, \.openPlayerOnPlay)
+                toggle("Keep the screen on", "While the player shows, lyrics or not.", "sun.max.fill", .yellow, \.keepScreenOnPlayer)
             }
             .id("player")
             Section("The mini player and lists") {
-                toggle("Lyrics under the mini player", "The line being sung, in place of the artist.", "quote.bubble.fill", .pink, \.miniPlayerLyrics)
+                toggle("Lyrics in the mini player", "The line being sung, in place of the artist.", "quote.bubble.fill", .pink, \.miniPlayerLyrics)
                 toggle("Mark server songs", "A small server icon beside their artist.", "server.rack", .cyan, \.serverMark)
+                SketchRow(title: "Song rows", detail: "Compact fits more songs on screen.") {
+                    SketchChoice(caption: "Roomy", chosen: app.density != "compact", part: .rowsRoomy) { store.updateApp { $0.density = "comfortable" } }
+                    SketchChoice(caption: "Compact", chosen: app.density == "compact", part: .rowsCompact) { store.updateApp { $0.density = "compact" } }
+                }
             }
             Section("Lyrics") {
                 toggle("Live lyrics", "They move with the song, the line playing lit.", "text.quote", .orange, \.liveLyrics)
-                toggle("Keep the screen on", "While the lyrics show.", "sun.max.fill", .yellow, \.keepScreenOnLyrics)
+                // The player's own switch keeps the screen on with the lyrics too.
+                if !app.keepScreenOnPlayer {
+                    toggle("Keep the screen on", "While the lyrics show.", "sun.max.fill", .yellow, \.keepScreenOnLyrics)
+                }
             }
             Section("Text") {
                 NavigationLink(value: Route.fonts(true)) {
@@ -306,11 +325,37 @@ private struct ThemeSketch: View {
 /// The parts of the player's sketch an answer changes.
 private struct PlayerSketch: View {
     @Environment(Store.self) private var store
-    enum Part { case square, record, skip, jump }
+    enum Part { case square, record, skip, jump, rowsRoomy, rowsCompact }
     let part: Part
 
     var body: some View {
         let ink = Ink(store)
+        if part == .rowsRoomy || part == .rowsCompact {
+            rows(ink, compact: part == .rowsCompact)
+        } else {
+            player(ink)
+        }
+    }
+
+    /// Song rows: a cover and two lines each; Compact fits more of them, smaller, closer.
+    private func rows(_ ink: Ink, compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 3 : 6) {
+            ForEach(0..<(compact ? 5 : 3), id: \.self) { _ in
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(ink.accent).frame(width: compact ? 6 : 10, height: compact ? 6 : 10)
+                    VStack(alignment: .leading, spacing: 1.5) {
+                        Capsule().fill(ink.part).frame(width: 26, height: 2.5)
+                        if !compact { Capsule().fill(ink.soft).frame(width: 18, height: 2) }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ink.back)
+        .accessibilityHidden(true)
+    }
+
+    private func player(_ ink: Ink) -> some View {
         VStack(spacing: 5) {
             switch part {
             case .square:
@@ -318,7 +363,7 @@ private struct PlayerSketch: View {
             case .record:
                 Circle().fill(ink.accent).frame(width: 26, height: 26)
                     .overlay(Circle().fill(ink.back).frame(width: 6, height: 6))
-            case .skip, .jump:
+            case .skip, .jump, .rowsRoomy, .rowsCompact:
                 RoundedRectangle(cornerRadius: 3).fill(ink.soft).frame(width: 22, height: 22)
             }
             let sides = part == .skip || part == .jump
