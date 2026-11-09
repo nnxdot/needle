@@ -177,7 +177,13 @@ impl RenderOnce for Sheet {
                             })
                             .absolute()
                             .occlude()
-                            .bg(cx.theme().background)
+                            // Needle patch: with the edge light, a sheet is a popover pane.
+                            // The window's background is see-through with glass on.
+                            .bg(if cx.theme().popover_edge.a > 0. {
+                                cx.theme().popover
+                            } else {
+                                cx.theme().background
+                            })
                             .border_color(cx.theme().border)
                             .shadow_xl()
                             .map(|this| {
