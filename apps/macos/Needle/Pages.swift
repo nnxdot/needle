@@ -82,7 +82,7 @@ private struct NowCard: View {
             .padding(16)
             .background {
                 LinearGradient(colors: [colors.glow.opacity(0.35), colors.raised.opacity(0.6)], startPoint: .leading, endPoint: .trailing)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
             }
         }
     }
@@ -118,7 +118,7 @@ struct Shelf: View {
                 ShelfTitle(title: title, detail: detail, all: .albums)
                 PagedRow(tile: 156, spacing: 18, middle: 78) {
                     LazyHStack(alignment: .top, spacing: 18) {
-                        ForEach(albums) { album in AlbumTile(album: album, side: 156) }
+                        ForEach(albums) { album in AlbumTile(album: album, side: 156, place: title) }
                     }
                     .padding(.horizontal, 2)
                     .padding(.bottom, 4)
@@ -193,46 +193,54 @@ struct AlbumTile: View {
     private var store: Store { .shared }
     let album: AlbumSummary
     let side: CGFloat
+    /// Where on its page the tile is (a shelf's title, "albums"): the same album may show on
+    /// two shelves, and only the one clicked is the cover that flies to the album and back.
+    var place = ""
     @State private var hover = false
     /// The cover's own colour, for the light behind it under the pointer.
     @State private var glow: Color?
-    /// This tile, among others showing the same album.
-    @State private var me = UUID()
+
+    /// This tile, among others showing the same album (see `Store.travelingTile`).
+    private var me: String { place + "|" + album.query }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ZStack(alignment: .bottomTrailing) {
+        // A real button, so the keyboard (Tab, with keyboard navigation on) reaches it and
+        // Space opens it; the play button sits beside it over the cover, not inside it.
+        Button { open() } label: {
+            VStack(alignment: .leading, spacing: 5) {
                 Cover(path: album.artwork, seed: album.album + album.artist, side: side, corner: 8)
-                    .modifier(TravelingCover(id: album.album + "|" + album.artist, on: store.travelingTile == me))
+                    .modifier(TravelingCover(id: album.query, on: store.travelingTile == me))
                     // Under the pointer the cover lifts a little, with a soft light in its own colour.
                     .shadow(color: hover ? (glow ?? .black).opacity(0.55) : .black.opacity(0.15), radius: hover ? 16 : 6, y: hover ? 6 : 4)
                     .offset(y: hover && store.motion ? -2 : 0)
-                if hover {
-                    Button { play() } label: {
-                        Image(systemName: "play.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(store.colors.accentInk)
-                            .frame(width: 34, height: 34)
-                            .background(store.colors.accent, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                    .transition(.scale.combined(with: .opacity))
-                }
+                Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist)
+                    .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
-            Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
-            Text(album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist)
-                .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
+            .frame(width: side, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .frame(width: side)
-        .contentShape(Rectangle())
-        .onHover { h in withAnimation(.snappy(duration: 0.15)) { hover = h } }
+        .buttonStyle(.plain)
+        .overlay(alignment: .topLeading) {
+            if hover {
+                Button { play() } label: {
+                    Image(systemName: "play.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(store.colors.accentInk)
+                        .frame(width: 34, height: 34)
+                        .background(store.colors.accent, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play \(album.title)")
+                .padding(8)
+                .frame(width: side, height: side, alignment: .bottomTrailing)
+                .offset(y: store.motion ? -2 : 0)
+                .transition(store.motion ? .scale.combined(with: .opacity) : .opacity)
+            }
+        }
+        .onHover { h in withAnimation(store.motion ? .snappy(duration: 0.15) : nil) { hover = h } }
         .task(id: hover) {
             guard hover, glow == nil else { return }
             glow = Color(nsColor: await Covers.pageColor(album.artwork, seed: album.album + album.artist))
         }
-        .onTapGesture { open() }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { open() }
         .accessibilityAction(named: "Play") { play() }
         .contextMenu { GroupMenu(route: album.route, title: album.title) }
     }
@@ -255,19 +263,19 @@ struct ArtistTile: View {
     let side: CGFloat
 
     var body: some View {
-        VStack(spacing: 6) {
-            ArtistPhoto(name: artist.name, side: side)
-                .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
-            Text(artist.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
-            Text(artist.albums == 1 ? count(artist.tracks, "track") : "\(artist.albums) albums · \(count(artist.tracks, "track"))")
-                .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
+        // A real button, so the keyboard reaches it.
+        Button { store.navigate(.artist(artist.name)) } label: {
+            VStack(spacing: 6) {
+                ArtistPhoto(name: artist.name, side: side)
+                    .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+                Text(artist.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(artist.albums == 1 ? count(artist.tracks, "track") : "\(artist.albums) albums · \(count(artist.tracks, "track"))")
+                    .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
+            }
+            .frame(width: side)
+            .contentShape(Rectangle())
         }
-        .frame(width: side)
-        .contentShape(Rectangle())
-        .onTapGesture { store.navigate(.artist(artist.name)) }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { store.navigate(.artist(artist.name)) }
+        .buttonStyle(.plain)
         .contextMenu { GroupMenu(route: .artist(artist.name), title: artist.title) }
     }
 }
@@ -285,7 +293,7 @@ struct AlbumsPage: View {
                 RecordCrate(albums: albums ?? [])
             } else {
                 TileGrid(title: "Albums", summary: albums.map { count($0.count, "album") }) {
-                    ForEach(albums ?? []) { AlbumTile(album: $0, side: 172) }
+                    ForEach(albums ?? []) { AlbumTile(album: $0, side: 172, place: "albums") }
                 }
             }
         }
@@ -318,6 +326,8 @@ struct AlbumsPage: View {
 struct ArtistsPage: View {
     private var store: Store { .shared }
     @State private var artists: [ArtistSummary]?
+    /// The header's width: narrow, its buttons show only their icons.
+    @State private var width: CGFloat = 1000
 
     var body: some View {
         let s = store.settings
@@ -331,13 +341,19 @@ struct ArtistsPage: View {
                             Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                         }
                         Spacer()
-                        // In sight, as on Windows: inside the sort menu they went unseen.
-                        Toggle("Only album artists", isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) }))
-                            .toggleStyle(.button)
-                            .help("Only artists with albums of their own")
-                        Toggle("Hide Various Artists-only", isOn: Binding(get: { s.hideCompilationArtists }, set: { store.set(["hide_compilation_artists": $0]) }))
-                            .toggleStyle(.button)
-                            .help("Hide artists who are only on Various Artists albums")
+                        // In sight, as on Windows: inside the sort menu they went unseen. In a
+                        // narrow page only their icons show (their names stay for VoiceOver and
+                        // in their tips), so the title keeps its room.
+                        Toggle(isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) })) {
+                            Label("Only album artists", systemImage: "square.stack")
+                        }
+                        .toggleStyle(.button)
+                        .help("Only album artists: only artists with albums of their own")
+                        Toggle(isOn: Binding(get: { s.hideCompilationArtists }, set: { store.set(["hide_compilation_artists": $0]) })) {
+                            Label("Hide Various Artists-only", systemImage: "person.3")
+                        }
+                        .toggleStyle(.button)
+                        .help("Hide Various Artists-only: artists who are only on Various Artists albums")
                         Menu {
                             Picker("Sort by", selection: Binding(get: { s.artistOrder }, set: { store.set(["artist_order": $0]) })) {
                                 Text("A–Z").tag("name")
@@ -354,6 +370,8 @@ struct ArtistsPage: View {
                         .padding(.trailing, letters.isEmpty ? 0 : 22)
                         .help("Sort artists")
                     }
+                    .modifier(IconsWhenNarrow(narrow: width < 820))
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
                         ForEach(artists ?? []) { artist in
                             ArtistTile(artist: artist, side: 160).id("artist:" + artist.name)
@@ -517,7 +535,7 @@ struct ArtistPage: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Albums").font(.needle(.title3).weight(.semibold))
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
-                            ForEach(albums ?? []) { AlbumTile(album: $0, side: 172) }
+                            ForEach(albums ?? []) { AlbumTile(album: $0, side: 172, place: "artist") }
                         }
                     }
                 }
@@ -774,12 +792,13 @@ struct FoldersPage: View {
                         Text(root).font(.needle(.caption)).foregroundStyle(.secondary)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 18, alignment: .top)], spacing: 20) {
                             ForEach(inside[root] ?? [], id: \.path) { folder in
+                                Button { store.navigate(.folder(folder.path)) } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     ZStack {
                                         if let art = folder.artwork {
                                             Cover(path: art, seed: folder.name, side: 140, corner: 8)
                                         } else {
-                                            RoundedRectangle(cornerRadius: 8).fill(store.colors.raised).frame(width: 140, height: 140)
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(store.colors.raised).frame(width: 140, height: 140)
                                                 .overlay { Image(systemName: "folder").font(.needle(.largeTitle)).foregroundStyle(store.colors.ink3) }
                                         }
                                     }
@@ -788,10 +807,8 @@ struct FoldersPage: View {
                                 }
                                 .frame(width: 140)
                                 .contentShape(Rectangle())
-                                .onTapGesture { store.navigate(.folder(folder.path)) }
-                                .accessibilityElement(children: .combine)
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityAction { store.navigate(.folder(folder.path)) }
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }

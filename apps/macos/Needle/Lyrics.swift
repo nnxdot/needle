@@ -229,7 +229,7 @@ struct SungLine: View {
     let center: Bool
 
     var body: some View {
-        let position = (store.playback?.position ?? 0) + 0.15
+        let position = store.playhead.position + 0.15
         var text = AttributedString()
         for (i, w) in line.words.enumerated() {
             let end = i + 1 < line.words.count ? line.words[i + 1].time : (next ?? w.time + 0.6)
@@ -280,7 +280,7 @@ struct TimingPage: View {
                     .font(.system(size: 14))
                     .scrollContentBackground(.hidden)
                     .padding(8)
-                    .background(colors.raised, in: RoundedRectangle(cornerRadius: 10))
+                    .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 Button { begin(LyricTimer(lyrics: nil, text: text)) } label: { Label("Start timing", systemImage: "play.fill") }
                     .glassButton(prominent: true)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -331,7 +331,7 @@ struct TimingPage: View {
 
     private var list: some View {
         let colors = store.colors
-        let position = playingThis ? store.playback?.position : nil
+        let position = playingThis ? store.playhead.position : nil
         return ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
@@ -357,8 +357,8 @@ struct TimingPage: View {
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(selected == i ? colors.raised : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isNext ? colors.accent.opacity(0.6) : .clear))
+                        .background(selected == i ? colors.raised : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(isNext ? colors.accent.opacity(0.6) : .clear))
                         .contentShape(Rectangle())
                         .id(i)
                         .onTapGesture { choose(i, at: line.time) }
@@ -368,7 +368,7 @@ struct TimingPage: View {
             }
             .onChange(of: next.line) { _, line in withAnimation(store.motion ? .default : nil) { reader.scrollTo(line, anchor: .center) } }
         }
-        .background(colors.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .background(colors.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
     }
 
     /// Word mode: tapped words full strength, the rest faint, the next one underlined.
@@ -399,7 +399,7 @@ struct TimingPage: View {
             }
             .foregroundStyle(playingThis ? colors.accentInk : colors.ink3)
             .frame(maxWidth: .infinity, minHeight: 64)
-            .background(playingThis ? colors.accent : colors.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(playingThis ? colors.accent : colors.raised, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -468,7 +468,7 @@ struct TimingPage: View {
 
     private func tap() {
         guard let timer, playingThis, next.line < lines.count else { return }
-        timer.tap(position: store.playback?.position ?? 0)
+        timer.tap(position: store.playhead.position)
         changed()
     }
 
@@ -502,15 +502,19 @@ struct TimingPage: View {
 struct LyricStrip: View {
     private var store: Store { .shared }
     var inBar = false
+    /// The glass group it sits in with the player: it grows out of the player's glass.
+    var space: Namespace.ID? = nil
 
     @MainActor static var shows: Bool {
         let store = Store.shared
-        guard store.settings.playerLyrics, store.current != nil, !store.big, !store.immersive,
-              let lyrics = store.lyrics, !lyrics.instrumental else { return false }
+        guard store.settings.playerLyrics, store.current != nil, !store.big, !store.immersive else { return false }
         // The Lyrics panel open shows them all: the one line under the player would only repeat
         // it, and lay over it.
         if store.settings.showInspector && store.panel == .lyrics { return false }
-        return !lyrics.lines.isEmpty
+        if let lyrics = store.lyrics { return !lyrics.instrumental && !lyrics.lines.isEmpty }
+        // A new song's still being looked up: the strip keeps its room (a faint ♪) when the
+        // last song had one, so the foot of the page does not jump at each song.
+        return store.lyricsLooking && store.lyricsTimed
     }
 
     var body: some View {
@@ -539,7 +543,8 @@ struct LyricStrip: View {
         .frame(maxWidth: inBar ? .infinity : 640, alignment: inBar ? .leading : .center)
         // The lines move inside the capsule, not over its edge.
         .clipped()
-        .pane(Capsule())
+        .contentShape(Capsule())
+        .pane(Capsule(), interactive: true, tinted: true, id: "lyrics", in: space)
         .animation(store.motion ? .easeOut(duration: 0.35) : nil, value: store.lyricLine)
         .onTapGesture { store.panel = .lyrics; store.set(["show_inspector": true]) }
         .help("Lyrics: click to see them all")

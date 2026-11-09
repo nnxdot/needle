@@ -230,8 +230,8 @@ struct GenreMapPage: View {
     private func map(_ bubbles: [GenreBubble], width: Double, height: Double) -> some View {
         let colors = store.colors
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(colors.raised)
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(colors.ink3.opacity(0.2)))
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).fill(colors.raised)
+                .overlay(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).strokeBorder(colors.ink3.opacity(0.2)))
             ForEach(bubbles) { bubble in
                 let tone = GenreLayout.tone(bubble.genre, dark: colors.dark)
                 let many = bubble.genre.contains(" ") || bubble.genre.contains("-")
@@ -271,7 +271,7 @@ struct GenreMapPage: View {
             .allowsHitTesting(false)
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
     }
 
     private var artSummary: String {
@@ -347,6 +347,14 @@ struct GenreArtView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
+    /// A bubble's words: white or near-black, whichever reads better on its colour (yellow and
+    /// green bubbles in Day are light, and white words vanished on them).
+    private func ink(on item: GenreArt.Item) -> Color {
+        let bubble = HSL(NSColor(hue: item.hue / 360, saturation: dark ? 0.5 : 0.65, brightness: dark ? 0.8 : 0.6, alpha: 1))
+        let white = HSL(h: 0, s: 0, l: 1), black = HSL(h: 0, s: 0, l: 0.1)
+        return Palette.contrast(white, bubble) >= Palette.contrast(black, bubble) ? .white : Color.black.opacity(0.82)
+    }
+
     private func tone(_ item: GenreArt.Item, strong: Bool) -> Color {
         Color(hue: item.hue / 360, saturation: dark ? 0.5 : 0.65, brightness: dark ? (strong ? 0.95 : 0.8) : (strong ? 0.45 : 0.6))
     }
@@ -360,7 +368,7 @@ struct GenreArtView: View {
                 .foregroundStyle(tone(item, strong: lit))
                 .fixedSize()
                 .scaleEffect(lit ? 1.06 : 1)
-                .animation(.easeOut(duration: 0.12), value: lit)
+                .animation(Store.shared.motion ? .easeOut(duration: 0.12) : nil, value: lit)
         } else {
             let r = item.size * scale
             ZStack {
@@ -370,7 +378,7 @@ struct GenreArtView: View {
                 if font >= 7 {
                     Text(item.genre)
                         .font(.system(size: font, weight: .semibold))
-                        .foregroundStyle(dark ? Color.black.opacity(0.8) : Color.white)
+                        .foregroundStyle(ink(on: item))
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.6)

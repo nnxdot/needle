@@ -5,6 +5,8 @@ import SwiftUI
 /// volume, at the foot of the page. (`TopPlayer` is the same in the title bar.)
 struct PlayerBar: View {
     private var store: Store { .shared }
+    /// The glass group it sits in, with the lyric strip under it (see `GlassGroup`).
+    var space: Namespace.ID? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -36,7 +38,7 @@ struct PlayerBar: View {
         }
         .frame(height: 56)
         .frame(maxWidth: 820)
-        .pane(Capsule())
+        .pane(Capsule(), interactive: true, tinted: true, id: "player", in: space)
     }
 }
 
@@ -77,6 +79,59 @@ struct TopPlayer: View {
     static let width: CGFloat = 700
 }
 
+/// The title bar with the player in it (macOS 26): the sidebar's button, Back, Forward, and the
+/// palette's button in one capsule of glass, the player in the next, and the line being sung
+/// in a third, all in one group of glass, so they flow together and the line grows out of the
+/// player's glass when it comes.
+@available(macOS 26, *)
+struct TitleBarGlass: View {
+    private var store: Store { .shared }
+    @Namespace private var glass
+    /// The capsules' height: the player's screen and its edge.
+    private static let height: CGFloat = 42
+
+    var body: some View {
+        let lyrics = LyricStrip.shows
+        GlassGroup(spacing: 8) {
+            HStack(spacing: 6) {
+                buttons
+                    .frame(height: Self.height)
+                    .pane(Capsule(), interactive: true, id: "buttons", in: glass)
+                TopPlayer()
+                    .frame(height: Self.height)
+                    .pane(Capsule(), interactive: true, tinted: true, id: "player", in: glass)
+                if lyrics {
+                    LyricStrip(inBar: true, space: glass)
+                        .frame(minWidth: 140, idealWidth: 300, maxWidth: 300)
+                }
+            }
+        }
+        .animation(store.motion ? .smooth(duration: 0.35) : nil, value: lyrics)
+    }
+
+    private var buttons: some View {
+        HStack(spacing: 14) {
+            SidebarButton()
+            Button { store.goBack() } label: { Image(systemName: "chevron.left") }
+                .help("Back · ⌘[")
+                .accessibilityLabel("Back")
+                .disabled(store.back.isEmpty)
+            Button { store.goForward() } label: { Image(systemName: "chevron.right") }
+                .help("Forward · ⌘]")
+                .accessibilityLabel("Forward")
+                .disabled(store.forward.isEmpty)
+            Button { store.palette = true } label: { Image(systemName: "command") }
+                .help("Command palette: go anywhere, do anything · ⌘K")
+                .accessibilityLabel("Command palette: go anywhere, do anything")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .font(.system(size: 14, weight: .medium))
+        .foregroundStyle(store.colors.ink)
+        .padding(.horizontal, 14)
+    }
+}
+
 /// The title bar player's screen: a panel a little sunk into the glass, the cover at its left
 /// (it opens the big player), the song and "artist — album" in its middle (they open the
 /// album and the artist), and where the song is along its foot, to click or drag; the times
@@ -85,15 +140,13 @@ struct TopScreen: View {
     private var store: Store { .shared }
     @State private var held: Double?
     @State private var hover = false
-    @State private var release: Task<Void, Never>?
 
     var body: some View {
         let colors = store.colors
         let p = store.playback
         let has = p?.hasSong == true
         let duration = max(p?.duration ?? 0, 0.01)
-        let position = held.map { $0 * duration } ?? p?.position ?? 0
-        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
         HStack(spacing: 0) {
             Group {
                 if let p, has {
@@ -103,7 +156,7 @@ struct TopScreen: View {
                     .buttonStyle(.plain)
                     .help("Open the big player · ⌘P")
                 } else {
-                    RoundedRectangle(cornerRadius: 5).fill(colors.raised).frame(width: 30, height: 30)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(colors.raised).frame(width: 30, height: 30)
                         .overlay { Image(systemName: "music.note").font(.system(size: 12)).foregroundStyle(colors.ink3) }
                 }
             }
@@ -126,11 +179,7 @@ struct TopScreen: View {
                 }
                 .padding(.horizontal, hover && has ? 40 : 8)
                 if hover, let p, has {
-                    HStack {
-                        Text(clock(position))
-                        Spacer()
-                        Text("-" + clock(max(0, p.duration - position)))
-                    }
+                    PlayTimes(held: held, duration: p.duration, apart: true)
                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                     .foregroundStyle(colors.ink3)
                     .padding(.horizontal, 8)
@@ -144,14 +193,7 @@ struct TopScreen: View {
         .overlay(shape.strokeBorder(colors.ink.opacity(0.07), lineWidth: 0.5))
         // Where the song is, along the screen's foot.
         .overlay(alignment: .bottom) {
-            ThinBar(value: min(1, position / duration), tint: colors.ink.opacity(0.7), track: .clear, area: 6) { held = $0 } began: {
-                release?.cancel()
-                store.core.scrub(held: true)
-            } ended: { fraction in
-                store.seek(fraction * duration)
-                store.core.scrub(held: false)
-                release = Task { try? await Task.sleep(for: .milliseconds(400)); if !Task.isCancelled { held = nil } }
-            }
+            PositionBar(held: $held, duration: duration, tint: colors.ink.opacity(0.7), track: .clear, area: 6)
             .disabled(!has)
             .overlay { LoopMarks(duration: duration) }
             // Under the words, not the cover.
@@ -174,7 +216,6 @@ struct NowScreen: View {
     var small = false
     @State private var held: Double?
     @State private var hover = false
-    @State private var release: Task<Void, Never>?
 
     var body: some View {
         let colors = store.colors
@@ -182,7 +223,6 @@ struct NowScreen: View {
         let p = store.playback
         let has = p?.hasSong == true
         let duration = max(p?.duration ?? 0, 0.01)
-        let position = held.map { $0 * duration } ?? p?.position ?? 0
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 if let p, has {
@@ -197,7 +237,7 @@ struct NowScreen: View {
                             .buttonStyle(.plain)
                             Spacer(minLength: 0)
                             if hover {
-                                Text("\(clock(position)) / \(clock(p.duration))")
+                                PlayTimes(held: held, duration: p.duration, apart: false)
                                     .font(.system(size: small ? 9 : 10).monospacedDigit())
                                     .foregroundStyle(colors.ink3)
                                     .fixedSize()
@@ -212,7 +252,7 @@ struct NowScreen: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    RoundedRectangle(cornerRadius: 5).fill(colors.raised).frame(width: side, height: side)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(colors.raised).frame(width: side, height: side)
                         .overlay { Image(systemName: "music.note").foregroundStyle(colors.ink3) }
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Nothing playing").font(.system(size: small ? 12 : 13, weight: .semibold)).foregroundStyle(colors.ink2)
@@ -223,14 +263,7 @@ struct NowScreen: View {
             }
             // In the title bar it takes only the height its words need: the bar is low.
             .frame(height: small ? nil : 38)
-            ThinBar(value: min(1, position / duration), tint: colors.accent, area: small ? 4 : 10) { held = $0 } began: {
-                release?.cancel()
-                store.core.scrub(held: true)
-            } ended: { fraction in
-                store.seek(fraction * duration)
-                store.core.scrub(held: false)
-                release = Task { try? await Task.sleep(for: .milliseconds(400)); if !Task.isCancelled { held = nil } }
-            }
+            PositionBar(held: $held, duration: duration, tint: colors.accent, area: small ? 4 : 10)
             .disabled(!has)
             .overlay { LoopMarks(duration: duration) }
         }
@@ -238,6 +271,66 @@ struct NowScreen: View {
         .onHover { hover = $0 }
         .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
     }
+}
+
+/// The song's times on a player's screen: "0:12 / 3:22", or "0:12" and "-3:10" at its two ends
+/// (`apart`). Only this, of the screen, follows the playhead.
+private struct PlayTimes: View {
+    private var store: Store { .shared }
+    /// The place held while dragging (0 to 1), shown in place of the song's.
+    let held: Double?
+    let duration: Double
+    let apart: Bool
+
+    var body: some View {
+        let position = held.map { $0 * duration } ?? store.playhead.position
+        if apart {
+            HStack {
+                Text(clock(position))
+                Spacer()
+                Text("-" + clock(max(0, duration - position)))
+            }
+        } else {
+            Text("\(clock(position)) / \(clock(duration))")
+        }
+    }
+}
+
+/// Where the song is, along a player's screen, to click or drag: the only part of the screen
+/// that follows the playhead. Let go, it jumps there; the place held stays a moment, until
+/// the player has caught up (a new drag in that moment keeps its own).
+private struct PositionBar: View {
+    private var store: Store { .shared }
+    @Binding var held: Double?
+    let duration: Double
+    let tint: Color
+    var track: Color = Color.primary.opacity(0.16)
+    let area: CGFloat
+    @State private var release: Task<Void, Never>?
+
+    var body: some View {
+        let position = held.map { $0 * duration } ?? store.playhead.position
+        ThinBar(value: min(1, position / duration), tint: tint, label: "Position",
+                spoken: { spokenTime($0 * duration, of: duration) }, track: track, area: area) { held = $0 } began: {
+            release?.cancel()
+            store.core.scrub(held: true)
+        } ended: { fraction in
+            store.seek(fraction * duration)
+            store.core.scrub(held: false)
+            release?.cancel()
+            release = Task { try? await Task.sleep(for: .milliseconds(400)); if !Task.isCancelled { held = nil } }
+        }
+    }
+}
+
+/// A place in a song as VoiceOver says it: "1 minute, 12 seconds of 3 minutes, 22 seconds".
+func spokenTime(_ seconds: Double, of whole: Double) -> String {
+    let words = DateComponentsFormatter()
+    words.unitsStyle = .full
+    words.allowedUnits = whole >= 3600 ? [.hour, .minute, .second] : [.minute, .second]
+    words.zeroFormattingBehavior = .dropLeading
+    let say = { (s: Double) in words.string(from: max(0, s).rounded(.down)) ?? clock(s) }
+    return "\(say(seconds)) of \(say(whole))"
 }
 
 /// The player's other things, in a menu: what plays and how, the A–B loop, the mini player,
@@ -377,7 +470,7 @@ struct ThinBar: View {
         .frame(height: area)
         .opacity(enabled ? 1 : 0.5)
         .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
+        .animation(Store.shared.motion ? .easeOut(duration: 0.12) : nil, value: hover)
         .onChange(of: pressing) { _, now in if !now { finish() } }
         .onDisappear { finish() }
         .accessibilityElement()
@@ -415,6 +508,8 @@ struct Transport: View {
     var bare = false
     /// The size of the signs, when not the usual.
     var icons: CGFloat?
+    /// Clicks on Shuffle, for its bounce.
+    @State private var shuffles = 0
 
     var body: some View {
         let colors = store.colors
@@ -422,7 +517,7 @@ struct Transport: View {
         let repeatMode = store.playback?.repeat ?? "off"
         HStack(spacing: bare ? (icons ?? 16) * 0.85 : compact ? 4 : 10) {
             if !compact {
-                Button { store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent) }
+                Button { shuffles += 1; store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent).bounce(on: shuffles) }
                     .help(store.shuffleHelp)
                     .accessibilityLabel("Shuffle")
                     .accessibilityValue(store.settings.shuffleStays ? (store.shuffleOn ? "On" : "Off") : "")
@@ -455,6 +550,7 @@ struct Transport: View {
                 Button { store.cycleRepeat() } label: {
                     Image(systemName: repeatMode == "one" ? "repeat.1" : "repeat")
                         .foregroundStyle(repeatMode == "off" ? (light ? .white.opacity(0.8) : colors.ink2) : colors.accent)
+                        .bounce(on: repeatMode)
                 }
                 .help(repeatMode == "off" ? "Repeat is off" : repeatMode == "all" ? "Repeating the queue" : "Repeating this track")
                 .accessibilityLabel("Repeat")
@@ -476,11 +572,14 @@ struct SeekBar: View {
     @State private var held: Double?
     /// The song's loud and quiet shape (the big seek bar only), once measured.
     @State private var shape: [Float] = []
+    /// Lets go of the place held a moment after a drag ends; a new drag cancels it, so its own
+    /// place is not taken back.
+    @State private var release: Task<Void, Never>?
 
     var body: some View {
         let p = store.playback
         let duration = max(p?.duration ?? 0, 0.01)
-        let position = held ?? p?.position ?? 0
+        let position = held ?? store.playhead.position
         HStack(spacing: 8) {
             if !small {
                 Text(clock(p?.hasSong == true ? position : 0)).monospacedDigit().frame(width: 42, alignment: .trailing)
@@ -499,6 +598,7 @@ struct SeekBar: View {
                                 Color.clear.contentShape(Rectangle())
                                     .gesture(DragGesture(minimumDistance: 0)
                                         .onChanged { value in
+                                            release?.cancel()
                                             if held == nil { store.core.scrub(held: true) }
                                             held = min(max(0, value.location.x / max(geo.size.width, 1)), 1) * duration
                                         }
@@ -511,6 +611,7 @@ struct SeekBar: View {
                                  lit: light ? .white : store.colors.accent,
                                  dim: light ? .white.opacity(0.28) : store.colors.ink3.opacity(0.45)) { place in
                         if let place {
+                            release?.cancel()
                             if held == nil { store.core.scrub(held: true) }
                             held = place * duration
                         } else {
@@ -550,17 +651,22 @@ struct SeekBar: View {
     }
 
     private func slider(position: Double, duration: Double) -> some View {
-        Slider(value: Binding(get: { min(position, duration) }, set: { held = $0 }), in: 0...duration, onEditingChanged: { editing in
-            if editing { store.core.scrub(held: true) } else { scrubbing(false) }
+        Slider(value: Binding(get: { min(position, duration) }, set: { release?.cancel(); held = $0 }), in: 0...duration, onEditingChanged: { editing in
+            if editing { release?.cancel(); store.core.scrub(held: true) } else { scrubbing(false) }
         })
         .accessibilityLabel("Position")
+        .accessibilityValue(spokenTime(position, of: duration))
     }
 
     /// Let go: jumps once to where it was left and plays on.
     private func scrubbing(_ on: Bool) {
         if let to = held { store.seek(to) }
         store.core.scrub(held: false)
-        Task { try? await Task.sleep(for: .milliseconds(500)); held = nil }
+        release?.cancel()
+        release = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            if !Task.isCancelled { held = nil }
+        }
     }
 }
 
@@ -723,20 +829,15 @@ enum VolumeWheel {
 /// Opens the equalizer and sound tools (lit while any is on).
 struct SoundButton: View {
     private var store: Store { .shared }
-    @State private var on = false
 
     var body: some View {
+        // Lit from the store, which follows each change of the sound settings at once.
         Button { store.navigate(.sound) } label: {
-            Image(systemName: "slider.vertical.3").foregroundStyle(on ? store.colors.accent : store.colors.ink2)
+            Image(systemName: "slider.vertical.3").foregroundStyle(store.soundOn ? store.colors.accent : store.colors.ink2)
         }
         .buttonStyle(.borderless)
         .help("Equalizer and sound tools")
         .accessibilityLabel("Equalizer and sound tools")
-        .task(id: store.libraryVersion) {
-            if let s = try? store.core.soundSettings() {
-                on = s.eq || s.mono || s.crossfeed || abs(s.balance) > 0.001
-            }
-        }
     }
 }
 

@@ -42,7 +42,7 @@ struct SleepButton: View {
             Image(systemName: running == nil ? "moon" : "moon.fill")
                 .foregroundStyle(running == nil ? colors.ink2 : colors.accent)
                 .frame(width: 26, height: 26)
-                .background(running == nil ? Color.clear : colors.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(running == nil ? Color.clear : colors.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -158,10 +158,14 @@ struct SleepPane: View {
                 Toggle("", isOn: Binding(get: { running?.fade ?? fade }, set: { fade = $0; store.setSleepFade($0) }))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
-            Divider()
-            ToolRow(title: "Then sleep the Mac") {
-                Toggle("", isOn: Binding(get: { store.settings.sleepComputer }, set: { store.set(["sleep_computer": $0]) }))
-                    .toggleStyle(.switch).labelsHidden().controlSize(.small)
+            // Not in the App Store build: Apple's sandbox does not let an app run pmset, so the
+            // Mac would not sleep.
+            if !Store.fromAppStore {
+                Divider()
+                ToolRow(title: "Then sleep the Mac") {
+                    Toggle("", isOn: Binding(get: { store.settings.sleepComputer }, set: { store.set(["sleep_computer": $0]) }))
+                        .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                }
             }
         }
         .padding(16)

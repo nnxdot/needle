@@ -26,11 +26,24 @@ final class SongsModel {
         if case .playlist(let id) = route {
             playlist = store.playlistModel(id)
             playlistID = playlist?.smart == false ? id : nil
-            rule = store.expression(for: route, playlistRule: playlist?.query)
+            // Removed meanwhile (a server's sync): nothing is listed, and the page leaves. An
+            // empty rule here would list, and play, the whole library.
+            guard let rule = store.expression(for: route, playlist: playlist) else {
+                tracks = []
+                total = 0
+                rule = ""
+                playlistID = nil
+                error = nil
+                loading = false
+                version += 1
+                store.playlistGone(id)
+                return
+            }
+            self.rule = rule
         } else {
             playlist = nil
             playlistID = nil
-            rule = store.expression(for: route)
+            rule = store.expression(for: route) ?? ""
         }
         let check = store.core.checkQuery(query: rule)
         explanation = check.explanation
@@ -174,12 +187,12 @@ struct SongsHeader: View {
         let colors = store.colors
         let seed = album.album + album.displayAlbumArtist
         return HStack(alignment: .bottom, spacing: 28) {
-            Cover(path: album.artwork, seed: seed, side: store.headerFolded ? 64 : 232, corner: store.headerFolded ? 6 : 12)
-                .modifier(TravelingCover(id: album.album + "|" + album.displayAlbumArtist, on: store.travelingTile != nil))
+            Cover(path: album.artwork, seed: seed, side: store.headerFolded ? 64 : 232, corner: store.headerFolded ? 6 : 8)
+                .modifier(TravelingCover(id: albumQuery, on: store.travelingTile?.hasSuffix("|" + albumQuery) == true))
                 // The album's moving cover (beside its songs or on the server), as in the big player.
                 .overlay {
                     MovingCoverLayer(songID: album.id, on: store.settings.animatedCovers && store.motion)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .shadow(color: .black.opacity(colors.dark ? 0.45 : 0.25), radius: 30, y: 16)
             VStack(alignment: .leading, spacing: 5) {
@@ -202,7 +215,7 @@ struct SongsHeader: View {
         .padding(.horizontal, 28)
         .padding(.top, store.headerFolded ? 14 : 30)
         .padding(.bottom, store.headerFolded ? 12 : 22)
-        .animation(store.motion ? .smooth(duration: 0.3) : .easeInOut(duration: 0.15), value: store.headerFolded)
+        .animation(store.motion ? .smooth(duration: 0.3) : nil, value: store.headerFolded)
         .padding(.trailing, panelInset)
         .background(alignment: .top) { HeaderBackdrop(path: album.artwork, seed: seed) }
         .task(id: album.artwork ?? seed) {
@@ -267,6 +280,12 @@ struct SongsHeader: View {
         if case .playlist = route { return store.pagePlaylist?.name ?? "Playlist" }
         if route == .songs && !store.search.isEmpty { return "Results" }
         return route.title
+    }
+
+    /// The album's own rule, which names it (see `Store.travelingTile`).
+    private var albumQuery: String {
+        if case .album(_, _, let query) = route { return query }
+        return ""
     }
 
     /// An album page shows its first song's cover and details.
@@ -365,10 +384,7 @@ struct SongsHeader: View {
 
     private func deletePlaylist() {
         guard let id = model.playlist?.id else { return }
-        store.run { try $0.deletePlaylist(id: id) }
-        store.navigate(.songs)
-        store.notify("Playlist deleted. Your music files are untouched.")
-        Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadPlaylists() }
+        store.deletePlaylist(id)
     }
 }
 
@@ -429,7 +445,7 @@ struct FolderStrip: View {
                                 }
                             }
                             .padding(.vertical, 6).padding(.horizontal, 10)
-                            .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 8))
+                            .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -472,7 +488,7 @@ struct ServerSongs: View {
                                         .accessibilityLabel("Play")
                                 }
                                 .padding(6)
-                                .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 8))
+                                .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                             }
                         }
                     }
@@ -558,10 +574,10 @@ struct Skeleton: View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(0..<9, id: \.self) { i in
                 HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 4).fill(store.colors.raised).frame(width: 36, height: 36)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(store.colors.raised).frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 7) {
-                        RoundedRectangle(cornerRadius: 3).fill(store.colors.raised).frame(width: 160 + CGFloat(i % 3) * 50, height: 10)
-                        RoundedRectangle(cornerRadius: 3).fill(store.colors.raised.opacity(0.7)).frame(width: 110 + CGFloat(i % 4) * 30, height: 8)
+                        RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(store.colors.raised).frame(width: 160 + CGFloat(i % 3) * 50, height: 10)
+                        RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(store.colors.raised.opacity(0.7)).frame(width: 110 + CGFloat(i % 4) * 30, height: 8)
                     }
                 }
             }
@@ -569,7 +585,8 @@ struct Skeleton: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(on ? 1 : 0.45)
+        // Still, half way, with Reduce motion (turned on while it breathes too).
+        .opacity(store.motion ? (on ? 1 : 0.45) : 0.7)
         .onAppear {
             guard store.motion else { return }
             withAnimation(.easeInOut(duration: 0.7).repeatForever()) { on = true }

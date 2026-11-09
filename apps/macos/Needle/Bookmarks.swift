@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// The music folders and songs the listener picked, kept for the next start.
 ///
@@ -22,6 +22,22 @@ enum Bookmarks {
             saved = list
         }
         reopen()
+        // A drive taken away: what was opened on it is closed and dropped, so the next mount
+        // opens it afresh (an access kept from before the drive left was dead, and stood in the
+        // way of a new one).
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didUnmountNotification, object: nil, queue: .main) { note in
+            guard let volume = (note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)?.path else { return }
+            MainActor.assumeIsolated { driveGone(volume) }
+        }
+    }
+
+    /// Stops and forgets the access opened on a drive that left; its bookmarks stay, for when
+    /// it comes back.
+    static func driveGone(_ volume: String) {
+        let inside = volume.hasSuffix("/") ? volume : volume + "/"
+        for path in opened.keys where path == volume || path.hasPrefix(inside) {
+            opened.removeValue(forKey: path)?.stopAccessingSecurityScopedResource()
+        }
     }
 
     /// Opens the saved bookmarks not open yet: at the start, and when a drive is plugged in (one

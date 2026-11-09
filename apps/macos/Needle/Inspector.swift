@@ -12,7 +12,7 @@ struct Inspector: View {
             HStack(spacing: 2) {
                 ForEach(Store.Panel.allCases, id: \.self) { panel in
                     let on = store.panel == panel
-                    Button { withAnimation(.snappy(duration: 0.25)) { store.panel = panel } } label: {
+                    Button { withAnimation(store.motion ? .snappy(duration: 0.25) : nil) { store.panel = panel } } label: {
                         Text(panel.rawValue)
                             .font(.needle(.callout).weight(.semibold))
                             .foregroundStyle(on ? colors.ink : colors.ink2)
@@ -189,7 +189,7 @@ struct Details: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(colors.raised, in: RoundedRectangle(cornerRadius: 8))
+                    .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
             }
             .padding(16)
@@ -269,7 +269,7 @@ struct QueuePanel: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(colors.raised, in: RoundedRectangle(cornerRadius: 10))
+                .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 .padding(.horizontal, 14)
             }
             HStack(alignment: .firstTextBaseline) {
@@ -291,8 +291,10 @@ struct QueuePanel: View {
                 Spacer()
             } else {
                 List {
-                    ForEach(Array(store.queue.enumerated()), id: \.offset) { index, entry in
-                        QueueRow(entry: entry, index: index)
+                    // Each row keeps its id while others come, go, and move, so the rows slide
+                    // to their new places (see `QueueItem`).
+                    ForEach(QueueItem.list(store.queue)) { item in
+                        QueueRow(entry: item.entry, index: item.index)
                     }
                     .onMove { from, to in
                         guard let first = from.first else { return }
@@ -309,6 +311,23 @@ struct QueuePanel: View {
                     return true
                 }
             }
+        }
+    }
+}
+
+/// A song up next with an id of its own: the song's, and which time it is queued (a song can
+/// be queued twice). Taking one out or moving one keeps the others' ids.
+struct QueueItem: Identifiable {
+    let id: String
+    let index: Int
+    let entry: QueueEntry
+
+    static func list(_ queue: [QueueEntry]) -> [QueueItem] {
+        var seen: [String: Int] = [:]
+        return queue.enumerated().map { index, entry in
+            let n = seen[entry.id, default: 0]
+            seen[entry.id] = n + 1
+            return QueueItem(id: "\(entry.id)#\(n)", index: index, entry: entry)
         }
     }
 }
@@ -340,7 +359,7 @@ private struct QueueRow: View {
         .onHover { inside in withAnimation(store.motion ? .easeOut(duration: 0.12) : nil) { hover = inside } }
         // The soft highlight under the pointer, as on Windows: in the side panel, the big
         // player, and the mini player alike.
-        .listRowBackground(RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .listRowBackground(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
             .fill(hover ? Color.primary.opacity(0.08) : .clear)
             .padding(.horizontal, 6))
         .onTapGesture(count: 2) { store.core.jumpTo(id: entry.id, index: UInt32(index)) }

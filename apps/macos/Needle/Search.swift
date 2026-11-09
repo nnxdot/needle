@@ -122,7 +122,7 @@ struct SearchPage: View {
                 ShelfTitle(title: "Albums", detail: nil, all: .albums)
                 PagedRow(tile: 156, spacing: 18, middle: 78) {
                     LazyHStack(alignment: .top, spacing: 18) {
-                        ForEach(found.albums) { AlbumTile(album: $0, side: 156) }
+                        ForEach(found.albums) { AlbumTile(album: $0, side: 156, place: "search") }
                     }
                     .padding(.horizontal, 2)
                 }
@@ -180,7 +180,7 @@ struct SearchPage: View {
         }
         .padding(20)
         .frame(width: 340, alignment: .leading)
-        .background(colors.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { open(best) }
         .accessibilityElement(children: .combine)
@@ -277,7 +277,7 @@ private struct SearchSongRow: View {
                 if hover {
                     Image(systemName: "play.fill").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
                         .frame(width: 40, height: 40)
-                        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
             }
             VStack(alignment: .leading, spacing: 1) {
@@ -289,7 +289,7 @@ private struct SearchSongRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(hover ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(hover ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture(count: 2, perform: play)
@@ -316,7 +316,7 @@ private struct LyricHitRow: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(hover ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(hover ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture(perform: play)

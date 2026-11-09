@@ -97,7 +97,7 @@ enum Stress {
                     } else {
                         note("\(step) next song then leave")
                         if store.playback?.current == nil, let a = albums.randomElement() {
-                            store.playPage(rule: store.expression(for: a.route), playlist: nil, shuffle: true)
+                            store.playPage(rule: store.expression(for: a.route) ?? "", playlist: nil, shuffle: true)
                         } else {
                             store.next()
                         }
@@ -126,7 +126,7 @@ enum Stress {
                 case 89..<92:
                     if let a = albums.randomElement() {
                         note("\(step) play album \(a.album)")
-                        store.playPage(rule: store.expression(for: a.route), playlist: nil, shuffle: Bool.random())
+                        store.playPage(rule: store.expression(for: a.route) ?? "", playlist: nil, shuffle: Bool.random())
                     }
                 case 92..<94: note("\(step) next song"); store.next()
                 case 94..<96: note("\(step) big player"); store.big.toggle()
