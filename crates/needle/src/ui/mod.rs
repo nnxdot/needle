@@ -562,6 +562,8 @@ pub struct AppView {
     panel_opened: (u64, Instant),
     /// The side panel is sliding out (the opening it closes).
     panel_closing: Option<u64>,
+    /// The last song moved up in the queue, for its rows' slide.
+    queue_move: Option<panel::QueueMove>,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     group_menu: Option<menus::GroupMenu>,
@@ -1291,6 +1293,7 @@ impl AppView {
             panel_serial: 0,
             panel_opened: (0, Instant::now()),
             panel_closing: None,
+            queue_move: None,
             menu: None,
             playlist_menu: None,
             group_menu: None,

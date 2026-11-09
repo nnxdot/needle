@@ -20,6 +20,19 @@ fn when(timestamp: i64) -> String {
         .unwrap_or_else(|| "—".into())
 }
 
+/// The height of a row in the queue.
+const QUEUE_ROW: f32 = 48.;
+
+/// A song moved up in the queue: its rows slide into place once the player has moved it.
+pub struct QueueMove {
+    serial: u64,
+    /// Where it went.
+    to: usize,
+    /// The song moved.
+    id: String,
+    at: std::time::Instant,
+}
+
 impl AppView {
     /// The side panel as a pane that moves: just opened, it slides in from the right and
     /// fades in; closing (`shown` false), it slides out and fades. Still otherwise.
@@ -734,10 +747,24 @@ impl AppView {
                                                 // count as a double click on the row (which plays).
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     cx.stop_propagation();
-                                                    this.player.send(Command::Move(
-                                                        index,
-                                                        index.saturating_sub(1),
-                                                    ))
+                                                    let to = index.saturating_sub(1);
+                                                    // The two rows slide past each other once
+                                                    // the player has moved them.
+                                                    if let Some(moved) =
+                                                        this.playback.queue.get(index)
+                                                    {
+                                                        this.queue_move = Some(QueueMove {
+                                                            serial: this
+                                                                .queue_move
+                                                                .as_ref()
+                                                                .map_or(0, |m| m.serial)
+                                                                + 1,
+                                                            to,
+                                                            id: moved.track.id.clone(),
+                                                            at: std::time::Instant::now(),
+                                                        });
+                                                    }
+                                                    this.player.send(Command::Move(index, to))
                                                 })),
                                             )
                                             .child(
@@ -755,7 +782,34 @@ impl AppView {
                                                 })),
                                             ),
                                     );
-                                div().w_full().px_2().child(row)
+                                let row = div().w_full().px_2().child(row);
+                                // After Move up: the song moved comes up from one row lower,
+                                // and the one it passed goes down from one row higher.
+                                let shift = this.queue_move.as_ref().and_then(|m| {
+                                    let landed = this
+                                        .playback
+                                        .queue
+                                        .get(m.to)
+                                        .is_some_and(|i| i.track.id == m.id);
+                                    let fresh =
+                                        m.at.elapsed() < std::time::Duration::from_millis(1500);
+                                    match index {
+                                        _ if !landed || !fresh => None,
+                                        i if i == m.to => Some((m.serial, QUEUE_ROW)),
+                                        i if i == m.to + 1 => Some((m.serial, -QUEUE_ROW)),
+                                        _ => None,
+                                    }
+                                });
+                                match shift {
+                                    Some((serial, from)) => motion::animate(
+                                        row,
+                                        ("queue-move", serial * 2 + (from > 0.) as u64),
+                                        200,
+                                        cx,
+                                        move |el, t| el.relative().top(px(from * (1. - t))),
+                                    ),
+                                    None => row.into_any_element(),
+                                }
                             })
                             .collect::<Vec<_>>()
                     }),
