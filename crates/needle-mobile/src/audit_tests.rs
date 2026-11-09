@@ -312,3 +312,17 @@ fn a_song_carries_the_format_text_the_desktop_shows() {
     assert_eq!(song.format, "FLAC");
     assert_eq!(song.quality, "FLAC 24/48");
 }
+
+#[test]
+fn reopening_the_output_with_nothing_played_does_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let needle = Needle::new(dir.path().to_string_lossy().into()).unwrap();
+    needle.reopen_output();
+    needle.reopen_output();
+    // The player's thread has taken both (it answers commands within a few milliseconds).
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let playback = needle.playback();
+    assert!(playback.current.is_none());
+    assert!(!playback.playing);
+    assert!(playback.error.is_none());
+}

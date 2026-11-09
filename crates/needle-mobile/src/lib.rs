@@ -860,6 +860,16 @@ impl Needle {
         self.player.send(Command::Toggle);
     }
 
+    /// The system's sound was reset under the app (iOS: AVAudioSession's media services were
+    /// reset; Android: the audio server restarted). Playing: the output opens again now and
+    /// plays on from the same place. Paused: the old output is let go and the song stays
+    /// paused at its place; Play opens the new one. The song, its place, and the queue stay.
+    /// Safe at any time, also with nothing played and twice in a row; call it after the app's
+    /// audio session is set up again.
+    pub fn reopen_output(&self) {
+        self.player.send(Command::ReopenOutput);
+    }
+
     pub fn next(&self) {
         self.player.send(Command::Next);
     }

@@ -229,6 +229,11 @@ pub enum Command {
     /// The speed and pitch, at once; `true` for the song playing only (the next one plays as
     /// before). Off on bit-perfect and exclusive output.
     Tempo(crate::tempo::Tempo, bool),
+    /// The system's sound was reset under the app (iOS's media services, after a Bluetooth or
+    /// CarPlay crash): open the output again now and play on from the same place, playing or
+    /// paused. With no output open, or the queue played to its end, nothing happens (the next
+    /// Play opens a new one).
+    ReopenOutput,
 }
 
 #[derive(Clone)]
@@ -1987,7 +1992,13 @@ impl Worker {
                     if let Some(active) = self.queue.active.clone() {
                         let mut items = vec![active];
                         items.extend(self.queue.pending.iter().cloned());
-                        self.restart(items, self.resume_position, true)?;
+                        // The Repeat list stays the whole list, not the songs from here on.
+                        let cycle = self.queue.cycle.clone();
+                        let result = self.restart(items, self.resume_position, true);
+                        if !cycle.is_empty() {
+                            self.queue.cycle = cycle;
+                        }
+                        result?;
                     }
                 } else if self.sink.as_ref().is_some_and(|sink| sink.empty()) {
                     if let Some(active) = self.queue.active.clone() {
@@ -2264,6 +2275,26 @@ impl Worker {
                     })?;
                 }
             }
+            Command::ReopenOutput => {
+                // Played to the end: Play starts the song again on a new output anyway.
+                let finished = self.sink.as_ref().is_some_and(|sink| sink.empty())
+                    && self.opening.is_none()
+                    && self.queue.pending.is_empty()
+                    && self.queue.staged.is_empty();
+                if self.sink.is_none() || finished {
+                } else if self.playing {
+                    self.reopen()?;
+                } else {
+                    // Paused: a song put on a paused output does not start, so it would not
+                    // show. Let the old output go and keep the song paused at its place, as a
+                    // paused Next does; Play opens the new output there.
+                    let position = self.position();
+                    let mut items = vec![];
+                    items.extend(self.queue.active.clone());
+                    items.extend(self.queue.tail());
+                    self.suspend(items, position);
+                }
+            }
             Command::Rated(id, stars) => {
                 if let Some(item) = self.loading.as_mut().filter(|i| i.track.id == id) {
                     item.track.rating = stars;
@@ -2394,10 +2425,22 @@ impl Worker {
         let playing = self.playing;
         self.restart(items, position, playing)
     }
+    /// Opens the output again (whichever is right now) and plays on from the same place, with
+    /// the same queue and Repeat list, playing or paused as before. If no output opens, the
+    /// queue is kept paused and the error returned.
+    fn reopen(&mut self) -> Result<()> {
+        let (position, playing) = (self.position(), self.playing);
+        let mut items = vec![];
+        items.extend(self.queue.active.clone());
+        items.extend(self.queue.tail());
+        let cycle = self.queue.cycle.clone();
+        self.release();
+        let result = self.restart(items, position, playing);
+        self.queue.cycle = cycle;
+        result
+    }
     /// Reopens the output after it failed and continues at the same position.
     fn recover(&mut self, reason: String) {
-        let position = self.position();
-        let was_playing = self.playing;
         let mut items = vec![];
         items.extend(self.queue.active.clone());
         items.extend(self.queue.tail());
@@ -2411,11 +2454,7 @@ impl Worker {
             self.suspend(items, 0.0);
             return;
         }
-        let cycle = self.queue.cycle.clone();
-        self.release();
-        let result = self.restart(items, position, was_playing);
-        self.queue.cycle = cycle;
-        match result {
+        match self.reopen() {
             Ok(()) => {
                 let mut state = self.state.lock().unwrap();
                 let name = state.output.clone();
@@ -2524,16 +2563,11 @@ impl Worker {
         let changed =
             crate::platform_output::CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst);
         if (failed || changed) && self.sink.is_some() {
-            let (position, playing) = (self.position(), self.playing);
             let notice = self
                 .platform
                 .as_ref()
                 .and_then(|p| p.failure.lock().ok()?.take());
-            let mut items = vec![];
-            items.extend(self.queue.active.clone());
-            items.extend(self.queue.tail());
-            self.release();
-            match self.restart(items, position, playing) {
+            match self.reopen() {
                 // Said after the system's output opened, which clears the notice.
                 Ok(()) if notice.is_some() => self.state.lock().unwrap().output_notice = notice,
                 Ok(()) => {}
@@ -3822,6 +3856,64 @@ mod tests {
         assert_eq!(opener.opened(), ["Speakers", "Speakers", "USB DAC"]);
         assert_eq!(rig.state().output, "USB DAC");
         assert_eq!(rig.active().as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn reopen_output_keeps_the_song_its_place_the_queue_and_pause() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener.clone(), Settings::default());
+        // Nothing played yet: nothing to open, and no error.
+        rig.run(Command::ReopenOutput);
+        assert!(opener.opened().is_empty());
+        assert!(rig.worker.sink.is_none());
+        assert!(rig.state().error.is_none());
+
+        let list = rig.items(&["a", "b", "c"]);
+        rig.run(Command::Repeat(Repeat::All));
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        // The second song, so the Repeat list (a, b, c) is more than the songs from here on.
+        rig.run(Command::Next);
+        rig.until_active("b");
+        rig.run(Command::Seek(20.0));
+        rig.run(Command::Toggle);
+        assert!(!rig.worker.playing);
+        let current = |rig: &Rig| rig.state().current.map(|c| c.track.id);
+        let check = |rig: &mut Rig, opened: usize, playing: bool| {
+            assert_eq!(opener.opened().len(), opened);
+            assert_eq!(rig.worker.playing, playing);
+            assert_eq!(rig.state().playing, playing);
+            assert_eq!(current(rig).as_deref(), Some("b"), "after {opened} opened");
+            assert!((rig.worker.position() - 20.0).abs() < 2.0, "{}", rig.worker.position());
+            assert!((rig.state().position - 20.0).abs() < 2.0, "{}", rig.state().position);
+            assert_eq!(ids(rig.state().queue.iter()), ["c"]);
+            assert_eq!(rig.worker.queue.cycle.len(), 3);
+            assert!(rig.state().error.is_none());
+        };
+        check(&mut rig, 1, false);
+        // Paused, twice in a row: the old output goes, the song stays paused at its place.
+        rig.run(Command::ReopenOutput);
+        assert!(rig.worker.sink.is_none());
+        check(&mut rig, 1, false);
+        rig.run(Command::ReopenOutput);
+        check(&mut rig, 1, false);
+        // Play opens the new output there, with the whole Repeat list kept.
+        rig.run(Command::Toggle);
+        rig.until_active("b");
+        check(&mut rig, 2, true);
+        // Playing, twice in a row: the output opens again each time and plays on from there.
+        rig.run(Command::ReopenOutput);
+        rig.run(Command::ReopenOutput);
+        rig.until_active("b");
+        check(&mut rig, 4, true);
+        rig.until("plays on", |w| w.position() > 20.5);
+        assert!(rig.worker.position() < 23.0);
+        assert!(rig.worker.playing);
+        // Stopped: nothing to open again.
+        rig.run(Command::Stop);
+        rig.run(Command::ReopenOutput);
+        assert_eq!(opener.opened().len(), 4);
+        assert!(rig.worker.sink.is_none());
     }
 
     #[test]
