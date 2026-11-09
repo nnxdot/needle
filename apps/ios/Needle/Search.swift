@@ -105,15 +105,17 @@ struct SearchView: View {
 
     private var suggestions: some View {
         ScrollView(.horizontal) {
-            HStack {
-                ForEach(Array(hints.prefix(10).enumerated()), id: \.offset) { _, hint in
-                    Button { query = apply(hint, to: query) } label: {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(hint.label).font(.needle(.subheadline).weight(.medium))
-                            if !hint.detail.isEmpty { Text(hint.detail).font(.needle(.caption2)).foregroundStyle(.secondary) }
+            GlassEffectContainer(spacing: 4) {
+                HStack {
+                    ForEach(Array(hints.prefix(10).enumerated()), id: \.offset) { _, hint in
+                        Button { query = apply(hint, to: query) } label: {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(hint.label).font(.needle(.subheadline).weight(.medium))
+                                if !hint.detail.isEmpty { Text(hint.detail).font(.needle(.caption2)).foregroundStyle(.secondary) }
+                            }
                         }
+                        .buttonStyle(.glass)
                     }
-                    .buttonStyle(.glass)
                 }
             }
             .padding(.horizontal)
@@ -124,21 +126,28 @@ struct SearchView: View {
 
     private var chips: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(Kind.allCases, id: \.self) { chip in
-                    let on = kind == chip
-                    Button { kind = chip } label: {
-                        Text(chip.rawValue)
-                            .font(.needle(.subheadline).weight(.semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 7)
-                            .foregroundStyle(on ? store.colors.onAccent : .primary)
-                            .background(on ? AnyShapeStyle(store.colors.accent) : AnyShapeStyle(.white.opacity(0.1)), in: .capsule)
+            // Glass chips, the chosen one in the accent. The container's spacing is under the
+            // gap, so the chips stay apart.
+            GlassEffectContainer(spacing: 4) {
+                HStack(spacing: 8) {
+                    ForEach(Kind.allCases, id: \.self) { chip in
+                        let on = kind == chip
+                        Button { kind = chip } label: {
+                            Text(chip.rawValue)
+                                .font(.needle(.subheadline).weight(.semibold))
+                                .padding(.horizontal, 14).padding(.vertical, 7)
+                                .foregroundStyle(on ? store.colors.onAccent : .primary)
+                                .glassEffect(on ? .regular.tint(store.colors.accent).interactive() : .regular.interactive(), in: .capsule)
+                                .contentShape(.capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
             }
             .padding(.horizontal)
+            // Room for the glass's edge and its spring when pressed.
+            .padding(.vertical, 2)
         }
         .scrollIndicators(.hidden)
         .sensoryFeedback(.selection, trigger: kind) { _, _ in store.app.haptics }
@@ -220,7 +229,7 @@ struct SearchView: View {
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(.white.opacity(0.06), in: .rect(cornerRadius: 18))
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
         .contentShape(.rect)
         .onTapGesture { open(best) }
         .accessibilityElement(children: .combine)
@@ -297,13 +306,15 @@ struct SearchView: View {
         return VStack(alignment: .leading, spacing: 0) {
             SectionTitle(title: "Try a rule")
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(pairs, id: \.1) { name, rule in
-                        Button { query = rule; kind = .all } label: {
-                            Text(name).font(.needle(.subheadline).weight(.medium))
+                GlassEffectContainer(spacing: 4) {
+                    HStack(spacing: 8) {
+                        ForEach(pairs, id: \.1) { name, rule in
+                            Button { query = rule; kind = .all } label: {
+                                Text(name).font(.needle(.subheadline).weight(.medium))
+                            }
+                            .buttonStyle(.glass)
+                            .accessibilityHint("Searches for \(rule)")
                         }
-                        .buttonStyle(.glass)
-                        .accessibilityHint("Searches for \(rule)")
                     }
                 }
                 .padding(.horizontal)

@@ -195,7 +195,7 @@ private struct MixTileLabel: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .glassEffect(.regular.tint(tint.opacity(0.12)), in: .rect(cornerRadius: 20))
         .contentShape(.rect)
     }
 }

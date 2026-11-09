@@ -64,31 +64,33 @@ struct YearReviewView: View {
     }
 
     private func buttons(_ review: YearInReview) -> some View {
-        VStack(spacing: 10) {
-            Button {
-                store.play(review.topSongs.prefix(50).map(\.song))
-            } label: {
-                Label("Play top 50", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
-            }
-            .buttonStyle(.glassProminent)
-            .foregroundStyle(store.colors.onAccent)
-            HStack(spacing: 10) {
-                if let picture {
-                    ShareLink(item: picture, preview: SharePreview("Your \(String(review.year)) in music", image: picture)) {
-                        Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4)
+        GlassEffectContainer(spacing: 10) {
+            VStack(spacing: 10) {
+                Button {
+                    store.play(review.topSongs.prefix(50).map(\.song))
+                } label: {
+                    Label("Play top 50", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.glassProminent)
+                .foregroundStyle(store.colors.onAccent)
+                HStack(spacing: 10) {
+                    if let picture {
+                        ShareLink(item: picture, preview: SharePreview("Your \(String(review.year)) in music", image: picture)) {
+                            Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4)
+                        }
+                        .buttonStyle(.glass)
+                    } else {
+                        Button {} label: { Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4) }
+                            .buttonStyle(.glass)
+                            .disabled(true)
+                    }
+                    Button { makePlaylist(review.year) } label: {
+                        Label("Make a playlist", systemImage: "music.note.list").frame(maxWidth: .infinity).padding(.vertical, 4)
                     }
                     .buttonStyle(.glass)
-                } else {
-                    Button {} label: { Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4) }
-                        .buttonStyle(.glass)
-                        .disabled(true)
                 }
-                Button { makePlaylist(review.year) } label: {
-                    Label("Make a playlist", systemImage: "music.note.list").frame(maxWidth: .infinity).padding(.vertical, 4)
-                }
-                .buttonStyle(.glass)
+                .font(.needle(.subheadline).weight(.semibold))
             }
-            .font(.needle(.subheadline).weight(.semibold))
         }
     }
 

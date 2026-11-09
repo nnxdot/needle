@@ -190,10 +190,9 @@ struct NowCard: View {
                 .sensoryFeedback(.impact(weight: .light), trigger: playing) { _, _ in store.app.haptics }
             }
             .padding(12)
-            .background {
-                LinearGradient(colors: [colors.accent.opacity(0.22), colors.card.opacity(0.6)], startPoint: .leading, endPoint: .trailing)
-                    .clipShape(.rect(cornerRadius: 16))
-            }
+            // Glass in the playing cover's colour (the accent until it is known), faint so the
+            // words read on it.
+            .glassEffect(.regular.tint((store.coverColor ?? colors.accent).opacity(0.22)), in: .rect(cornerRadius: 16))
         }
     }
 }
@@ -738,35 +737,37 @@ struct ArtistView: View {
                             .minimumScaleFactor(0.5)
                             .shadow(color: look.page.opacity(0.4), radius: 12)
                     }
-                    HStack(spacing: 26) {
-                        Button { playAll(shuffled: true) } label: {
-                            Image(systemName: "shuffle").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
+                    GlassEffectContainer(spacing: 26) {
+                        HStack(spacing: 26) {
+                            Button { playAll(shuffled: true) } label: {
+                                Image(systemName: "shuffle").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
+                            }
+                            .buttonStyle(.glass)
+                            .buttonBorderShape(.circle)
+                            .accessibilityLabel("Shuffle")
+                            Button { playAll(shuffled: false) } label: {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 30, weight: .bold))
+                                    .foregroundStyle(look.page)
+                                    .offset(x: 2)
+                                    .frame(width: 74, height: 74)
+                                    .background(look.ink, in: .circle)
+                                    .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                            }
+                            .buttonStyle(Pressable())
+                            .accessibilityLabel("Play")
+                            Button {
+                                let name = name
+                                store.run { $0.startArtistRadio(name: name) }
+                                store.playedWhenReady()
+                                store.message = "Starting radio from \(name)"
+                            } label: {
+                                Image(systemName: "dot.radiowaves.left.and.right").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
+                            }
+                            .buttonStyle(.glass)
+                            .buttonBorderShape(.circle)
+                            .accessibilityLabel("Radio")
                         }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .accessibilityLabel("Shuffle")
-                        Button { playAll(shuffled: false) } label: {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 30, weight: .bold))
-                                .foregroundStyle(look.page)
-                                .offset(x: 2)
-                                .frame(width: 74, height: 74)
-                                .background(look.ink, in: .circle)
-                                .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
-                        }
-                        .buttonStyle(Pressable())
-                        .accessibilityLabel("Play")
-                        Button {
-                            let name = name
-                            store.run { $0.startArtistRadio(name: name) }
-                            store.playedWhenReady()
-                            store.message = "Starting radio from \(name)"
-                        } label: {
-                            Image(systemName: "dot.radiowaves.left.and.right").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .accessibilityLabel("Radio")
                     }
                     .disabled(top.isEmpty)
                 }

@@ -48,7 +48,9 @@ struct SleepMoon: View {
             .foregroundStyle(running == nil ? .white.opacity(0.7) : ThemeColors.amber)
             .frame(minWidth: 44, minHeight: 44)
             .padding(.horizontal, running == nil ? 0 : 8)
-            .background(.white.opacity(running == nil ? 0 : 0.14), in: Capsule())
+            // Glass only while the timer runs, in the cover's colour as the player's other lit
+            // signs; none while it is off.
+            .glassEffect(running == nil ? .identity : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -71,7 +73,7 @@ private struct ToolChip: View {
                 .font(.needle(.subheadline).weight(.medium))
                 .foregroundStyle(on ? store.colors.onAccent : store.colors.text.opacity(enabled ? 1 : 0.4))
                 .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(on ? store.colors.accent : store.colors.text.opacity(0.08), in: Capsule())
+                .glassEffect(on ? .regular.tint(store.colors.accent).interactive() : .regular.interactive(), in: .capsule)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -111,9 +113,11 @@ struct SleepSheet: View {
                 }
                 Text("Music stops softly when the time is up.").font(.needle(.subheadline)).foregroundStyle(colors.muted)
             }
-            FlowLayout(spacing: 8) {
-                ForEach(Array(Self.choices.enumerated()), id: \.offset) { i, item in
-                    ToolChip(label: item.0, on: i == chosen) { chosen = i }
+            GlassEffectContainer(spacing: 4) {
+                FlowLayout(spacing: 8) {
+                    ForEach(Array(Self.choices.enumerated()), id: \.offset) { i, item in
+                        ToolChip(label: item.0, on: i == chosen) { chosen = i }
+                    }
                 }
             }
             Divider()
@@ -187,10 +191,12 @@ struct SpeedSheet: View {
                     .tint(colors.accent)
                     .accessibilityLabel("Speed")
                     .accessibilityValue(speedName(tempo.speed))
-                FlowLayout(spacing: 8) {
-                    ForEach(store.core.speedPresets(), id: \.self) { speed in
-                        ToolChip(label: speedName(speed), on: available && abs(tempo.speed - speed) < 0.005, enabled: available) {
-                            change { $0.speed = speed }
+                GlassEffectContainer(spacing: 4) {
+                    FlowLayout(spacing: 8) {
+                        ForEach(store.core.speedPresets(), id: \.self) { speed in
+                            ToolChip(label: speedName(speed), on: available && abs(tempo.speed - speed) < 0.005, enabled: available) {
+                                change { $0.speed = speed }
+                            }
                         }
                     }
                 }

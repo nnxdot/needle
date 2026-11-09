@@ -71,6 +71,9 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        // Every page fades softly under the bars at the top and under the tab bar, as Apple's
+        // own apps do; a page can still ask for its own.
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .environment(\.coverSpace, covers)
         #if DEBUG
         // For testing from a shell: -tab library|radio|search, -albums opens Albums there, and
@@ -264,6 +267,8 @@ struct SheetView: View {
             case .whatsNew: WhatsNewSheet()
             }
         }
+        // As on the pages: a soft fade under the sheet's own bar.
+        .scrollEdgeEffectStyle(.soft, for: .all)
     }
 }
 

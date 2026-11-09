@@ -124,6 +124,8 @@ struct NowPlayingView: View {
     @State private var hingeChanges = 0
     /// Wider than tall (a phone on its side, the iPhone Duo open).
     @State private var sideways = false
+    /// The lit glass at the player's foot moves from Lyrics to Up Next as one piece.
+    @Namespace private var footGlass
 
     enum Pane { case cover, lyrics, queue }
 
@@ -538,11 +540,14 @@ struct NowPlayingView: View {
     private var chosen: [String] { PlayerButtons.chosen(store.choices.playerButtons) }
 
     private var controls: some View {
-        HStack {
-            Spacer()
-            ForEach(chosen.filter { PlayerButtons.transport.contains($0) }, id: \.self) { name in
-                transportButton(name)
+        // One container, so the glass a held button shows is drawn with the others'.
+        GlassEffectContainer {
+            HStack {
                 Spacer()
+                ForEach(chosen.filter { PlayerButtons.transport.contains($0) }, id: \.self) { name in
+                    transportButton(name)
+                    Spacer()
+                }
             }
         }
         .padding(.top, 10)
@@ -582,16 +587,18 @@ struct NowPlayingView: View {
     /// the lyrics open, Translate beside them.
     private var bottom: some View {
         let foot = chosen.filter { PlayerButtons.foot.contains($0) }
-        return HStack {
-            ForEach(Array(foot.enumerated()), id: \.element) { i, name in
-                if i > 0 { Spacer() }
-                footButton(name)
-            }
-            if foot.isEmpty { Spacer() }
-            // The sleep timer's moon, on this iPhone's own music only.
-            if !store.onComputer {
-                Spacer()
-                SleepMoon()
+        return GlassEffectContainer {
+            HStack {
+                ForEach(Array(foot.enumerated()), id: \.element) { i, name in
+                    if i > 0 { Spacer() }
+                    footButton(name)
+                }
+                if foot.isEmpty { Spacer() }
+                // The sleep timer's moon, on this iPhone's own music only.
+                if !store.onComputer {
+                    Spacer()
+                    SleepMoon()
+                }
             }
         }
         .padding(.horizontal, 40)
@@ -614,12 +621,14 @@ struct NowPlayingView: View {
     private var translateButton: some View {
         HStack {
             if pane == .lyrics {
-                Button { translateLyrics.toggle() } label: {
+                Button {
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { translateLyrics.toggle() }
+                } label: {
                     Image(systemName: "translate")
                         .font(.needle(.title3).weight(translateLyrics ? .semibold : .regular))
                         .foregroundStyle(.white.opacity(translateLyrics ? 1 : 0.7))
                         .frame(width: 44, height: 44)
-                        .background(.white.opacity(translateLyrics ? 0.2 : 0), in: .circle)
+                        .litGlass(translateLyrics, id: "translate", in: footGlass, tint: store.coverColor)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
@@ -636,13 +645,24 @@ struct NowPlayingView: View {
                 .font(.needle(.title3).weight(on ? .semibold : .regular))
                 .foregroundStyle(.white.opacity(on ? 1 : 0.7))
                 .frame(width: 44, height: 44)
-                .background(.white.opacity(on ? 0.2 : 0), in: .circle)
+                // One lit glass for Lyrics and Up Next: it moves across when the other opens.
+                .litGlass(on, id: "pane", in: footGlass, tint: store.coverColor)
                 .contentShape(.circle)
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(which == .lyrics ? "Lyrics" : "Up Next")
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+private extension View {
+    /// A lit sign of the player's foot: the sign on round glass in the cover's colour, while
+    /// `on`. The sign is the glass's own content, so the glass never covers it; the ID lets the
+    /// glass move from one sign to the next.
+    func litGlass(_ on: Bool, id: String, in space: Namespace.ID, tint: Color?) -> some View {
+        glassEffect(on ? .regular.tint((tint ?? .clear).opacity(0.35)) : .identity, in: .circle)
+            .glassEffectID(on ? id : nil, in: space)
     }
 }
 
@@ -678,6 +698,7 @@ struct RecordSpin<Content: View>: View {
 
 /// A large control without a frame: glass shows under it only while it is held.
 struct BigButton: View {
+    @Environment(Store.self) private var store
     let symbol: String
     let size: CGFloat
     let action: () -> Void
@@ -692,9 +713,7 @@ struct BigButton: View {
                 .font(.system(size: size))
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: size * 1.9, height: size * 1.9)
-                .background {
-                    Circle().fill(.white.opacity(held ? 0.16 : 0))
-                }
+                .glassEffect(held ? .regular.tint((store.coverColor ?? .clear).opacity(0.3)) : .identity, in: .circle)
                 .contentShape(.circle)
         }
         .buttonStyle(Held(held: $held))
@@ -1265,17 +1284,19 @@ struct QueuePane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Button { store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn) }
+            GlassEffectContainer(spacing: 12) {
+                HStack(spacing: 12) {
+                    Button { store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Shuffle")
+                        .accessibilityValue(store.choices.shuffleStays && !store.onComputer ? (store.shuffleOn ? "On" : "Off") : "")
+                    Button { store.cycleRepeat() } label: {
+                        Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off)
+                    }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Shuffle")
-                    .accessibilityValue(store.choices.shuffleStays && !store.onComputer ? (store.shuffleOn ? "On" : "Off") : "")
-                Button { store.cycleRepeat() } label: {
-                    Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off)
+                    .accessibilityLabel("Repeat")
+                    .accessibilityValue(store.playback?.repeat == .one ? "One" : store.playback?.repeat == .all ? "All" : "Off")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Repeat")
-                .accessibilityValue(store.playback?.repeat == .one ? "One" : store.playback?.repeat == .all ? "All" : "Off")
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.onComputer ? "Up Next on Your Computer" : "Continue Playing").font(.needle(.headline))
@@ -1328,8 +1349,10 @@ private struct QueueList: View {
     }
 }
 
-/// A wide pill of Up Next's (shuffle, repeat), as Apple Music's: soft, light while on.
+/// A wide pill of Up Next's (shuffle, repeat), as Apple Music's: glass in the cover's colour,
+/// light while on.
 struct Pill: View {
+    @Environment(Store.self) private var store
     let symbol: String
     let on: Bool
 
@@ -1339,7 +1362,7 @@ struct Pill: View {
             .foregroundStyle(on ? Color.black.opacity(0.8) : .white)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
-            .background(.white.opacity(on ? 0.75 : 0.16), in: .capsule)
+            .glassEffect(on ? .regular.tint(.white.opacity(0.8)).interactive() : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
             .contentShape(.capsule)
             .contentTransition(.symbolEffect(.replace))
     }
@@ -1610,30 +1633,32 @@ struct TimingView: View {
     private func controls(_ thisSong: Bool) -> some View {
         let colors = store.colors
         let done = next.line >= lines.count
-        return VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                fix("− 0.2 s", label: "The line starts earlier") { timer?.earlier() }
-                fix("↺ Line", label: "Tap this line again") {
-                    timer?.redoLine()
-                    if let i = selected, i < lines.count, let time = lines[i].time, thisSong { store.seek(max(0, time - 2)) }
+        return GlassEffectContainer(spacing: 8) {
+            VStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    fix("− 0.2 s", label: "The line starts earlier") { timer?.earlier() }
+                    fix("↺ Line", label: "Tap this line again") {
+                        timer?.redoLine()
+                        if let i = selected, i < lines.count, let time = lines[i].time, thisSong { store.seek(max(0, time - 2)) }
+                    }
+                    fix("+ 0.2 s", label: "The line starts later") { timer?.later() }
+                    Button { if timer?.undo() == true { changed() } } label: {
+                        Image(systemName: "arrow.uturn.backward").frame(maxWidth: .infinity).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.glass)
+                    .accessibilityLabel("Undo")
                 }
-                fix("+ 0.2 s", label: "The line starts later") { timer?.later() }
-                Button { if timer?.undo() == true { changed() } } label: {
-                    Image(systemName: "arrow.uturn.backward").frame(maxWidth: .infinity).padding(.vertical, 6)
+                .font(.needle(.subheadline).weight(.semibold))
+                Button { tap() } label: {
+                    Text(done ? "All timed" : words ? "Tap as the next word starts" : "Tap as the next line starts")
+                        .font(.needle(.headline))
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
                 }
-                .buttonStyle(.glass)
-                .accessibilityLabel("Undo")
+                .buttonStyle(.glassProminent)
+                .foregroundStyle(colors.onAccent)
+                .disabled(!thisSong || done)
+                .sensoryFeedback(.impact(weight: .light), trigger: taps) { _, _ in store.app.haptics }
             }
-            .font(.needle(.subheadline).weight(.semibold))
-            Button { tap() } label: {
-                Text(done ? "All timed" : words ? "Tap as the next word starts" : "Tap as the next line starts")
-                    .font(.needle(.headline))
-                    .frame(maxWidth: .infinity).padding(.vertical, 14)
-            }
-            .buttonStyle(.glassProminent)
-            .foregroundStyle(colors.onAccent)
-            .disabled(!thisSong || done)
-            .sensoryFeedback(.impact(weight: .light), trigger: taps) { _, _ in store.app.haptics }
         }
         .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
     }
