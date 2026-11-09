@@ -1686,11 +1686,8 @@ impl AppView {
                                 if self.on_glass() {
                                     el.rounded(px(16.)).glass()
                                 } else {
-                                    el.rounded(px(8.)).bg(p.raised.opacity(if p.back.a < 1. {
-                                        0.75
-                                    } else {
-                                        1.
-                                    }))
+                                    el.rounded(px(super::glass::MEDIUM))
+                                        .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
                                 }
                             })
                             .flex()

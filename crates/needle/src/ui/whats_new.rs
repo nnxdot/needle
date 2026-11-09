@@ -366,7 +366,7 @@ impl AppView {
             .occlude()
             .w(px(card_w))
             .max_h(px(card_h))
-            .map(|el| super::glass::pane(el, 18., 26., cx.theme().popover, cx))
+            .map(|el| super::glass::pane(el, 14., 26., cx.theme().popover, cx))
             .overflow_hidden()
             .flex()
             .flex_col()
