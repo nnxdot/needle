@@ -897,7 +897,7 @@ fn run(
                     // playlists then leave Needle (not the server). Off this thread: a slow
                     // server or a sync under way must not hold up streams and other sources.
                     let flush = target.native.as_ref().is_some_and(|n| n.signed_in());
-                    crate::server_playlists::signing_out(&plugin, true);
+                    crate::server_playlists::signing_out(&library, &plugin, true);
                     let (library, tx) = (library.clone(), tx.clone());
                     std::thread::spawn(move || {
                         if flush {
@@ -916,7 +916,7 @@ fn run(
                     refresh_source(target, &library);
                     actions(HostAction::LibraryChanged);
                 }
-                crate::server_playlists::signing_out(&plugin, false);
+                crate::server_playlists::signing_out(&library, &plugin, false);
                 syncing.remove(&plugin);
                 publish(&loaded);
             }

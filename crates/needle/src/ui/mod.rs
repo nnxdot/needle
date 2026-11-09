@@ -2794,14 +2794,17 @@ impl AppView {
             .collect();
         if moving.is_empty() {
             // Songs from elsewhere dropped here: add them at that spot.
-            return self.insert_into_playlist(playlist, ids.to_vec(), before, cx);
+            return self.insert_into_playlist(&opened, playlist, ids.to_vec(), before, cx);
         }
         playlist.track_ids.retain(|id| !ids.contains(id));
-        self.insert_into_playlist(playlist, moving, before, cx);
+        self.insert_into_playlist(&opened, playlist, moving, before, cx);
     }
 
+    /// Put `ids` into `playlist` before the song `before`; `opened` is the playlist as it was
+    /// shown, so only this change is saved.
     fn insert_into_playlist(
         &mut self,
+        opened: &Playlist,
         mut playlist: Playlist,
         ids: Vec<String>,
         before: Option<String>,
@@ -2816,7 +2819,7 @@ impl AppView {
             .unwrap_or(playlist.track_ids.len());
         playlist.track_ids.splice(at..at, ids);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist_changes(&opened, &playlist) {
+        match self.library.save_playlist_changes(opened, &playlist) {
             Ok(_) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.refresh(cx);

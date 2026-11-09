@@ -86,15 +86,16 @@ pub(crate) fn writing() -> MutexGuard<'static, ()> {
     WRITING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Sources signing out: no full sync brings their playlists back meanwhile.
-static SIGNING_OUT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Sources signing out (a library's folder and the source): no full sync brings their
+/// playlists back meanwhile.
+static SIGNING_OUT: Mutex<Vec<(std::path::PathBuf, String)>> = Mutex::new(Vec::new());
 
 /// Signing out of a source starts (`true`) or is done (`false`).
-pub(crate) fn signing_out(plugin: &str, on: bool) {
+pub(crate) fn signing_out(library: &Library, plugin: &str, on: bool) {
     let mut all = SIGNING_OUT.lock().unwrap_or_else(|e| e.into_inner());
-    all.retain(|p| p != plugin);
+    all.retain(|(dir, p)| !(p == plugin && *dir == library.directory));
     if on {
-        all.push(plugin.to_string());
+        all.push((library.directory.clone(), plugin.to_string()));
     }
 }
 
@@ -151,7 +152,7 @@ pub fn sync(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .any(|p| p == plugin)
+            .any(|(dir, p)| p == plugin && *dir == library.directory)
     {
         return Ok(report);
     }
@@ -1379,12 +1380,12 @@ mod tests {
         let (_dir, library) = library();
         let fake = Fake::default();
         fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
-        signing_out("test-signing-out", true);
+        signing_out(&library, "test-signing-out", true);
         assert_eq!(
             sync(&library, "test-signing-out", &fake, false).unwrap(),
             Report::default()
         );
-        signing_out("test-signing-out", false);
+        signing_out(&library, "test-signing-out", false);
         assert_eq!(
             sync(&library, "test-signing-out", &fake, false)
                 .unwrap()
