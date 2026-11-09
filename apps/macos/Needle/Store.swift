@@ -430,7 +430,7 @@ final class Store {
             findTint(now.artwork)
         }
         followLyrics(now.position)
-        nowPlaying.update(now)
+        nowPlaying.update(now, speed: tempo.available ? Double(tempo.speed) : 1)
     }
 
     private func followLyrics(_ position: Double) {

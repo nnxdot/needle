@@ -13,12 +13,13 @@ final class NowPlaying {
     func start(_ store: Store) {
         let commands = MPRemoteCommandCenter.shared()
         let core = store.core
+        // macOS may call these on another thread: the store is read on the main one.
         commands.playCommand.addTarget { [weak store] _ in
-            MainActor.assumeIsolated { if store?.playback?.playing != true { core.toggle() } }
+            Task { @MainActor in if store?.playback?.playing != true { core.toggle() } }
             return .success
         }
         commands.pauseCommand.addTarget { [weak store] _ in
-            MainActor.assumeIsolated { if store?.playback?.playing == true { core.toggle() } }
+            Task { @MainActor in if store?.playback?.playing == true { core.toggle() } }
             return .success
         }
         commands.togglePlayPauseCommand.addTarget { _ in core.toggle(); return .success }
@@ -37,7 +38,8 @@ final class NowPlaying {
         commands.skipBackwardCommand.isEnabled = false
     }
 
-    func update(_ now: MacPlayback) {
+    /// `speed`: how fast the music plays (Speed and pitch); the card's clock runs at it.
+    func update(_ now: MacPlayback, speed: Double = 1) {
         let center = MPNowPlayingInfoCenter.default()
         guard let id = now.current else {
             if shownSong != nil {
@@ -55,13 +57,16 @@ final class NowPlaying {
                 artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
             }
         }
+        // The song's own seconds go by at the speed it plays (1.5× plays 1.5 of them a second).
+        let rate = now.playing ? max(0.25, speed) : 0
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: now.title,
             MPMediaItemPropertyArtist: now.artist,
             MPMediaItemPropertyAlbumTitle: now.album,
             MPMediaItemPropertyPlaybackDuration: now.duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: now.position,
-            MPNowPlayingInfoPropertyPlaybackRate: now.playing ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: rate,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
         if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
@@ -71,8 +76,8 @@ final class NowPlaying {
         let expected = (old?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double ?? -10)
             + (old?[MPNowPlayingInfoPropertyPlaybackRate] as? Double ?? 0) * Date().timeIntervalSince(infoSet)
         let drift = abs(expected - now.position)
-        let rate = old?[MPNowPlayingInfoPropertyPlaybackRate] as? Double
-        if old?[MPMediaItemPropertyTitle] as? String != now.title || rate != (now.playing ? 1.0 : 0.0) || drift > 1.5
+        let shownRate = old?[MPNowPlayingInfoPropertyPlaybackRate] as? Double
+        if old?[MPMediaItemPropertyTitle] as? String != now.title || shownRate.map({ abs($0 - rate) > 0.001 }) ?? true || drift > 1.5
             || (old?[MPMediaItemPropertyArtwork] == nil && artwork != nil) {
             center.nowPlayingInfo = info
             infoSet = Date()
