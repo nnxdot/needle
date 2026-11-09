@@ -153,6 +153,7 @@ impl AppView {
             Page::Doctor => self.doctor_view(width, cx),
             Page::Numbers => self.numbers_view(width, cx),
             Page::MoodMap => self.mood_view(width, cx),
+            Page::Radio => self.radio_view(width, cx),
             Page::Search => self.search_view(width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
@@ -394,7 +395,9 @@ impl AppView {
                     },
                 )
                 .when_some(
-                    playlist.clone().filter(|l| l.query.is_none()),
+                    playlist
+                        .clone()
+                        .filter(super::playlist_saves::takes_songs),
                     |el, list| {
                         el.child(
                             Button::new("add-songs")
@@ -406,7 +409,12 @@ impl AppView {
                         )
                     },
                 )
-                .when_some(playlist.clone(), |el, list| {
+                // Read-only on its server: no Edit (its name and songs are the server's).
+                .when_some(
+                    playlist
+                        .clone()
+                        .filter(|l| !super::playlist_saves::read_only(l)),
+                    |el, list| {
                     el.child(
                         Button::new("edit-playlist")
                             .icon(icon("edit"))
@@ -587,8 +595,10 @@ impl AppView {
         };
         let playlist = self.playlists.iter().find(|p| &p.id == id)?.clone();
         let (export, delete) = (playlist.clone(), playlist.clone());
-        // A playlist from a music server: changes made here go to the server too.
+        // A playlist from a music server: changes made here go to the server too, unless the
+        // server lets this person only read it (then it cannot be deleted either).
         let on_server = playlist.server.is_some();
+        let read_only = super::playlist_saves::read_only(&playlist);
         Some(
             div()
                 .px_6()
@@ -614,11 +624,11 @@ impl AppView {
                                     .size(px(12.))
                                     .text_color(p.ink_3),
                             )
-                            .child(
-                                div().min_w_0().truncate().child(
-                                    "On your music server: changes here are saved there too",
-                                ),
-                            ),
+                            .child(div().min_w_0().truncate().child(if read_only {
+                                "Read-only on the server"
+                            } else {
+                                "On your music server: changes here are saved there too"
+                            })),
                     )
                 })
                 .child(
@@ -646,7 +656,7 @@ impl AppView {
                         })),
                 )
                 .child(div().flex_1())
-                .child(
+                .when(!read_only, |el| el.child(
                     Button::new("delete-playlist")
                         .flex_shrink_0()
                         .small()
@@ -673,7 +683,7 @@ impl AppView {
                             }
                             cx.notify();
                         })),
-                ),
+                )),
         )
     }
 

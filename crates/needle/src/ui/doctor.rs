@@ -434,23 +434,17 @@ impl AppView {
                 if stop.load(Ordering::Relaxed) {
                     break;
                 }
-                let tracks = library.tracks_by_ids(&issue.track_ids).unwrap_or_default();
-                let artist = if issue.artist == "Various artists" {
-                    String::new()
-                } else {
-                    issue.artist.clone()
-                };
-                let (found, failed) = match doctor::sure_release(&issue.album, &artist, &tracks) {
-                    Ok(release) => (
-                        release.and_then(|release| {
-                            let edits = doctor::release_edits(&tracks, &release);
-                            (!edits.is_empty()).then(|| {
-                                Box::new(BulkMatch {
-                                    issue,
-                                    release,
-                                    edits,
-                                    chosen: true,
-                                })
+                // The matching is the core's, shared with the other apps.
+                let sure =
+                    doctor::look_up_sure(&library, &issue.album, &issue.artist, &issue.track_ids);
+                let (found, failed) = match sure {
+                    Ok(sure) => (
+                        sure.map(|sure| {
+                            Box::new(BulkMatch {
+                                issue,
+                                release: sure.release,
+                                edits: sure.edits,
+                                chosen: true,
                             })
                         }),
                         false,

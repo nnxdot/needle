@@ -99,7 +99,7 @@ impl AppView {
             return self
                 .playlists
                 .iter()
-                .filter(|p| p.query.is_none())
+                .filter(|p| super::playlist_saves::takes_songs(p))
                 .cloned()
                 .map(|playlist| {
                     let (id, song) = (playlist.id.clone(), track.clone());
@@ -128,7 +128,11 @@ impl AppView {
                 this.set_rating(std::slice::from_ref(&id), if favorite { 0 } else { 5 })
             },
         )];
-        if self.playlists.iter().any(|p| p.query.is_none()) {
+        if self
+            .playlists
+            .iter()
+            .any(super::playlist_saves::takes_songs)
+        {
             entries.push(Entry::Sub {
                 icon: "playlist",
                 label: "Add to playlist".into(),
@@ -241,7 +245,7 @@ impl AppView {
                 let playlists: Vec<_> = self
                     .playlists
                     .iter()
-                    .filter(|p| p.query.is_none())
+                    .filter(|p| super::playlist_saves::takes_songs(p))
                     .cloned()
                     .collect();
                 if !playlists.is_empty() {
@@ -738,6 +742,7 @@ impl AppView {
             return vec![];
         };
         let smart = playlist.query.is_some();
+        let read_only = super::playlist_saves::read_only(&playlist);
         let (play, shuffle, queue, open, export, delete) = (
             playlist.clone(),
             playlist.clone(),
@@ -748,7 +753,7 @@ impl AppView {
         );
         let confirm = menu.confirm;
         let position = menu.position;
-        vec![
+        let mut entries = vec![
             Entry::item("play", "Play", None, move |this, _, _| {
                 this.play_playlist(play.clone(), false, false)
             }),
@@ -758,6 +763,30 @@ impl AppView {
             Entry::item("queue", "Add to queue", None, move |this, _, _| {
                 this.play_playlist(queue.clone(), false, true)
             }),
+        ];
+        // Read-only on its server: it is not renamed, changed, or deleted here.
+        if read_only {
+            entries.push(Entry::Separator);
+            entries.push(Entry::item("external", "Export as M3U8…", None, move |this, _, cx| {
+                if !this.can_pick(cx) {
+                    return;
+                }
+                let library = this.library.clone();
+                let playlist = export.clone();
+                this.background(move || {
+                    let Some(path) = rfd::FileDialog::new()
+                        .set_file_name(format!("{}.m3u8", playlist.name))
+                        .save_file()
+                    else {
+                        return Ok(String::new());
+                    };
+                    library.export_playlist(&playlist, &path)?;
+                    Ok("Playlist exported.".into())
+                });
+            }));
+            return entries;
+        }
+        entries.extend([
             Entry::Separator,
             Entry::item(
                 "edit",
@@ -820,7 +849,8 @@ impl AppView {
                     );
                 },
             ),
-        ]
+        ]);
+        entries
     }
 
     pub(super) fn playlist_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
@@ -913,7 +943,7 @@ impl AppView {
             return self
                 .playlists
                 .iter()
-                .filter(|p| p.query.is_none())
+                .filter(|p| super::playlist_saves::takes_songs(p))
                 .cloned()
                 .map(|playlist| {
                     let (id, page) = (playlist.id.clone(), page.clone());
@@ -951,7 +981,11 @@ impl AppView {
                 this.enqueue(tracks);
             }),
         ];
-        if self.playlists.iter().any(|p| p.query.is_none()) {
+        if self
+            .playlists
+            .iter()
+            .any(super::playlist_saves::takes_songs)
+        {
             entries.push(Entry::item_keep(
                 "playlist",
                 "Add to playlist…",

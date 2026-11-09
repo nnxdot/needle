@@ -29,6 +29,7 @@ mod menus;
 mod mini;
 mod motion;
 mod moving;
+mod music_folders;
 mod now_playing;
 mod pages;
 mod palette;
@@ -42,6 +43,7 @@ mod playlist_saves;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
+mod radio_page;
 mod remote_ui;
 mod search_page;
 mod server_search;
@@ -241,6 +243,8 @@ pub enum Page {
     Numbers,
     /// Every measured song by how it sounds.
     MoodMap,
+    /// Stations and quick mixes (`radio_page`).
+    Radio,
     /// What a search finds across the library (see `search_page`).
     Search,
     /// The songs of a music source (a server a plugin connects to).
@@ -279,6 +283,7 @@ impl Page {
             Self::Doctor => "Fix my library".into(),
             Self::Numbers => "Your library".into(),
             Self::MoodMap => "Genre map".into(),
+            Self::Radio => "Radio".into(),
             Self::Search => "Search".into(),
             Self::Source { name, .. } => name.clone(),
         }
@@ -314,6 +319,7 @@ impl Page {
                 | Self::Doctor
                 | Self::Numbers
                 | Self::MoodMap
+                | Self::Radio
                 | Self::Search
         )
     }
@@ -391,6 +397,8 @@ pub struct Selection {
 
 enum Event {
     Imported(ScanProgress),
+    /// A music folder was stopped (`music_folders`): its path, and how many songs left.
+    FolderRemoved(String, Result<usize, String>),
     Error(String),
     Loaded(u64, Vec<Track>, usize),
     Groups(u64, Vec<library::Group>),
@@ -448,6 +456,8 @@ enum Event {
     Translated(String, Vec<String>),
     Numbers(Box<needle_core::numbers::LibraryNumbers>),
     GenreMap(Vec<needle_core::radio::GenreSpot>),
+    /// What the Radio page shows, or why it could not be read.
+    Radio(Result<Box<radio_page::RadioData>, String>),
     GenreArt(usize, bool, Box<needle_core::genre_art::GenreArt>),
     ArtFetched,
     MediaKey(media_keys::Key),
@@ -641,6 +651,11 @@ pub struct AppView {
     sender: crossbeam_channel::Sender<Event>,
     scan: Option<ScanProgress>,
     cancel: Arc<AtomicBool>,
+    /// Settings › Library: the music folder asked about (Stop reading), the one being
+    /// stopped, and whether that waits for a scan to stop first (`music_folders`).
+    folder_asked: Option<String>,
+    folder_removing: Option<String>,
+    folder_after_scan: bool,
     toast: Option<Toast>,
     query_error: Option<String>,
     explanation: Option<String>,
@@ -759,6 +774,8 @@ pub struct AppView {
     /// others), so the page's soft top edge knows when it is scrolled. Back to the top on
     /// each new page.
     page_scroll: ScrollHandle,
+    /// The Radio page's songs and covers; `None` while they are first read.
+    radio: Option<Result<Box<radio_page::RadioData>, String>>,
     /// The open playlist was seen in the library, and whether it is a server's: if it then
     /// goes, its page is left (`leave_gone_playlist`).
     playlist_seen: Option<bool>,
@@ -1361,6 +1378,9 @@ impl AppView {
             sender,
             scan: None,
             cancel: Arc::new(AtomicBool::new(false)),
+            folder_asked: None,
+            folder_removing: None,
+            folder_after_scan: false,
             toast: None,
             query_error: None,
             explanation: None,
@@ -1434,6 +1454,7 @@ impl AppView {
             artist_view: Default::default(),
             artist_scroll: ScrollHandle::new(),
             page_scroll: ScrollHandle::new(),
+            radio: None,
             playlist_seen: None,
             // One for each of Home's rows (it has five at most).
             shelf_scrolls: (0..5).map(|_| ScrollHandle::new()).collect(),
@@ -1756,13 +1777,17 @@ impl AppView {
                         self.total = self.library.count().unwrap_or(0);
                         self.refresh(cx);
                         self._watcher = watch(&self.library, &self.sender);
+                        self.scan_ended();
                     } else {
                         self.scan = Some(progress);
                     }
                 }
+                Event::FolderRemoved(root, result) => self.folder_removed(root, result, cx),
                 Event::Error(error) => {
                     self.fail(error);
-                    self.scan = None;
+                    if self.scan.take().is_some() {
+                        self.scan_ended();
+                    }
                     self.lookup_busy = false;
                     self.loading = false;
                 }
@@ -1808,6 +1833,7 @@ impl AppView {
                     self.refresh(cx);
                 }
                 Event::Look(path, look) => self.set_look(path, look),
+                Event::Radio(data) => self.radio_read(data),
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
                 Event::HomeYear(year) => self.home_year = year,
@@ -2420,6 +2446,9 @@ impl AppView {
         if matches!(self.page, Page::Numbers | Page::MoodMap) {
             self.load_insights();
         }
+        if self.page == Page::Radio {
+            self.load_radio();
+        }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
             self.list_output_devices();
@@ -2842,6 +2871,14 @@ impl AppView {
         else {
             return;
         };
+        // Never offered; kept out here too.
+        if playlist_saves::read_only(&playlist) {
+            self.fail(format!(
+                "“{}” is read-only on your music server.",
+                playlist.name
+            ));
+            return;
+        }
         // As shown when the change was made: only the change is saved (see
         // `Library::save_playlist_changes`).
         let opened = playlist.clone();
@@ -2864,16 +2901,22 @@ impl AppView {
             Some(opened),
             playlist,
             move |this, saved, window, cx| match saved {
-                Ok(id) => {
-                    this.notify(format!(
-                        "Added {} to “{name}”.",
-                        if count == 1 {
-                            "1 track".to_string()
-                        } else {
-                            format!("{count} tracks")
-                        },
+                Ok(saved) => {
+                    // Where the songs went: a copy when the server's playlist changed
+                    // meanwhile or is read-only there.
+                    let landed = playlist_saves::landed_name(&saved, &name);
+                    this.notify(playlist_saves::with_note(
+                        format!(
+                            "Added {} to “{landed}”.",
+                            if count == 1 {
+                                "1 track".to_string()
+                            } else {
+                                format!("{count} tracks")
+                            },
+                        ),
+                        &saved,
                     ));
-                    this.follow_saved_playlist(&old, &id, window, cx);
+                    this.follow_saved_playlist(&old, &saved, window, cx);
                     this.refresh(cx);
                 }
                 Err(e) => {
@@ -2892,7 +2935,7 @@ impl AppView {
         };
         self.playlists
             .iter()
-            .find(|p| &p.id == id && p.query.is_none())
+            .find(|p| &p.id == id && playlist_saves::takes_songs(p))
             .filter(|_| self.sort == Sort::Default && self.search_text(cx).is_empty())
             .cloned()
     }
@@ -2948,7 +2991,12 @@ impl AppView {
             playlist,
             move |this, saved, window, cx| {
                 match saved {
-                    Ok(id) => this.follow_saved_playlist(&old, &id, window, cx),
+                    Ok(saved) => {
+                        if let Some(note) = playlist_saves::saved_note(&saved) {
+                            this.notify(note);
+                        }
+                        this.follow_saved_playlist(&old, &saved, window, cx);
+                    }
                     Err(e) => this.fail(e),
                 }
                 this.refresh(cx);
@@ -2974,16 +3022,20 @@ impl AppView {
         self.selection = Selection::default();
         self.save_playlist_later(Some(opened), playlist, move |this, saved, window, cx| {
             match saved {
-                Ok(id) => {
-                    this.notify(format!(
-                        "Took {} out of “{name}”.",
-                        if removed == 1 {
-                            "1 song".to_string()
-                        } else {
-                            format!("{removed} songs")
-                        },
+                Ok(saved) => {
+                    let landed = playlist_saves::landed_name(&saved, &name);
+                    this.notify(playlist_saves::with_note(
+                        format!(
+                            "Took {} out of “{landed}”.",
+                            if removed == 1 {
+                                "1 song".to_string()
+                            } else {
+                                format!("{removed} songs")
+                            },
+                        ),
+                        &saved,
                     ));
-                    this.follow_saved_playlist(&old, &id, window, cx);
+                    this.follow_saved_playlist(&old, &saved, window, cx);
                 }
                 Err(e) => this.fail(e),
             }

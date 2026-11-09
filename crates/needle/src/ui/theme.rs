@@ -573,11 +573,11 @@ pub fn apply(p: Palette, cx: &mut App) {
         } else {
             c(0xffffff)
         }
-    } else if p.glass {
-        // Windows and Linux glass: tinted glass, solid enough to read over the page.
-        // Busy text under a pane shows through as ghosts, so panes stay well above 80%.
-        super::glass::tinted(&p, 0.97)
     } else {
+        // Windows and Linux: tinted glass, but solid. GPUI cannot blur Needle's own content,
+        // so a see-through pane only lets text behind it read through as ghosts (even 3% did:
+        // album names behind the palette, rows behind a dropdown); the tint, the edge light,
+        // and the shadow keep it glass.
         super::glass::tinted(&p, 1.)
     };
     // Windows and Linux: the edge light on popovers, menus and tooltips.

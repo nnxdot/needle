@@ -734,6 +734,7 @@ impl AppView {
             | Page::Doctor
             | Page::Numbers
             | Page::MoodMap
+            | Page::Radio
             | Page::Wrapped(_) => down(&self.page_scroll),
             Page::Artist(_) => down(&self.artist_scroll),
             page if page.is_grid() => down(&self.grid_scroll.0.borrow().base_handle),

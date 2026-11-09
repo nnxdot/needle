@@ -627,7 +627,6 @@ impl AppView {
 
     pub(super) fn settings_view(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
-        let roots = self.library.roots().unwrap_or_default();
         let weak = cx.entity().downgrade();
         let device = |id: SharedString,
                       name: String,
@@ -949,35 +948,7 @@ impl AppView {
                     .when(tab == 2, |el| {
                         el
                     .child(self.lead_title("Music folders", "Needle watches these folders, and changes files only in Fix my library.", cx))
-                    .child(
-                        div()
-                            .py_2()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .when(roots.is_empty(), |el| el.child(meta("No folders yet.", cx)))
-                            .children(roots.into_iter().map(|root| {
-                                div()
-                                    .h(px(34.))
-                                    .px_3()
-                                    .rounded(px(6.))
-                                    .border_1()
-                                    .border_color(p.line_soft)
-                                    .flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(glyph("folder").size(px(16.)).text_color(p.ink_3))
-                                    .child(div().text_size(px(12.5)).truncate().child(root.trim_start_matches("\\\\?\\").to_string()))
-                            }))
-                            .child(
-                                div()
-                                    .mt_2()
-                                    .flex()
-                                    .gap_2()
-                                    .child(small_button("settings-add", "Add folder").icon(icon("plus")).on_click(cx.listener(|this, _, window, cx| this.import_folder(window, cx))))
-                                    .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
-                            ),
-                    )
+                    .child(self.music_folders(cx))
                     .child(setting_row(
                         "Forget songs that are gone",
                         "Check for changes forgets songs whose file was deleted or can no longer be read, instead of keeping them marked missing.",

@@ -397,6 +397,7 @@ impl AppView {
                     .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
                     .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
                     .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
+                    .child(self.nav_item("nav-radio", "Radio", "radio", Page::Radio, cx))
                     .child(self.collections_section(cx))
                     .child(
                         self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
@@ -527,8 +528,10 @@ impl AppView {
                                         this.open_playlist_menu(id.clone(), event.position, cx)
                                     })
                                 })
+                                // Songs dropped on it are added; not on a smart playlist, nor
+                                // one read-only on its server.
                                 .when(
-                                    playlist.query.is_none(),
+                                    super::playlist_saves::takes_songs(playlist),
                                     |el| {
                                         let id = playlist.id.clone();
                                         el.drag_over::<super::flow::DraggedTracks>(
