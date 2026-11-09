@@ -291,8 +291,8 @@ final class Store {
         // window closed sends no notice).
         if (now.playing && slow) || ticks % 10 == 0 { pace() }
         guard slow || ticks % 5 == 0 else { return }
-        let pace = core.speedAndPitch()
-        if pace != tempo { tempo = pace }
+        let speed = core.speedAndPitch()
+        if speed != tempo { tempo = speed }
         let status = core.scanStatus()
         if status != scan {
             // The slow search for artists' pictures waits while the library is read.
