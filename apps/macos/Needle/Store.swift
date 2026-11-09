@@ -337,7 +337,7 @@ final class Store {
         if let r = running { running?.remaining = r.remaining.rounded(.up) }
         if running != sleep { sleep = running }
         let ended = core.sleepTimerEnded()
-        if let seen = sleepEndedSeen, ended > seen, settings.sleepComputer { sleepMac() }
+        if let seen = sleepEndedSeen, ended > seen, settings.sleepComputer, !Store.fromAppStore { sleepMac() }
         sleepEndedSeen = ended
     }
 
