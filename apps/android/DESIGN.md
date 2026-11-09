@@ -41,7 +41,7 @@ plays and the one main button.
     bottom, which is the screen's.
   - A soft shadow under it.
   - The dock and the floating player take the playing cover's colour from the left, with
-    "Mini player in the song's colour" on. A song's, an album's, and a playlist's sheet take
+    "Mini player in the song's color" on. A song's, an album's, and a playlist's sheet take
     that cover's colour faintly from the left, always. Dialogs and menus stay neutral.
 - Where it is used:
   - The dock and the floating player: blurred glass over the page.
@@ -135,7 +135,7 @@ plays and the one main button.
   colour). A change of cover blends over, never snaps.
 - The top of those pages and the player: the cover, huge, blurred, and slowly drifting
   (`CoverBackdrop`). The pages run up under the status bar and down behind the dock.
-- Everything else: the theme's own background; with "Colours from the music" on, the
+- Everything else: the theme's own background; with "Colors from the music" on, the
   whole app takes the playing song's scheme.
 
 ## Stays Android

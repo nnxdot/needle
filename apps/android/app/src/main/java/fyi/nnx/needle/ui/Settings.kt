@@ -197,7 +197,7 @@ enum class SettingsSection(val title: String, val summary: String, val icon: Ima
     Servers("Music servers", "Navidrome and Subsonic", Icons.Rounded.Dns, Color(0xFF8FC6E8)),
     Playback("Playback", "Crossfade and even loudness", Icons.Rounded.PlayCircle, Color(0xFF7FB8E8)),
     Sound("Sound", "Equalizer, balance, and headphones", Icons.Rounded.Equalizer, Color(0xFFB39DDB)),
-    Appearance("Appearance", "Colours, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
+    Appearance("Appearance", "Colors, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
     Scrobbling("Online services", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
     Discord("Discord", "Show what you play on your profile", Icons.Rounded.Forum, Color(0xFF8C9EFF)),
     Plugins("Plugins", "NetEase lyrics, effects, and commands", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
@@ -662,7 +662,7 @@ private fun PlaybackSettingsPage() {
         }
     }
     Group("When you choose a song") {
-        SwitchRow("Open the player", "Shown as soon as a song starts", app.openPlayerOnPlay, icon = Icons.Rounded.OpenInFull) { on ->
+        SwitchRow("Open the player on play", "Shown as soon as a song starts", app.openPlayerOnPlay, icon = Icons.Rounded.OpenInFull) { on ->
             NeedleApp.instance.updateApp { it.copy(openPlayerOnPlay = on) }
         }
         Divider()
@@ -977,7 +977,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     Group("Look") {
         LookCards(BuiltInLooks + themes.map(::lookCard), app.theme) { id -> update { it.copy(theme = id) } }
         Divider()
-        LinkRow("New theme", "Your own colours", Icons.Rounded.Add) { open(Route.ThemeEditor(null)) }
+        LinkRow("New theme", "Your own colors", Icons.Rounded.Add) { open(Route.ThemeEditor(null)) }
         Divider()
         LinkRow("Add a theme file", "From the desktop or needle.nnx.fyi/themes", Icons.Rounded.FileOpen) { tryOpen("file picker") { importTheme.launch(arrayOf("*/*")) } }
         if (themes.any { it.id == app.theme }) {
@@ -991,7 +991,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         if (ownTheme) {
             SettingRow(Icons.Rounded.Palette, "Set by your theme", "Choose Night, Midnight, or Day to pick one")
         } else {
-            SettingRow(Icons.Rounded.Palette, "Accent", "Where no cover gives the colour")
+            SettingRow(Icons.Rounded.Palette, "Accent", "Where no cover gives the color")
             val swatches = listOf(
                 "" to Color(0xFFE2B46C), "#E5484D" to Color(0xFFE5484D), "#E93D82" to Color(0xFFE93D82),
                 "#8E4EC6" to Color(0xFF8E4EC6), "#3E63DD" to Color(0xFF3E63DD), "#0090FF" to Color(0xFF0090FF),
@@ -1026,15 +1026,15 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             }
         }
     }
-    Group("Colour") {
-        SwitchRow("Colours from covers", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
+    Group("Color") {
+        SwitchRow("Colors from covers", "Albums, playlists, and artists", app.coverColors, icon = Icons.Rounded.ColorLens) { on -> update { it.copy(coverColors = on) } }
         Divider()
-        SwitchRow("Colours from the music", "The whole app takes the song's colours", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
+        SwitchRow("Colors from the music", "The whole app takes the song's colors", app.ambientColors, icon = Icons.Rounded.AutoAwesome) { on -> update { it.copy(ambientColors = on) } }
         Divider()
-        SwitchRow("Mini player in the song's colour", "Otherwise it matches the page", app.miniPlayerColored, icon = Icons.Rounded.SmartDisplay) { on -> update { it.copy(miniPlayerColored = on) } }
+        SwitchRow("Mini player in the song's color", "Otherwise it matches the page", app.miniPlayerColored, icon = Icons.Rounded.SmartDisplay) { on -> update { it.copy(miniPlayerColored = on) } }
         if (Build.VERSION.SDK_INT >= 31) {
             Divider()
-            SwitchRow("Colours from your wallpaper", "In place of Needle's amber", app.wallpaperColors, icon = Icons.Rounded.Wallpaper) { on -> update { it.copy(wallpaperColors = on) } }
+            SwitchRow("Colors from your wallpaper", "In place of Needle's amber", app.wallpaperColors, icon = Icons.Rounded.Wallpaper) { on -> update { it.copy(wallpaperColors = on) } }
         }
     }
     Group("Player") {
@@ -1100,7 +1100,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             }
         }
         Divider()
-        SwitchRow("Volume in the player", "A slider under the buttons", app.volumeSlider, icon = Icons.Rounded.VolumeUp) { on ->
+        SwitchRow("Volume slider", "A slider under the buttons", app.volumeSlider, icon = Icons.Rounded.VolumeUp) { on ->
             update { it.copy(volumeSlider = on) }
         }
         Divider()
@@ -1115,12 +1115,12 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     Group("Backdrop") {
         SwitchRow(
             "Cover behind the player",
-            if (Build.VERSION.SDK_INT < 31) "Its colour (Android 12 blurs it)" else if (app.immersiveCover) "Blurred, behind lyrics and the queue" else "Blurred, behind the player",
+            if (Build.VERSION.SDK_INT < 31) "Its color (Android 12 blurs it)" else if (app.immersiveCover) "Blurred, behind lyrics and the queue" else "Blurred, behind the player",
             app.coverBackdrop,
             icon = Icons.Rounded.BlurOn,
         ) { on -> update { it.copy(coverBackdrop = on) } }
         Divider()
-        SwitchRow("Moving backdrop", "The blurred cover turns slowly", app.movingBackdrop, icon = Icons.Rounded.Animation) { on -> update { it.copy(movingBackdrop = on) } }
+        SwitchRow("Moving cover", "The blurred cover turns slowly", app.movingBackdrop, icon = Icons.Rounded.Animation) { on -> update { it.copy(movingBackdrop = on) } }
         Divider()
         var blur by remember(app.backdropBlur) { mutableFloatStateOf(app.backdropBlur) }
         SliderRow("Softness", "${blur.toInt()}", blur, 20f..120f, summary = "How blurred the cover is", icon = Icons.Rounded.BlurLinear, onChange = { blur = it }, onDone = { update { it.copy(backdropBlur = blur) } })
@@ -1179,7 +1179,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Vibration", "A light tap on play, pause, and long presses", app.haptics, icon = Icons.Rounded.Vibration) { on -> update { it.copy(haptics = on) } }
     }
     Group("Lyrics") {
-        SwitchRow("Follow the song", "The line playing is lit and in view", app.liveLyrics, icon = Icons.Rounded.Lyrics) { on -> update { it.copy(liveLyrics = on) } }
+        SwitchRow("Live lyrics", "The line playing is lit and in view", app.liveLyrics, icon = Icons.Rounded.Lyrics) { on -> update { it.copy(liveLyrics = on) } }
         Divider()
         SwitchRow("Keep the screen on", "While the lyrics show", app.keepScreenOnLyrics, icon = Icons.Rounded.LightMode) { on -> update { it.copy(keepScreenOnLyrics = on) } }
         Divider()

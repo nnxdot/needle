@@ -875,7 +875,7 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
                         FilterChip(base == b, { base = b }, label = { Text(label) })
                     }
                 }
-                Text("Colours", style = MaterialTheme.typography.titleSmall)
+                Text("Colors", style = MaterialTheme.typography.titleSmall)
             }
         }
         items(ThemeSlots) { (slot, label) ->
@@ -946,13 +946,13 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
     }
     GlassAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Colour") },
+        title = { Text("Color") },
         text = {
             // Scrolled where the window is short (a phone on its side), so the hex box stays in reach.
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp)).background(color))
                 Text("Hue"); Slider(h, { h = it; slid() }, valueRange = 0f..359f, modifier = Modifier.named("Hue"))
-                Text("Colourfulness"); Slider(s, { s = it; slid() }, modifier = Modifier.named("Colourfulness"))
+                Text("Colorfulness"); Slider(s, { s = it; slid() }, modifier = Modifier.named("Colorfulness"))
                 Text("Lightness"); Slider(l, { l = it; slid() }, modifier = Modifier.named("Lightness"))
                 OutlinedTextField(typed, { t ->
                     typed = t
