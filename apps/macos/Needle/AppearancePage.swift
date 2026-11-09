@@ -151,7 +151,7 @@ struct AppearanceSettings: View {
             SettingRow(title: "Lyrics under the player", detail: "The line being sung, under the player.", icon: "quote.bubble") {
                 SettingSwitch(key: "player_lyrics", on: s.playerLyrics)
             }
-            SettingRow(title: "Mark server songs", detail: "A small server icon beside their title.", icon: "server.rack") {
+            SettingRow(title: "Mark server songs", detail: "A small server icon after their title, and on server playlists.", icon: "server.rack") {
                 SettingSwitch(key: "server_mark", on: s.serverMark)
             }
             SettingRow(title: "Moving covers", detail: "A video, or an animated WebP or GIF, beside the songs.", icon: "play.rectangle") {
