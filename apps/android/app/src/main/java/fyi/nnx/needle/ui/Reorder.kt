@@ -42,6 +42,9 @@ class Reorder(var move: (from: Int, to: Int) -> Unit) {
     var rowHeight by mutableFloatStateOf(1f)
     var count by mutableIntStateOf(0)
 
+    /** When a dragged row was last let go (uptime, ms): its list's rows are in place already. */
+    var droppedAt = 0L
+
 
     /** Where the dragged row would land now. */
     val target: Int
@@ -63,6 +66,23 @@ class Reorder(var move: (from: Int, to: Int) -> Unit) {
 fun rememberReorder(count: Int, move: (from: Int, to: Int) -> Unit): Reorder =
     // The latest `move` each time: the first one may hold a list that had not loaded yet.
     remember { Reorder(move) }.also { it.move = move; it.count = count }
+
+/**
+ * A row of a list that changes in place (the queue, a playlist): when a song is taken out or moved
+ * (its menu, a remote, TalkBack), the rows slide to their new places rather than jump. Not just
+ * after a drag, whose rows stand in their new places already, and not with Reduce motion.
+ */
+@Composable
+fun androidx.compose.foundation.lazy.LazyItemScope.movingRow(reorder: Reorder?): Modifier {
+    if (reduceMotion()) return Modifier
+    val dragged = reorder != null && android.os.SystemClock.uptimeMillis() - reorder.droppedAt < 400
+    return Modifier.animateItem(
+        placementSpec = if (dragged) null else androidx.compose.animation.core.spring(
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+            visibilityThreshold = androidx.compose.ui.unit.IntOffset(1, 1),
+        ),
+    )
+}
 
 /** The row's place while one is dragged: the dragged one follows the finger, others step aside. */
 fun Modifier.reorderRow(reorder: Reorder, index: Int): Modifier =
@@ -116,6 +136,7 @@ fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.
                     onDragEnd = {
                         val from = reorder.dragging
                         val to = reorder.target
+                        reorder.droppedAt = android.os.SystemClock.uptimeMillis()
                         reorder.dragging = -1
                         reorder.offset = 0f
                         if (from >= 0 && to >= 0 && from != to) reorder.move(from, to)

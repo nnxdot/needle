@@ -1677,7 +1677,8 @@ private fun UpNextPanel(version: ULong, titled: Boolean = true) {
                     if (dismiss.currentValue != SwipeToDismissBoxValue.Settled && !song.onComputer()) remove(i)
                 }
                 SwipeToDismissBox(
-                    modifier = if (onComputer) Modifier else Modifier.reorderRow(reorder, i),
+                    // The rows slide when one goes or moves (Reorder.kt).
+                    modifier = movingRow(reorder).then(if (onComputer) Modifier else Modifier.reorderRow(reorder, i)),
                     state = dismiss,
                     // The computer's queue cannot be changed from here, so its rows do not swipe.
                     enableDismissFromStartToEnd = !onComputer,
