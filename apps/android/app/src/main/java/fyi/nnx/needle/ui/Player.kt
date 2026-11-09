@@ -202,7 +202,8 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
             else -> MaterialTheme.colorScheme.surfaceContainerHigh
         },
         contentColor = if (colored && !docked) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(if (docked) 18.dp else 20.dp),
+        // In the dock, its corners follow the dock's (26 dp, 4 dp inside it).
+        shape = RoundedCornerShape(if (docked) 22.dp else 20.dp),
         shadowElevation = if (docked) 0.dp else 8.dp,
         modifier = Modifier
             .fillMaxWidth()
@@ -234,7 +235,7 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
                     onDragCancel = { release() },
                 ) { _, dx -> drag += dx }
             }
-            .clip(RoundedCornerShape(if (docked) 18.dp else 20.dp))
+            .clip(RoundedCornerShape(if (docked) 22.dp else 20.dp))
             .clickable(onClickLabel = "Open the player", onClick = onOpen),
     ) {
         // The line being sung (Settings › Appearance › Lyrics in the mini player): on a wide
