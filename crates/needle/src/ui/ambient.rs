@@ -62,6 +62,9 @@ impl Fade {
 
 const FADE_MS: f32 = 900.;
 
+/// A blurred cover for the window's glow, and how strongly it shows.
+type Glow = Option<(PathBuf, f32)>;
+
 /// The whole-window cover glow moving from one cover to the next, over the palette's fade
 /// time. The old picture stays until the new one has loaded, so no frame is blank.
 #[derive(Default)]
@@ -90,11 +93,7 @@ impl GlowFade {
         target: Option<(PathBuf, f32)>,
         window: &mut Window,
         cx: &mut App,
-    ) -> (
-        Option<(PathBuf, f32)>,
-        Option<(PathBuf, f32)>,
-        Option<usize>,
-    ) {
+    ) -> (Glow, Glow, Option<usize>) {
         if target.as_ref().map(|t| &t.0) != self.current.as_ref().map(|c| &c.0) {
             // A picture that never loaded is not kept: the last one seen stays instead.
             if self.ready {

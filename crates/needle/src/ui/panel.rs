@@ -647,7 +647,6 @@ impl AppView {
                     "queue-list",
                     count,
                     cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                        let p = pal(cx);
                         range
                             .map(|index| {
                                 let item = &this.playback.queue[index];
@@ -657,12 +656,12 @@ impl AppView {
                                     .h(px(48.))
                                     .w_full()
                                     .px_2()
-                                    .rounded(px(6.))
+                                    .rounded(px(super::glass::SMALL))
                                     .flex()
                                     .items_center()
                                     .gap_3()
                                     .cursor_pointer()
-                                    .hover(|s| s.bg(p.raised.opacity(0.6)))
+                                    .map(|el| super::glass::hover_row(el, super::glass::SMALL, cx))
                                     .on_click(cx.listener(move |this, event: &ClickEvent, _, _| {
                                         if event.click_count() == 2 {
                                             this.player.send(Command::Jump(index));

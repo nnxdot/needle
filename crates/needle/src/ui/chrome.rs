@@ -191,19 +191,15 @@ impl AppView {
                 cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
             );
         }
+        // The rows' corners: capsules on glass, else the small size.
+        let radius = if capsule { 17. } else { super::glass::SMALL };
         div()
             .id(id)
             .flex_shrink_0()
             .h(px(34.))
             .mx_2()
             .px(px(10.))
-            .map(|el| {
-                if capsule {
-                    el.rounded_full()
-                } else {
-                    el.rounded(px(6.))
-                }
-            })
+            .rounded(px(radius))
             .flex()
             .items_center()
             .gap(px(10.))
@@ -220,15 +216,12 @@ impl AppView {
             })
             .when(!active, |el| {
                 // On glass, grey text over a see-through layer loses its edges: use full ink
-                // and a touch more weight there so labels stay crisp.
-                let hover = if capsule {
-                    super::glass::capsule(&p, true)
-                } else {
-                    p.raised.opacity(0.6)
-                };
+                // and a touch more weight there so labels stay crisp. The hover capsule
+                // fades in.
                 el.text_color(if glass { p.ink } else { p.ink_2 })
                     .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
-                    .hover(move |s| s.bg(hover).text_color(p.ink))
+                    .hover(move |s| s.text_color(p.ink))
+                    .map(|el| super::glass::hover_row(el, radius, cx))
             })
             .child(picture.unwrap_or_else(|| {
                 glyph(glyph_name)
@@ -280,14 +273,14 @@ impl AppView {
                 div()
                     .id("add-collection")
                     .size(px(20.))
-                    .rounded(px(5.))
+                    .rounded_full()
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
                     .opacity(0.)
                     .group_hover("collections-head", |s| s.opacity(1.))
-                    .hover(|s| s.bg(p.raised_hover))
+                    .map(|el| super::glass::hover_row(el, 10., cx))
                     .child(glyph("plus").size(px(13.)).text_color(p.ink_2))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new("Add a collection").build(window, cx)
@@ -583,8 +576,18 @@ impl AppView {
                                 .mb_1()
                                 .px(px(10.))
                                 .py_2()
-                                .rounded(px(6.))
-                                .bg(p.raised)
+                                // On glass a soft capsule, as the rows; the pane's corners
+                                // less its inset.
+                                .rounded(px(if p.glass {
+                                    super::glass::LARGE - 8.
+                                } else {
+                                    super::glass::SMALL
+                                }))
+                                .bg(if p.glass {
+                                    super::glass::capsule(&p, false)
+                                } else {
+                                    p.raised
+                                })
                                 .flex()
                                 .items_center()
                                 .gap_2()
@@ -637,14 +640,21 @@ impl AppView {
                                 .h(px(34.))
                                 .mx_2()
                                 .px(px(10.))
-                                .rounded(px(6.))
+                                .rounded(px(if p.glass { 17. } else { super::glass::SMALL }))
                                 .flex()
                                 .items_center()
                                 .gap(px(10.))
                                 .cursor_pointer()
                                 .text_size(px(13.5))
                                 .text_color(p.ink_2)
-                                .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                                .hover(|s| s.text_color(p.ink))
+                                .map(|el| {
+                                    super::glass::hover_row(
+                                        el,
+                                        if p.glass { 17. } else { super::glass::SMALL },
+                                        cx,
+                                    )
+                                })
                                 .child(glyph("folder").size(px(17.)).text_color(p.ink_3))
                                 .child("Add music folder")
                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -1970,7 +1980,7 @@ fn rail_item(
             el.rounded_full()
                 .when(active, |el| el.bg(super::glass::capsule(&p, false)))
                 .when(!active, |el| {
-                    el.hover(move |s| s.bg(super::glass::capsule(&p, true)))
+                    el.map(|el| super::glass::hover_row(el, 20., cx))
                 })
         })
         .when(!p.glass, |el| {

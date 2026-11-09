@@ -457,6 +457,173 @@ pub fn capsule(p: &super::theme::Palette, hover: bool) -> Hsla {
     }
 }
 
+/// A row's hover fill on glass, `capsule(p, true)`, or the plain look's raised fill.
+pub fn hover_fill(p: &super::theme::Palette) -> Hsla {
+    if p.glass {
+        capsule(p, true)
+    } else {
+        p.raised_hover
+    }
+}
+
+/// A chosen (or keyboard-marked) row's fill: the glass capsule, or the plain look's raised
+/// fill.
+pub fn active_fill(p: &super::theme::Palette) -> Hsla {
+    if p.glass {
+        capsule(p, false)
+    } else {
+        p.raised_hover
+    }
+}
+
+/// The corners of a row in a pane with 4 px of padding (menus, the palette, lists): the
+/// pane's corners less its padding, so the two curves run side by side.
+pub const ROW_IN_PANE: f32 = MEDIUM - 4.;
+
+/// Give a row its hover fill (`hover_fill`) as a capsule that fades in and out. Use it before
+/// the row's own children, in place of `.hover(|s| s.bg(..))`.
+pub fn hover_row<E: gpui::ParentElement + Styled>(el: E, radius: f32, cx: &App) -> E {
+    let p = super::theme::pal(cx);
+    el.relative()
+        .child(hover_capsule(hover_fill(&p), radius, cx))
+}
+
+/// How long a hover capsule takes to fade in or out.
+const HOVER_MS: f32 = 120.;
+
+/// A row's hover capsule that fades in under the pointer and out when it leaves, instead of
+/// snapping. Put it first in a `relative` row: it fills the row, under its content, with
+/// `radius` corners (a capsule when `radius` is half the row's height or more). It asks for
+/// frames only while it fades; with Reduce motion it shows and goes at once.
+pub fn hover_capsule(color: Hsla, radius: f32, cx: &App) -> HoverCapsule {
+    HoverCapsule {
+        color,
+        radius,
+        fade: super::motion::enabled(cx),
+    }
+}
+
+pub struct HoverCapsule {
+    color: Hsla,
+    radius: f32,
+    fade: bool,
+}
+
+/// Where a hover capsule's fade stands: the way it is going, and from how strong, since when.
+struct HoverFade {
+    hovered: bool,
+    from: f32,
+    since: std::time::Instant,
+}
+
+impl HoverFade {
+    fn strength(&self, fade: bool) -> f32 {
+        let target = if self.hovered { 1. } else { 0. };
+        if !fade {
+            return target;
+        }
+        let t = (self.since.elapsed().as_secs_f32() * 1000. / HOVER_MS).min(1.);
+        self.from + (target - self.from) * super::motion::ease_out(t)
+    }
+}
+
+impl IntoElement for HoverCapsule {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::Element for HoverCapsule {
+    type RequestLayoutState = ();
+    type PrepaintState = gpui::Hitbox;
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        Some("hover-capsule".into())
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, ()) {
+        let mut style = gpui::Style {
+            position: gpui::Position::Absolute,
+            ..Default::default()
+        };
+        style.inset = gpui::Edges::all(px(0.).into());
+        (window.request_layout(style, [], cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        _: &mut App,
+    ) -> gpui::Hitbox {
+        window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal)
+    }
+
+    fn paint(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        _: &mut (),
+        hitbox: &mut gpui::Hitbox,
+        window: &mut Window,
+        _: &mut App,
+    ) {
+        let hovered = hitbox.is_hovered(window);
+        let fade = self.fade;
+        let Some(id) = id else {
+            return;
+        };
+        let strength = window.with_element_state::<HoverFade, _>(id, |state, _| {
+            let mut state = state.unwrap_or(HoverFade {
+                hovered: false,
+                from: 0.,
+                since: std::time::Instant::now(),
+            });
+            if state.hovered != hovered {
+                state = HoverFade {
+                    from: state.strength(fade),
+                    hovered,
+                    since: std::time::Instant::now(),
+                };
+            }
+            (state.strength(fade), state)
+        });
+        let target = if hovered { 1. } else { 0. };
+        if (strength - target).abs() > 0.001 {
+            window.request_animation_frame();
+        }
+        if strength > 0.001 {
+            let radius = self.radius.min(f32::from(bounds.size.height) / 2.);
+            window.paint_quad(
+                gpui::fill(bounds, self.color.opacity(self.color.a * strength))
+                    .corner_radii(px(radius)),
+            );
+        }
+        // Draw again when the pointer comes or goes.
+        let hitbox = hitbox.clone();
+        window.on_mouse_event(move |_: &gpui::MouseMoveEvent, phase, window, _| {
+            if phase == gpui::DispatchPhase::Capture && hitbox.is_hovered(window) != hovered {
+                window.refresh();
+            }
+        });
+    }
+}
+
 /// A menu, the command palette, a dialog, or a message, over the page: with Liquid Glass, a
 /// pane of glass (the page under it is cleared, so the system's glass shows), its corners
 /// rounder, as macOS's own; otherwise `fill`, with a thin line and a shadow. On Windows and
