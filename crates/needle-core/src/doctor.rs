@@ -436,17 +436,48 @@ pub struct Health {
 }
 
 impl Library {
-    /// Fix my library's overview (see [`Health`]).
+    /// Fix my library's overview (see [`Health`]). The counts come from the database; only the
+    /// songs on this device that are there (the ones duplicates and album tags are about) are
+    /// read in full, once.
     pub fn health(&self) -> Result<Health> {
-        let all = self.search("")?;
-        let present: Vec<Track> = all.iter().filter(|t| !t.missing).cloned().collect();
-        let mut wrong: HashSet<String> = HashSet::new();
-        let duplicates = find_duplicates(&present);
-        let mut health = Health {
-            songs: all.len(),
-            duplicate_sets: duplicates.len(),
-            ..Default::default()
-        };
+        let db = self.connection()?;
+        let streamed = format!("{}%", crate::sources::SCHEME);
+        let mut health = db.query_row(
+            "SELECT count(*),
+                coalesce(sum(missing=1 AND path NOT LIKE ?1),0),
+                coalesce(sum(missing=0 AND trim(artist)=''),0),
+                coalesce(sum(missing=0 AND trim(album)=''),0),
+                coalesce(sum(missing=0 AND trim(genre)=''),0)
+             FROM tracks",
+            [&streamed],
+            |r| {
+                Ok(Health {
+                    songs: r.get::<_, i64>(0)? as usize,
+                    gone: r.get::<_, i64>(1)? as usize,
+                    no_artist: r.get::<_, i64>(2)? as usize,
+                    no_album: r.get::<_, i64>(3)? as usize,
+                    no_genre: r.get::<_, i64>(4)? as usize,
+                    ..Default::default()
+                })
+            },
+        )?;
+        let mut wrong: HashSet<String> = db
+            .prepare(
+                "SELECT id FROM tracks WHERE (missing=1 AND path NOT LIKE ?1)
+                 OR (missing=0 AND (trim(artist)='' OR trim(album)='' OR trim(genre)=''))",
+            )?
+            .query_map([&streamed], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        // Duplicates and album tags are about files on this device that are there.
+        let local: Vec<Track> = db
+            .prepare(
+                "SELECT data,rating,play_count,last_played,missing FROM tracks
+                 WHERE missing=0 AND path NOT LIKE ?1",
+            )?
+            .query_map([&streamed], Library::row_track)?
+            .collect::<rusqlite::Result<_>>()?;
+        let duplicates = find_duplicates(&local);
+        health.duplicate_sets = duplicates.len();
         for group in &duplicates {
             for (i, t) in group.tracks.iter().enumerate() {
                 if i != group.keep {
@@ -455,39 +486,23 @@ impl Library {
                 }
             }
         }
-        let issues = album_issues(&present);
+        let issues = album_issues(&local);
+        drop(local);
         health.album_issues = issues.len();
         for issue in &issues {
             wrong.extend(issue.track_ids.iter().cloned());
         }
-        for t in &all {
-            if t.missing {
-                if !t.is_streamed() {
-                    health.gone += 1;
-                    wrong.insert(t.id.clone());
-                }
-                continue;
-            }
-            let mut bad = false;
-            if t.artist.trim().is_empty() {
-                health.no_artist += 1;
-                bad = true;
-            }
-            if t.album.trim().is_empty() {
-                health.no_album += 1;
-                bad = true;
-            }
-            if t.genre.trim().is_empty() {
-                health.no_genre += 1;
-                bad = true;
-            }
-            if bad {
-                wrong.insert(t.id.clone());
-            }
-        }
-        health.albums_without_cover = self.albums_without_covers()?.len();
+        health.albums_without_cover = db.query_row(
+            "SELECT count(*) FROM (SELECT 1 FROM tracks
+             WHERE album != '' AND missing = 0 AND path NOT LIKE ?1
+             GROUP BY lower(album), lower(CASE WHEN album_artist != '' THEN album_artist ELSE artist END)
+             HAVING max(json_extract(data,'$.artwork')) IS NULL)",
+            [&streamed],
+            |r| r.get::<_, i64>(0),
+        )? as usize;
+        drop(db);
         health.low_quality_albums = self.numbers()?.low_quality_albums;
-        health.fine = all.len().saturating_sub(wrong.len());
+        health.fine = health.songs.saturating_sub(wrong.len());
         Ok(health)
     }
 }
@@ -1675,13 +1690,21 @@ mod health_tests {
         let mut gone = song("d", "Gone", "Mara Quinn", "Shore", "Folk");
         gone.missing = true;
         library.upsert(&gone).unwrap();
+        // A server song the server no longer lists: not a file gone from this device.
+        let mut away = song("e", "Away", "Mara Quinn", "Shore", "Folk");
+        away.path = "source://subsonic/e".into();
+        away.missing = true;
+        library.upsert(&away).unwrap();
         let h = library.health().unwrap();
-        assert_eq!(h.songs, 4);
+        assert_eq!(h.songs, 5);
         assert_eq!((h.no_genre, h.no_artist, h.gone), (1, 1, 1));
         assert_eq!(h.duplicate_sets, 0);
-        // Tidewater is the only song with nothing wrong (no album has a cover, but covers are
+        // Tidewater and the server song have nothing wrong (no album has a cover, but covers are
         // counted by album, not as a song's fault).
-        assert_eq!(h.fine, 1);
+        assert_eq!(
+            h.fine, 2,
+            "Tidewater, and the server song nothing is wrong with"
+        );
         assert_eq!(h.albums_without_cover, 2);
     }
 }
