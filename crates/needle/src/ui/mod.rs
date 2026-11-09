@@ -371,7 +371,12 @@ pub struct Toast {
     text: String,
     error: bool,
     shown: Instant,
+    /// It is fading out, since then; it goes once the fade is over.
+    leaving: Option<Instant>,
 }
+
+/// How long a message takes to fade out.
+const TOAST_OUT_MS: u64 = 180;
 
 #[derive(Default)]
 pub struct Selection {
@@ -1516,13 +1521,23 @@ impl AppView {
             text: text.into(),
             error: false,
             shown: Instant::now(),
+            leaving: None,
         });
+    }
+    /// Let the message go: it fades out (at once with Reduce motion).
+    fn dismiss_toast(&mut self, cx: &App) {
+        if !motion::enabled(cx) {
+            self.toast = None;
+        } else if let Some(toast) = &mut self.toast {
+            toast.leaving.get_or_insert_with(Instant::now);
+        }
     }
     fn fail(&mut self, text: impl Into<String>) {
         self.toast = Some(Toast {
             text: without_repeats(&text.into()),
             error: true,
             shown: Instant::now(),
+            leaving: None,
         });
     }
 
@@ -1656,8 +1671,17 @@ impl AppView {
         }
         if let Some(toast) = &self.toast {
             let life = if toast.error { 14 } else { 6 };
-            if toast.shown.elapsed() > Duration::from_secs(life) {
-                self.toast = None;
+            match toast.leaving {
+                Some(at) if at.elapsed() > Duration::from_millis(TOAST_OUT_MS + 20) => {
+                    self.toast = None;
+                    events = true;
+                }
+                Some(_) => {}
+                None if toast.shown.elapsed() > Duration::from_secs(life) => {
+                    self.dismiss_toast(cx);
+                    events = true;
+                }
+                None => {}
             }
         }
         while let Ok(event) = self.events.try_recv() {

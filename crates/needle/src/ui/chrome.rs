@@ -1907,16 +1907,27 @@ impl AppView {
                             icon_button("dismiss-toast", "close", "Dismiss")
                                 .xsmall()
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toast = None;
+                                    this.dismiss_toast(cx);
                                     cx.notify();
                                 })),
                         )
-                        .with_animation(
-                            ElementId::Name(format!("toast-{:?}", toast.shown).into()),
-                            Animation::new(std::time::Duration::from_millis(180))
-                                .with_easing(ease_out_quint()),
-                            |el, t| el.opacity(t).mt(px(8. * (1. - t))),
-                        ),
+                        .map(|el| match toast.leaving {
+                            // It fades out where it is.
+                            Some(_) => super::motion::animate(
+                                el,
+                                ElementId::Name(format!("toast-out-{:?}", toast.shown).into()),
+                                super::TOAST_OUT_MS,
+                                cx,
+                                |el, t| el.opacity(1. - t),
+                            ),
+                            None => super::motion::animate(
+                                el,
+                                ElementId::Name(format!("toast-{:?}", toast.shown).into()),
+                                180,
+                                cx,
+                                |el, t| el.opacity(t).mt(px(8. * (1. - t))),
+                            ),
+                        }),
                 ),
         )
     }
