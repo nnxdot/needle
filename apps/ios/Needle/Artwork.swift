@@ -41,6 +41,13 @@ enum Covers {
     nonisolated(unsafe) private static var stamps: [String: String] = [:]
     private static let stampLock = NSLock()
 
+    /// The stamp already known for a path, without asking the file system (for what is
+    /// drawn: a view's body never waits on a file); nil when it was not read yet.
+    nonisolated static func knownStamp(_ path: String) -> String? {
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://") else { return path }
+        return stampLock.withLock { stamps[path] }
+    }
+
     /// Reads the files' change times again (a picture was saved anew at the same path).
     nonisolated static func forgetStamps() {
         stampLock.withLock { stamps.removeAll() }
@@ -68,12 +75,17 @@ enum Covers {
         return weight > 0 && light / weight < 0.4
     }
 
+    /// A cover already read at this size, without touching the file (nil if it is not here).
     static func cached(_ path: String, size: Int) -> UIImage? {
-        cache.object(forKey: "\(size)@\(stamp(path))" as NSString)
+        guard let stamp = knownStamp(path) else { return nil }
+        return cache.object(forKey: "\(size)@\(stamp)" as NSString)
     }
 
     static func load(_ path: String, size: Int) async -> UIImage? {
         if let hit = cached(path, size: size) { return hit }
+        // The file's change time, read away from the screen; the picture may already be kept.
+        let key = await Task.detached(priority: .userInitiated) { "\(size)@\(stamp(path))" }.value
+        if let hit = cache.object(forKey: key as NSString) { return hit }
         // Covers of songs on the computer come over the home network.
         var data: Data?
         if path.hasPrefix("http://") || path.hasPrefix("https://") {
@@ -96,7 +108,7 @@ enum Covers {
             ]
             guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
             let image = UIImage(cgImage: cg)
-            cache.setObject(image, forKey: "\(size)@\(stamp(path))" as NSString, cost: cg.bytesPerRow * cg.height)
+            cache.setObject(image, forKey: key as NSString, cost: cg.bytesPerRow * cg.height)
             return image
         }.value
     }
@@ -186,9 +198,11 @@ struct PageColors: Equatable {
         lock.withLock { known[key] = colors }
     }
 
-    /// Already found for this picture (or made-up cover), or kept under `key`, without waiting.
+    /// Already found for this picture (or made-up cover), or kept under `key`, without waiting
+    /// (and without touching the file).
     static func cached(_ path: String?, seed: String) -> PageColors? {
-        kept(Covers.stamp(path) ?? "seed:" + seed)
+        guard let path else { return kept("seed:" + seed) }
+        return Covers.knownStamp(path).flatMap(kept)
     }
 
     static func cached(key: String) -> PageColors? {
@@ -197,7 +211,7 @@ struct PageColors: Equatable {
 
     /// For the picture at `path`, or the made-up cover of `seed` when there is none.
     static func of(_ path: String?, seed: String) async -> PageColors {
-        let key = Covers.stamp(path) ?? "seed:" + seed
+        let key = await Task.detached { Covers.stamp(path) ?? "seed:" + seed }.value
         if let hit = kept(key) { return hit }
         var rgb: (Double, Double, Double)?
         if let path, let image = await Covers.load(path, size: 64), let cg = image.cgImage {
@@ -307,7 +321,7 @@ struct Logo: View {
                 Color.clear
             }
         }
-        .task(id: "\(Covers.stamp(path))|\(PictureChanges.shared.count)") {
+        .task(id: "\(path)|\(PictureChanges.shared.count)") {
             let found = await Covers.load(path, size: 900)
             let cg = found?.cgImage
             let isDark = cg.map(Covers.isDark) ?? false
@@ -394,7 +408,8 @@ struct CoverBackdrop: View {
         self.blur = blur
         self.moving = moving
         // The one made before, so a new backdrop (the lyrics opened) never starts black.
-        _soft = State(initialValue: Self.made.object(forKey: (Covers.stamp(path) ?? seed) as NSString)?.image)
+        let known = path.map { Covers.knownStamp($0) } ?? seed
+        _soft = State(initialValue: known.flatMap { Self.made.object(forKey: $0 as NSString)?.image })
     }
 
     /// The blurred picture's side, in pixels.
@@ -426,8 +441,9 @@ struct CoverBackdrop: View {
                 .frame(width: side, height: side)
             }
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
-            .task(id: "\(Covers.stamp(path) ?? seed)|\(Int(radius))|\(PictureChanges.shared.count)") {
-                let key = (Covers.stamp(path) ?? seed) as NSString
+            .task(id: "\(path ?? seed)|\(Int(radius))|\(PictureChanges.shared.count)") {
+                let path = path
+                let key = await Task.detached { Covers.stamp(path) ?? seed }.value as NSString
                 if let kept = Self.made.object(forKey: key), kept.radius == Int(radius) {
                     soft = kept.image
                     return
