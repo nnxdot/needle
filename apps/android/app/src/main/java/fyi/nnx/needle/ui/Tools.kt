@@ -855,6 +855,18 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
     var picking by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
+    // Export…: the theme's file, saved where the person picks (to send to a friend, or to add on
+    // another device with Add a theme file).
+    val context = LocalContext.current
+    var exporting by remember { mutableStateOf<fyi.nnx.needle.core.ThemeExport?>(null) }
+    val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/toml")) { uri ->
+        val file = exporting
+        exporting = null
+        if (uri == null || file == null) return@rememberLauncherForActivityResult
+        work({ context.contentResolver.openOutputStream(uri)?.use { it.write(file.text.toByteArray()) } ?: error("Could not save the theme") }) {
+            showMessage("Saved ${file.fileName}. Send it to a friend, or add it on another device with Add a theme file.")
+        }
+    }
     val defaults = mapOf(
         "page" to scheme.background, "sidebar" to scheme.surfaceContainerLow, "card" to scheme.surfaceContainer,
         "card_hover" to scheme.surfaceContainerHigh, "text" to scheme.onSurface, "text_muted" to scheme.onSurfaceVariant,
@@ -905,6 +917,12 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
                         back()
                     }
                 }) { Text("Save and use it") }
+                if (existing != null && !existing.readOnly) TextButton(enabled = !saving, onClick = {
+                    work({ core.exportTheme(existing.id) }) { file ->
+                        exporting = file
+                        tryOpen("file picker") { saveFile.launch(file.fileName) }
+                    }
+                }) { Text("Export…") }
                 if (existing != null && !existing.readOnly) TextButton(enabled = !saving, onClick = {
                     saving = true
                     work({ core.deleteTheme(existing.id) }, { saving = false }) {
