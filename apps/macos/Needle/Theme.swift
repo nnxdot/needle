@@ -325,8 +325,9 @@ extension Store {
 
 
     /// Liquid Glass on the player, the panels, and the strips over the page (Settings ›
-    /// Appearance › Background: Glass); Plain makes them solid in the look's own colors.
-    var liquidGlass: Bool { settings.windowMaterial != "solid" }
+    /// Appearance › Background: Glass or Ambient); Plain makes them solid in the look's own
+    /// colors. Ambient is always glass over the cover, whatever was chosen before it.
+    var liquidGlass: Bool { settings.ambient || settings.windowMaterial != "solid" }
 
 }
 
@@ -367,16 +368,25 @@ extension View {
         }
     }
 
-    /// A glass button style on macOS 26, a bordered one before. The button keeps its own size:
-    /// squeezed, the glass control's width kept changing, the layout never settled, and AppKit
-    /// stopped the app.
-    @ViewBuilder
+    /// A glass button style on macOS 26, a bordered one before and with the Plain background.
+    /// The button keeps its own size: squeezed, the glass control's width kept changing, the
+    /// layout never settled, and AppKit stopped the app.
+    @MainActor @ViewBuilder
     func glassButton(prominent: Bool = false) -> some View {
         if #available(macOS 26, *) {
-            if prominent { buttonStyle(.glassProminent).fixedSize() } else { buttonStyle(.glass).fixedSize() }
+            if Store.shared.liquidGlass {
+                if prominent { buttonStyle(.glassProminent).fixedSize() } else { buttonStyle(.glass).fixedSize() }
+            } else {
+                bordered(prominent)
+            }
         } else {
-            if prominent { buttonStyle(.borderedProminent).fixedSize() } else { buttonStyle(.bordered).fixedSize() }
+            bordered(prominent)
         }
+    }
+
+    @ViewBuilder
+    private func bordered(_ prominent: Bool) -> some View {
+        if prominent { buttonStyle(.borderedProminent).fixedSize() } else { buttonStyle(.bordered).fixedSize() }
     }
 }
 

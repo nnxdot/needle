@@ -51,8 +51,9 @@ struct AppearanceSettings: View {
                 PickCard(title: "Plain", note: "The look's own colors", chosen: !s.ambient && !glass) {
                     store.set(["ambient": false, "window_material": "solid"])
                 } picture: { BackdropSketch(kind: .plain) }
+                // Each card sets both settings, so a look never depends on the one before it.
                 PickCard(title: "Ambient", note: "The cover, blurred", chosen: s.ambient) {
-                    store.set(["ambient": true])
+                    store.set(["ambient": true, "window_material": "glass"])
                 } picture: { BackdropSketch(kind: .ambient) }
                 PickCard(title: "Glass", note: "Liquid Glass", chosen: glass) {
                     store.set(["ambient": false, "window_material": "glass"])
