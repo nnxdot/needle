@@ -115,6 +115,65 @@ impl Track {
             &self.album
         }
     }
+    /// The short format text every app shows for the song: "FLAC 24/96", "FLAC 16/44.1",
+    /// "MP3 320", "DSD64", or the format alone when nothing more is known. The same rules as
+    /// the desktop's Quality (its player, Details panel, and Quality column).
+    pub fn quality(&self) -> String {
+        // 1-bit DSD is named by its multiple of 44.1 kHz: DSD64, DSD128, …
+        if self.bit_depth == 1 && self.sample_rate >= 2_822_400 {
+            return format!("DSD{}", self.sample_rate / 44_100);
+        }
+        let khz = self.sample_rate as f64 / 1000.;
+        let rate = if khz.fract() == 0. {
+            format!("{khz:.0}")
+        } else {
+            format!("{khz:.1}")
+        };
+        if self.bit_depth > 0 {
+            format!("{} {}/{}", self.format, self.bit_depth, rate)
+        } else if self.bitrate > 0 {
+            format!("{} {}", self.format, self.bitrate)
+        } else {
+            self.format.clone()
+        }
+    }
+}
+
+#[cfg(test)]
+mod quality_tests {
+    use super::Track;
+
+    fn track(format: &str, bit_depth: i64, sample_rate: i64, bitrate: i64) -> Track {
+        Track {
+            format: format.into(),
+            bit_depth,
+            sample_rate,
+            bitrate,
+            ..Track::default()
+        }
+    }
+
+    #[test]
+    fn quality_reads_as_the_desktop_shows_it() {
+        assert_eq!(track("FLAC", 24, 48_000, 2_000).quality(), "FLAC 24/48");
+        assert_eq!(track("FLAC", 24, 96_000, 0).quality(), "FLAC 24/96");
+        assert_eq!(track("FLAC", 16, 44_100, 900).quality(), "FLAC 16/44.1");
+        assert_eq!(track("WAV", 32, 352_800, 0).quality(), "WAV 32/352.8");
+        assert_eq!(track("ALAC", 16, 88_200, 0).quality(), "ALAC 16/88.2");
+        assert_eq!(track("MP3", 0, 44_100, 320).quality(), "MP3 320");
+        assert_eq!(track("OPUS", 0, 48_000, 128).quality(), "OPUS 128");
+        assert_eq!(track("M4A", 0, 0, 0).quality(), "M4A");
+        assert_eq!(track("", 0, 0, 0).quality(), "");
+    }
+
+    #[test]
+    fn one_bit_dsd_is_named_by_its_rate() {
+        assert_eq!(track("DSF", 1, 2_822_400, 5_644).quality(), "DSD64");
+        assert_eq!(track("DFF", 1, 5_644_800, 0).quality(), "DSD128");
+        assert_eq!(track("DSF", 1, 11_289_600, 0).quality(), "DSD256");
+        // 1-bit at a rate below DSD64 is not DSD: it reads as any other file does.
+        assert_eq!(track("WAV", 1, 44_100, 0).quality(), "WAV 1/44.1");
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

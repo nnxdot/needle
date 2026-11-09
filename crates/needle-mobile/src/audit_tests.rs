@@ -298,3 +298,17 @@ fn phone_playlist_edits_apply_only_what_the_screen_meant() {
     assert_eq!(now.description, "New words");
     needle.shutdown();
 }
+
+#[test]
+fn a_song_carries_the_format_text_the_desktop_shows() {
+    let track = Track {
+        format: "FLAC".into(),
+        bit_depth: 24,
+        sample_rate: 48_000,
+        bitrate: 2_100,
+        ..Default::default()
+    };
+    let song = Song::from(&track);
+    assert_eq!(song.format, "FLAC");
+    assert_eq!(song.quality, "FLAC 24/48");
+}

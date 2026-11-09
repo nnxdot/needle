@@ -97,6 +97,11 @@ pub struct Song {
     /// A picture file for the cover, if the song has one.
     pub artwork: Option<String>,
     pub rating: i64,
+    /// The short format text every app shows ("FLAC 24/48", "MP3 320", "DSD64"; see
+    /// `Track::quality`). `format` stays the bare format ("FLAC"); empty for a song built by
+    /// the app itself (one on the computer).
+    #[uniffi(default = "")]
+    pub quality: String,
 }
 
 impl From<&Track> for Song {
@@ -111,6 +116,7 @@ impl From<&Track> for Song {
             format: track.format.clone(),
             artwork: track.artwork.clone(),
             rating: track.rating,
+            quality: track.quality(),
         }
     }
 }
@@ -852,6 +858,16 @@ impl Needle {
 
     pub fn toggle(&self) {
         self.player.send(Command::Toggle);
+    }
+
+    /// The system's sound was reset under the app (iOS: AVAudioSession's media services were
+    /// reset; Android: the audio server restarted). Playing: the output opens again now and
+    /// plays on from the same place. Paused: the old output is let go and the song stays
+    /// paused at its place; Play opens the new one. The song, its place, and the queue stay.
+    /// Safe at any time, also with nothing played and twice in a row; call it after the app's
+    /// audio session is set up again.
+    pub fn reopen_output(&self) {
+        self.player.send(Command::ReopenOutput);
     }
 
     pub fn next(&self) {
