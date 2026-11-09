@@ -243,8 +243,8 @@ fun NeedleRoot() {
             swiping = true
             progress.collect { event -> pageMotion.seekTo(event.progress, behind) }
             swiping = false
+            // The page behind is the page now: the effect above plays the rest of the motion.
             stacks[tab] = behind.second
-            pageMotion.animateTo(behind)
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
             // Let go before it went: the page slides back where it was.
             swiping = false
