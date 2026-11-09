@@ -1,3 +1,11 @@
+# 2.0.6 [windows, linux]
+Glass all over, and your Navidrome playlists.
+- **Glass all over.** The sidebar floats on glass, the page is a sheet with round corners, and the playing cover's colours glow behind it all. The player, the side panel, menus, dialogs, and tooltips are tinted glass with a light along their top edge.
+- **Glass on Linux.** Settings › Appearance has Glass on Linux too: Blur uses KDE's own blur on Wayland, and other desktops get the cover's glow.
+- **Softer edges.** The page fades out under the title bar and under the player, instead of stopping at a hard line.
+- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy.
+- Ambient and glass are one look now, so Ambient gets the floating sidebar too.
+
 # 2.0.4 [windows, linux]
 A genre cloud and genre bubbles, a new Fix my library, and fewer surprises on slow or costly networks.
 - **Genre cloud and bubbles.** The genre map has two new views: every genre as a word, or as a circle grouped by family (rock, pop, hip hop, …), as big as its songs or its plays. Genres written differently count as one (Hip-Hop and hip hop, R&B and RnB).
@@ -61,6 +69,10 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.
+
+# 2.0.6 [macos]
+Your Navidrome playlists.
+- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy.
 
 # 2.0.4 [macos]
 A genre cloud and genre bubbles, a new Fix my library, and fixes.

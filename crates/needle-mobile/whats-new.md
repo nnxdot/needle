@@ -1,3 +1,10 @@
+# 2.0.6
+Glass all over, and your Navidrome playlists.
+! **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways, and if a playlist changed on both sides, yours is kept as a copy.
+- **Glass all over.** Sheets, menus, dialogs, and on tablets and TVs the side bar and the side pane, are glass with a light along their top edge.
+- **The song's colour on the dock.** With "Mini player in the song's colour" on, the dock and the tablet's player take the playing cover's colour.
+- Pages fade softly under the status bar as they scroll.
+
 # 2.0.4
 A genre cloud and bubbles, a new Fix my library, and fixes for TVs.
 ! **Genre cloud and bubbles.** The genre map has two new views: every genre as a word, or as a circle grouped by family, as big as its songs or its plays.
