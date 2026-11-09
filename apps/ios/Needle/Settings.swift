@@ -1260,17 +1260,34 @@ struct ScrobbleProblemsLink: View {
     @Environment(Store.self) private var store
     let service: String
     @State private var problems: Problems?
+    /// Why the listens held back could not be read, when they could not.
+    @State private var problem: String?
+    @State private var tries = 0
 
     var body: some View {
         Group {
             if let p = problems, !p.reasons.isEmpty {
                 NavigationLink("Why some listens were not sent") { list(p) }
+            } else if let problem {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Could not read the listens not sent")
+                        Text(problem).font(.needle(.caption)).foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "exclamationmark.triangle") }
+                Button("Try Again") { tries += 1 }
             }
         }
-        .task {
+        .task(id: tries) {
             let service = service
-            let json = await store.load { $0.scrobbleProblemsJson(service: service) } ?? ""
-            problems = try? JSONDecoder().decode(Problems.self, from: Data(json.utf8))
+            switch await store.attempt({ try $0.scrobbleProblemsJson(service: service) }) {
+            case .success(let json):
+                problems = try? JSONDecoder().decode(Problems.self, from: Data(json.utf8))
+                problem = problems == nil ? "Needle could not read its own answer." : nil
+            case .failure(let error):
+                problems = nil
+                problem = error.words
+            }
         }
     }
 

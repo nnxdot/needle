@@ -6,6 +6,10 @@ import UniformTypeIdentifiers
 struct FixLibraryView: View {
     @Environment(Store.self) private var store
     @State private var health: Health?
+    /// Why the overview could not be read, when it could not.
+    @State private var problem: String?
+    /// Goes up with Try Again.
+    @State private var tries = 0
     @State private var confirmForget = false
 
     /// Fix my library's overview, from the core (`needle_core::doctor::Health`).
@@ -46,6 +50,18 @@ struct FixLibraryView: View {
                 } header: {
                     Text("Your library")
                 }
+            } else if let problem {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Could not check your library")
+                            Text(problem).font(.needle(.caption)).foregroundStyle(.secondary)
+                        }
+                    } icon: { Image(systemName: "exclamationmark.triangle") }
+                    Button("Try Again") { tries += 1 }
+                } header: {
+                    Text("Your library")
+                }
             }
             Section {
                 NavigationLink(value: Route.duplicates) { Label("Duplicates", systemImage: "square.on.square") }
@@ -58,9 +74,15 @@ struct FixLibraryView: View {
         }
         .navigationTitle("Fix my library")
         .themed()
-        .task(id: store.libraryVersion) {
-            let json = await store.load { $0.libraryHealthJson() } ?? ""
-            health = try? JSONDecoder().decode(Health.self, from: Data(json.utf8))
+        .task(id: "\(store.libraryVersion)|\(tries)") {
+            switch await store.attempt({ try $0.libraryHealthJson() }) {
+            case .success(let json):
+                health = try? JSONDecoder().decode(Health.self, from: Data(json.utf8))
+                problem = health == nil ? "Needle could not read its own answer." : nil
+            case .failure(let error):
+                health = nil
+                problem = error.words
+            }
         }
         .confirmationDialog("Forget \(count(health?.gone ?? 0, "song")) whose file is gone?", isPresented: $confirmForget, titleVisibility: .visible) {
             Button("Forget Them", role: .destructive) {
