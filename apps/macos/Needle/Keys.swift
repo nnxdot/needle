@@ -24,6 +24,14 @@ enum Keys {
                 default: return event
                 }
             }
+            // ⌘ and an arrow while typing (any window): it moves in the text, as everywhere on
+            // the Mac. The menus' ⌘← ⌘→ (Previous, Next) and ⌘↑ ⌘↓ (the volume) would take it
+            // first, so the text gets it here.
+            if [123, 124, 125, 126].contains(event.keyCode), event.modifierFlags.contains(.command),
+               !event.modifierFlags.contains(.control), let editor = event.window?.firstResponder as? NSText {
+                editor.keyDown(with: event)
+                return nil
+            }
             // Only in the main window and the mini player, with no sheet or panel over them: an
             // open panel's column view, a sheet's buttons, and Settings use these keys themselves.
             guard let window = event.window,
