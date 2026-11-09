@@ -430,6 +430,9 @@ impl RenderOnce for Dialog {
                             })
                             .border_1()
                             .border_color(crate::styled::popover_border(cx))
+                            .when(cx.theme().popover_edge.a > 0., |el| {
+                                el.edge_light(cx.theme().popover_edge)
+                            })
                             .rounded(cx.theme().radius_lg)
                             .min_h_24()
                             .pt(paddings.top)

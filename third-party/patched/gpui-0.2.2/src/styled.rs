@@ -38,6 +38,14 @@ pub trait Styled: Sized {
         self
     }
 
+    /// A 1 px light along the top edge in `color`, drawn over the content and thinning out
+    /// along the round corners, as light catches the edge of a pane of glass. It is part of
+    /// the element itself, not a shadow, so nothing is drawn under the element. Needle patch.
+    fn edge_light(mut self, color: impl Into<Hsla>) -> Self {
+        self.style().edge_light = Some(color.into());
+        self
+    }
+
     gpui_macros::style_helpers!();
     gpui_macros::visibility_style_methods!();
     gpui_macros::margin_style_methods!();

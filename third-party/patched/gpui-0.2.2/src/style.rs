@@ -258,6 +258,10 @@ pub struct Style {
     /// `Styled::under_glass`). Needle patch.
     pub under_glass: bool,
 
+    /// A 1 px light along the top edge, drawn over the element's content and following its
+    /// round corners, where it thins out (see `Styled::edge_light`). Needle patch.
+    pub edge_light: Option<Hsla>,
+
     /// The text style of this element
     pub text: TextStyleRefinement,
 
@@ -745,6 +749,31 @@ impl Style {
             );
         }
 
+        // Needle patch: the edge light, a top-only border over the content. On the round
+        // corners the quad shader thins a one-sided border to nothing, so the line fades out
+        // along the curve. Only the top band is drawn.
+        if let Some(light) = self.edge_light.filter(|c| !c.is_transparent()) {
+            let band = Bounds::from_corners(
+                bounds.origin,
+                bounds.top_right() + point(Pixels::ZERO, corner_radii.max().max(Pixels(1.))),
+            );
+            let mut background = light;
+            background.a = 0.;
+            window.with_content_mask(Some(ContentMask::new(band)), |window| {
+                window.paint_quad(quad(
+                    bounds,
+                    corner_radii,
+                    background,
+                    Edges {
+                        top: Pixels(1.),
+                        ..Default::default()
+                    },
+                    light,
+                    BorderStyle::Solid,
+                ));
+            });
+        }
+
         #[cfg(debug_assertions)]
         if self.debug_below {
             cx.remove_global::<DebugBelow>();
@@ -802,6 +831,7 @@ impl Default for Style {
             box_shadow: Default::default(),
             glass: false,
             under_glass: false,
+            edge_light: None,
             text: TextStyleRefinement::default(),
             mouse_cursor: None,
             opacity: None,

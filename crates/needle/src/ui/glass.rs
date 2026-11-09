@@ -351,50 +351,23 @@ pub fn edge_colors(p: &super::theme::Palette) -> (Hsla, Hsla) {
     match (p.dark, p.glass) {
         (true, true) => (white(0.2), white(0.08)),
         (true, false) => (white(0.12), white(0.07)),
-        (false, true) => (white(0.95), gpui::hsla(0., 0., 0., 0.09)),
+        // Light glass panes are a touch grey (`tinted`), so the white line still reads.
+        (false, true) => (white(1.), gpui::hsla(0., 0., 0., 0.09)),
         (false, false) => (white(0.9), gpui::hsla(0., 0., 0., 0.1)),
     }
 }
 
-/// How far a part floats: panes over the page float highest.
-#[derive(Clone, Copy, PartialEq)]
-pub enum Lift {
-    /// A see-through page: the edge light only, no shadow (GPUI would draw it under the page).
-    Flat,
-    /// The page sheet: a faint shadow.
-    Low,
-    /// The sidebar, the side panel, the floating player.
-    Mid,
-    /// Menus, dialogs, the palette, messages.
-    High,
-}
+/// How far a part floats: panes over the page float highest. The toolkit's own popovers use
+/// the same helper, so every glass part shares one edge.
+pub use gpui_component::EdgeLift as Lift;
 
 /// The edge light, for every glass part off the Mac: a faint outline, a 1 px bright line on
-/// the top edge (a shadow one pixel above the part, so it follows the round corners), and a
-/// soft shadow under it. It sets the part's whole shadow list.
+/// the top edge (part of the pane, thinning out along the round corners), and a soft shadow
+/// under it. It sets the part's whole shadow list.
 pub fn edge<E: Styled>(el: E, lift: Lift, cx: &App) -> E {
     let p = super::theme::pal(cx);
     let (top, outline) = edge_colors(&p);
-    let (alpha, y, blur) = match lift {
-        Lift::Flat => (0., 0., 0.),
-        Lift::Low => (if p.dark { 0.22 } else { 0.06 }, 2., 10.),
-        Lift::Mid => (if p.dark { 0.3 } else { 0.1 }, 8., 24.),
-        Lift::High => (if p.dark { 0.42 } else { 0.16 }, 12., 32.),
-    };
-    el.border_1().border_color(outline).shadow(vec![
-        gpui::BoxShadow {
-            color: gpui::hsla(0., 0., 0., alpha),
-            offset: point(px(0.), px(y)),
-            blur_radius: px(blur),
-            spread_radius: px(0.),
-        },
-        gpui::BoxShadow {
-            color: top,
-            offset: point(px(0.), px(-1.)),
-            blur_radius: px(0.),
-            spread_radius: px(0.),
-        },
-    ])
+    gpui_component::glass_edge(el, lift, top, outline, p.dark)
 }
 
 /// A pane's fill off the Mac: the raised surface tinted a little with the music's colour, at
@@ -407,7 +380,10 @@ pub fn tinted(p: &super::theme::Palette, alpha: f32) -> Hsla {
     let base = match (p.dark, p.glass) {
         (true, true) => p.raised,
         (true, false) => mix(p.raised, p.raised_hover, 0.5),
-        (false, _) => gpui::hsla(0., 0., 1., 1.),
+        // Light glass: a touch grey, so the white edge light reads on it and the pane does
+        // not wash out over a pale page (GLASS-POLISH 11).
+        (false, true) => gpui::hsla(0., 0., 0.965, 1.),
+        (false, false) => gpui::hsla(0., 0., 1., 1.),
     };
     let tint = if p.glass { 0.08 } else { 0.035 };
     let floor = if p.dark { 0.8 } else { 0.86 };
