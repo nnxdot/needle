@@ -26,11 +26,24 @@ final class SongsModel {
         if case .playlist(let id) = route {
             playlist = store.playlistModel(id)
             playlistID = playlist?.smart == false ? id : nil
-            rule = store.expression(for: route, playlistRule: playlist?.query)
+            // Removed meanwhile (a server's sync): nothing is listed, and the page leaves. An
+            // empty rule here would list, and play, the whole library.
+            guard let rule = store.expression(for: route, playlist: playlist) else {
+                tracks = []
+                total = 0
+                rule = ""
+                playlistID = nil
+                error = nil
+                loading = false
+                version += 1
+                store.playlistGone(id)
+                return
+            }
+            self.rule = rule
         } else {
             playlist = nil
             playlistID = nil
-            rule = store.expression(for: route)
+            rule = store.expression(for: route) ?? ""
         }
         let check = store.core.checkQuery(query: rule)
         explanation = check.explanation
@@ -365,10 +378,7 @@ struct SongsHeader: View {
 
     private func deletePlaylist() {
         guard let id = model.playlist?.id else { return }
-        store.run { try $0.deletePlaylist(id: id) }
-        store.navigate(.songs)
-        store.notify("Playlist deleted. Your music files are untouched.")
-        Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadPlaylists() }
+        store.deletePlaylist(id)
     }
 }
 

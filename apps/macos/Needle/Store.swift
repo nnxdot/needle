@@ -718,13 +718,19 @@ final class Store {
         JSON.decode(PlaylistModel.self, (try? core.playlistJson(id: id)) ?? nil)
     }
 
-    /// The full rule for what `route` shows, with the search and the chosen order.
-    func expression(for route: Route, playlistRule: String? = nil) -> String {
+    /// The full rule for what `route` shows, with the search and the chosen order. A playlist's
+    /// page needs its playlist (`playlist`): without one (it was removed, say by a server's
+    /// sync) there is no rule, never an empty one, which would be the whole library.
+    func expression(for route: Route, playlist: PlaylistModel? = nil) -> String? {
         let text = search.trimmingCharacters(in: .whitespaces)
         if route == .albums || route == .artists { return text }
         var base = route.base
         if case .source(let plugin, _) = route { base = core.sourceRule(plugin: plugin) }
-        if case .playlist = route { base = playlistRule ?? "" }
+        if case .playlist(let id) = route {
+            guard let playlist, playlist.id == id else { return nil }
+            // A playlist of picked songs has no rule: the core lists its songs by its id.
+            base = playlist.query ?? ""
+        }
         var rule: String
         if base.isEmpty {
             rule = text
@@ -802,10 +808,59 @@ final class Store {
             notify("Up next shuffled.")
             return
         }
-        if case .playlist(let id) = route, let model = playlistModel(id) {
-            playPage(rule: expression(for: route, playlistRule: model.query), playlist: model.smart ? nil : id, shuffle: true)
+        if case .playlist(let id) = route {
+            guard let model = playlistModel(id), let rule = expression(for: route, playlist: model) else {
+                playlistGone(id)
+                return
+            }
+            playPage(rule: rule, playlist: model.smart ? nil : id, shuffle: true)
+        } else if let rule = expression(for: route) {
+            playPage(rule: rule, playlist: nil, shuffle: true)
+        }
+    }
+
+    /// A playlist that is no longer there (deleted here, or on its music server and then
+    /// synced): its page says so and goes back, never showing the whole library in its place.
+    func playlistGone(_ id: String) {
+        let gone = Route.playlist(id)
+        back.removeAll { $0 == gone }
+        forward.removeAll { $0 == gone }
+        if addingTo?.id == id { addingTo = nil }
+        reloadPlaylists()
+        notify("This playlist was removed.")
+        guard route == gone else { return }
+        if let to = back.popLast() {
+            open(to)
         } else {
-            playPage(rule: expression(for: route), playlist: nil, shuffle: true)
+            open(.home)
+        }
+    }
+
+    /// A playlist saved under a new id (a copy of one that left): its page, and the way back to
+    /// it, go to the new one.
+    func playlistMoved(from old: String, to new: String) {
+        let (before, after) = (Route.playlist(old), Route.playlist(new))
+        back = back.map { $0 == before ? after : $0 }
+        forward = forward.map { $0 == before ? after : $0 }
+        if route == before {
+            route = after
+            headerFolded = false
+        } else {
+            navigate(after)
+        }
+        reloadPlaylists()
+    }
+
+    /// Deletes a playlist; only once the core has done so does Needle say it is deleted (offline,
+    /// a server playlist's delete can fail).
+    func deletePlaylist(_ id: String) {
+        Task {
+            guard await ask({ try $0.deletePlaylist(id: id) }) != nil else { return }
+            if route == .playlist(id) { navigate(.songs) }
+            back.removeAll { $0 == .playlist(id) }
+            forward.removeAll { $0 == .playlist(id) }
+            notify("Playlist deleted. Your music files are untouched.")
+            reloadPlaylists()
         }
     }
 

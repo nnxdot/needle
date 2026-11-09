@@ -195,15 +195,22 @@ struct PlaylistEditor: View {
         let json = String(decoding: data, as: UTF8.self)
         // As the editor opened it: only what was changed here is saved.
         let before = playlist.id.isEmpty ? nil : (try? encoder.encode(playlist)).map { String(decoding: $0, as: UTF8.self) }
-        let (picture, clear, isNew, title) = (picture, clearPicture, playlist.id.isEmpty, name)
+        let (picture, clear, isNew, title, old) = (picture, clearPicture, playlist.id.isEmpty, name, playlist.id)
         Task {
             guard let id = await store.ask({ try $0.savePlaylistJson(json: json, beforeJson: before) }) else { saving = false; return }
             if picture != nil || clear {
                 _ = await store.ask { try $0.setPlaylistPicture(id: id, path: picture) }
             }
-            store.notify(isNew ? "Made “\(title)”." : "Saved “\(title)”.")
+            // Another id back: the playlist left while it was being edited (its server removed
+            // it), and the core kept the edit as a playlist of this Mac's own.
+            let copied = !isNew && id != old
+            store.notify(isNew ? "Made “\(title)”." : copied ? "“\(title)” was removed meanwhile, so it is saved as a copy on this Mac." : "Saved “\(title)”.")
             store.libraryChanged()
-            if isNew { store.navigate(.playlist(id)) }
+            if isNew {
+                store.navigate(.playlist(id))
+            } else if copied {
+                store.playlistMoved(from: old, to: id)
+            }
             dismiss()
         }
     }

@@ -234,13 +234,7 @@ struct PlaylistRow: View {
             Button("Delete Playlist…", role: .destructive) { confirmDelete = true }
         }
         .confirmationDialog("Delete “\(playlist.name)”?", isPresented: $confirmDelete) {
-            Button("Delete Playlist", role: .destructive) {
-                let id = playlist.id
-                store.run { try $0.deletePlaylist(id: id) }
-                if store.route == .playlist(id) { store.navigate(.songs) }
-                store.notify("Playlist deleted. Your music files are untouched.")
-                Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadPlaylists() }
-            }
+            Button("Delete Playlist", role: .destructive) { store.deletePlaylist(playlist.id) }
         } message: {
             Text(playlist.server ? "It is deleted on your music server too. Your music files are untouched." : "Your music files are untouched.")
         }
@@ -248,7 +242,9 @@ struct PlaylistRow: View {
 
     private func playAll(shuffle: Bool) {
         let id = playlist.id
-        let rule = store.playlistModel(id)?.query ?? ""
+        // Gone meanwhile: never an empty rule, which plays the whole library.
+        guard let model = store.playlistModel(id) else { store.playlistGone(id); return }
+        let rule = model.query ?? ""
         let reason = "From your playlist \(playlist.name)"
         Task {
             _ = await store.ask { try $0.playView(query: rule, playlist: rule.isEmpty ? id : nil, filter: "", start: 0, shuffle: shuffle, reason: reason) }
