@@ -642,7 +642,8 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
         if (!writing && from in positions.indices && to in positions.indices) {
             writing = true
             moved = list.toMutableList().apply { if (from in indices && to in indices) add(to, removeAt(from)) }
-            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { writing = false; moved = null; showMessage(it.message ?: "Could not reorder it") }, written)
+            val song = d?.songs?.getOrNull(from)?.id.orEmpty()
+            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to], song) }, { writing = false; moved = null; showMessage(it.message ?: "Could not reorder it") }, written)
         }
     }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
@@ -689,7 +690,8 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             songList(list, playing, open, numbered = false, remove = if (d?.rule == null) { i ->
                 if (!writing) d?.positions?.getOrNull(i)?.let { position ->
                     writing = true
-                    libraryWrite({ core.removeFromPlaylist(route.id, position) }, { writing = false; showMessage(it.message ?: "Could not remove it") }, written)
+                    val song = d.songs.getOrNull(i)?.id.orEmpty()
+                    libraryWrite({ core.removeFromPlaylist(route.id, position, song) }, { writing = false; showMessage(it.message ?: "Could not remove it") }, written)
                 }
             } else null, reorder = if (d?.rule == null && arranging) reorder else null)
         }

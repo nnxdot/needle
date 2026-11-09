@@ -1107,8 +1107,8 @@ impl Needle {
             query::compile(rule, chrono::Utc::now().timestamp())?;
         }
         playlist.updated_at = chrono::Utc::now().timestamp();
-        self.library.save_playlist(&playlist)?;
-        Ok(playlist.id)
+        // A server playlist saved after it left Needle comes back under an id of its own.
+        Ok(self.library.save_playlist_as(&playlist)?)
     }
 
     /// The rule builder's kinds of rule and orders: `{"kinds": [{label, ops, value,

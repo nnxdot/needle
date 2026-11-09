@@ -287,25 +287,11 @@ fn sync_one(
     let there = shown_name(&remote.name) != base.name || theirs != base.songs;
     if here && !there {
         // Songs from elsewhere (files on this computer, another server) cannot be on the
-        // server's playlist: the whole list is kept as the person's own as well. Songs no
-        // longer in the library at all just go.
-        let (mut mine, mut ids, mut others) = (vec![], vec![], false);
-        for id in &local.track_ids {
-            if let Some(track) = library.track(id)? {
-                match track.source() {
-                    Some((owner, song)) if owner == plugin => {
-                        mine.push(id.clone());
-                        ids.push(song);
-                    }
-                    _ => others = true,
-                }
-            }
-        }
+        // server's playlist: they are left out of what is sent (`commit` keeps the whole list
+        // as the person's own as well). Songs no longer in the library at all just go.
+        let (mine, ids) = server_songs(library, plugin, &local.track_ids)?;
         match server.save_playlist(&remote.id, &local.name, &ids) {
             Ok(()) => {
-                if others {
-                    keep_copy(library, local, report, "songs that are not on the server")?;
-                }
                 let mut sent = local.clone();
                 sent.track_ids = mine;
                 sent.server = Some(ServerPlaylist {
@@ -357,6 +343,40 @@ fn server_version(
     playlist
 }
 
+/// Of a playlist's songs, the ones on this source's server: their library ids and their ids
+/// on the server, in order. The rest (files, another server's songs, songs gone from the
+/// library) are left out.
+fn server_songs(
+    library: &Library,
+    plugin: &str,
+    track_ids: &[String],
+) -> Result<(Vec<String>, Vec<String>)> {
+    let (mut mine, mut ids) = (vec![], vec![]);
+    for id in track_ids {
+        if let Some(track) = library.track(id)?
+            && let Some((owner, song)) = track.source()
+            && owner == plugin
+        {
+            mine.push(id.clone());
+            ids.push(song);
+        }
+    }
+    Ok((mine, ids))
+}
+
+/// Whether a playlist holds songs that cannot be on this source's server (files, another
+/// server's songs), not just songs gone from the library.
+fn has_foreign(library: &Library, plugin: &str, track_ids: &[String]) -> Result<bool> {
+    for id in track_ids {
+        if let Some(track) = library.track(id)?
+            && track.source().is_none_or(|(owner, _)| owner != plugin)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// How a sync's result for one playlist came about.
 #[derive(Clone, Copy)]
 enum Outcome<'a> {
@@ -403,32 +423,37 @@ fn commit(
             }
             Some(now) => {
                 let changed = now.name != local.name || now.track_ids != local.track_ids;
-                match outcome {
-                    Pushed if changed => {
-                        let mut newer = now;
-                        newer.server = Some(link.clone());
-                        library.store_playlist(&newer)?;
-                        true
+                if matches!(outcome, Pushed) {
+                    // The newest version: songs not on the server keep the whole list as the
+                    // person's own (once), and leave the server playlist.
+                    // As stored now: its description and picture may have changed meanwhile.
+                    let mut newest = now;
+                    if has_foreign(library, &link.plugin, &newest.track_ids)? {
+                        keep_copy(library, &newest, report, "songs that are not on the server")?;
                     }
-                    _ => {
-                        let why = match outcome {
-                            Pulled(Some(why)) => Some(why),
-                            Pulled(None) if changed => {
-                                Some("it changed on the server while you edited it")
-                            }
-                            _ => None,
-                        };
-                        if let Some(why) = why {
-                            keep_copy(library, &now, report, why)?;
+                    newest.track_ids = server_songs(library, &link.plugin, &newest.track_ids)?.0;
+                    newest.server = Some(link.clone());
+                    library.store_playlist(&newest)?;
+                    // Changed meanwhile: that change goes next.
+                    newest.edited_here()
+                } else {
+                    let why = match outcome {
+                        Pulled(Some(why)) => Some(why),
+                        Pulled(None) if changed => {
+                            Some("it changed on the server while you edited it")
                         }
-                        // Its description and picture may have changed meanwhile: those stay.
-                        if now.description != local.description {
-                            result.description = now.description;
-                        }
-                        result.cover = now.cover;
-                        library.store_playlist(&result)?;
-                        false
+                        _ => None,
+                    };
+                    if let Some(why) = why {
+                        keep_copy(library, &now, report, why)?;
                     }
+                    // Its description and picture may have changed meanwhile: those stay.
+                    if now.description != local.description {
+                        result.description = now.description;
+                    }
+                    result.cover = now.cover;
+                    library.store_playlist(&result)?;
+                    false
                 }
             }
         }
@@ -464,6 +489,14 @@ pub(crate) fn merge_save(
             clash = true;
         }
         merged.track_ids = stored.track_ids.clone();
+    }
+    // The description follows the server's comment while it was left alone: one the editor
+    // still shows as the old comment is the sync's to change.
+    if saved.description != stored.description
+        && now.comment != seen.comment
+        && saved.description == seen.comment
+    {
+        merged.description = stored.description.clone();
     }
     (merged, clash.then(|| copy_of(saved)))
 }
@@ -1114,6 +1147,98 @@ mod tests {
             server_list(&library, "subsonic", "1").unwrap().track_ids,
             ids("subsonic", &["a"])
         );
+    }
+
+    #[test]
+    fn an_editor_saving_after_signing_out_keeps_its_own_playlist() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let mut open = server_list(&library, "subsonic", "1").unwrap();
+        forget(&library, "subsonic").unwrap();
+        open.name = "My draft".into();
+        let id = library.save_playlist_as(&open).unwrap();
+        assert_ne!(id, playlist_id("subsonic", "1"));
+        assert!(
+            library
+                .playlist_by_id(&id)
+                .unwrap()
+                .unwrap()
+                .server
+                .is_none()
+        );
+        // Signing in again brings the server's back beside it, over nothing.
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let mut all = names(&library);
+        all.sort();
+        assert_eq!(all, ["Mix", "My draft"]);
+    }
+
+    #[test]
+    fn songs_from_elsewhere_added_during_a_push_make_one_copy() {
+        let (dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        fake.lists
+            .borrow_mut()
+            .push(remote("2", "All", &["a", "b"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let file = crate::model::Track {
+            id: "file".into(),
+            path: "/music/file.flac".into(),
+            title: "A file".into(),
+            ..Default::default()
+        };
+        Library::upsert_on(&library.connection().unwrap(), &file).unwrap();
+        let mut mix = server_list(&library, "subsonic", "1").unwrap();
+        mix.track_ids.push("file".into());
+        library.save_playlist(&mix).unwrap();
+        // Another song is added while the push runs.
+        let path = dir.path().to_path_buf();
+        *fake.during.borrow_mut() = Some(Box::new(move |what, _| {
+            if what == "save" {
+                let other = Library::open(&path).unwrap();
+                let mut now = other
+                    .playlist_by_id(&playlist_id("subsonic", "1"))
+                    .unwrap()
+                    .unwrap();
+                if !now.track_ids.contains(&sources::track_id("subsonic", "b")) {
+                    now.track_ids.push(sources::track_id("subsonic", "b"));
+                    other.save_playlist(&now).unwrap();
+                }
+            }
+        }));
+        sync(&library, "subsonic", &fake, true).unwrap();
+        sync(&library, "subsonic", &fake, true).unwrap();
+        let copies: Vec<Playlist> = library
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .filter(|p| p.name == "Mix (Needle copy)")
+            .collect();
+        assert_eq!(copies.len(), 1);
+        assert!(copies[0].track_ids.contains(&"file".to_string()));
+        assert_eq!(
+            song_ids("subsonic", &fake.playlist("1").unwrap()),
+            ids("subsonic", &["a", "b"])
+        );
+    }
+
+    #[test]
+    fn a_save_read_before_a_sync_keeps_the_servers_new_comment() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let mut open = server_list(&library, "subsonic", "1").unwrap();
+        fake.lists.borrow_mut()[0].comment = "New notes".into();
+        sync(&library, "subsonic", &fake, false).unwrap();
+        open.name = "Renamed".into();
+        library.save_playlist(&open).unwrap();
+        let now = server_list(&library, "subsonic", "1").unwrap();
+        assert_eq!(now.name, "Renamed");
+        assert_eq!(now.description, "New notes");
     }
 
     #[test]

@@ -291,6 +291,8 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
     var description by remember(detail?.id) { mutableStateOf(detail?.description ?: "") }
     var smart by remember(detail?.id) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
     var rule by remember(detail?.id) { mutableStateOf(detail?.rule ?: "") }
+    // What the dialog showed at first: only what the person changes is saved.
+    val before = remember(detail?.id) { (detail?.name ?: "") to (detail?.description ?: "") }
     var saving by remember { mutableStateOf(false) }
     // Checked off the main thread as the rule is typed.
     val problem by androidx.compose.runtime.produceState<String?>(null, smart, rule) {
@@ -333,7 +335,7 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
                         if (editing == null) {
                             core.createPlaylist(name, description, ids, if (smart) rule else null)
                         } else {
-                            core.editPlaylist(editing, name, description, if (smart) rule else null)
+                            core.editPlaylist(editing, name, description, if (smart) rule else null, before.first, before.second)
                         }
                     }, { saving = false; showMessage(it.message ?: "Could not save it") }) {
                         showMessage(if (editing == null) "Made $name" else "Saved")

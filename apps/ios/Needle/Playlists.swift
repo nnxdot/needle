@@ -53,7 +53,8 @@ struct PlaylistView: View {
                 // From the end, so the places before stay right.
                 for row in rows.sorted(by: >) {
                     let at = detail.positions[row]
-                    store.run { try $0.removeFromPlaylist(id: detail.id, index: at) }
+                    let song = detail.songs[row].id
+                    store.run { try $0.removeFromPlaylist(id: detail.id, index: at, song: song) }
                 }
                 Task { try? await Task.sleep(for: .milliseconds(200)); await reload() }
             })
@@ -61,7 +62,8 @@ struct PlaylistView: View {
                 guard let detail, let first = from.first else { return }
                 let target = to > first ? to - 1 : to
                 let (a, b) = (detail.positions[first], detail.positions[min(target, detail.positions.count - 1)])
-                store.run { try $0.moveInPlaylist(id: detail.id, from: a, to: b) }
+                let song = detail.songs[first].id
+                store.run { try $0.moveInPlaylist(id: detail.id, from: a, to: b, song: song) }
                 self.detail?.songs.move(fromOffsets: from, toOffset: to)
                 Task { try? await Task.sleep(for: .milliseconds(200)); await reload() }
             })
@@ -167,6 +169,8 @@ struct PlaylistEditor: View {
     let done: () -> Void
     @State private var name = ""
     @State private var words = ""
+    /// What the editor showed at first (name, words): only what the person changes is saved.
+    @State private var before = ("", "")
     @State private var smart = false
     @State private var rule = ""
     @State private var problem: String?
@@ -220,6 +224,7 @@ struct PlaylistEditor: View {
             guard let detail else { return }
             name = detail.name
             words = detail.description
+            before = (detail.name, detail.description)
             rule = detail.rule ?? ""
             smart = detail.rule != nil
         }
@@ -238,7 +243,8 @@ struct PlaylistEditor: View {
         Task {
             if let detail {
                 let id = detail.id
-                guard await store.ask({ try $0.editPlaylist(id: id, name: n, description: w, rule: r) }) != nil else { return }
+                let (bn, bw) = before
+                guard await store.ask({ try $0.editPlaylist(id: id, name: n, description: w, rule: r, beforeName: bn, beforeDescription: bw) }) != nil else { return }
             } else {
                 guard await store.ask({ try $0.createPlaylist(name: n, description: w, songs: ids, rule: r) }) != nil else { return }
                 store.message = "Made “\(n)”"

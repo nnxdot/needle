@@ -314,7 +314,11 @@ impl AppView {
         // Windows and Linux glass: the sidebar floats as a pane, 8 px in from the window's
         // edges, with round corners and a soft shadow, as on the Mac.
         let pane = self.floating_glass();
-        let width = if pane { width - super::SIDEBAR_INSET } else { width };
+        let width = if pane {
+            width - super::SIDEBAR_INSET
+        } else {
+            width
+        };
         div()
             .w(px(width))
             .flex_shrink_0()

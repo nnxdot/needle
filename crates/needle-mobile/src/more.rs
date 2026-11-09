@@ -383,17 +383,26 @@ impl Needle {
         Ok(playlist.id)
     }
 
-    /// Renames a playlist, changes its words, or (for a smart one) its rule.
+    /// Renames a playlist, changes its words, or (for a smart one) its rule. `before_name` and
+    /// `before_description` are what the editor showed at first: only what the person changed
+    /// is saved, so a change a sync made meanwhile (a rename on the server) is not undone.
+    #[allow(clippy::too_many_arguments)]
     pub fn edit_playlist(
         &self,
         id: String,
         name: String,
         description: String,
         rule: Option<String>,
+        before_name: String,
+        before_description: String,
     ) -> Result<()> {
         let mut playlist = self.playlist(&id)?;
-        playlist.name = name.trim().to_string();
-        playlist.description = description.trim().to_string();
+        if name.trim() != before_name.trim() {
+            playlist.name = name.trim().to_string();
+        }
+        if description.trim() != before_description.trim() {
+            playlist.description = description.trim().to_string();
+        }
         if playlist.query.is_some() {
             playlist.query = rule.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
             playlist.rules = None;
@@ -414,8 +423,11 @@ impl Needle {
         Ok(self.library.save_playlist(&playlist)?)
     }
 
-    pub fn remove_from_playlist(&self, id: String, index: u32) -> Result<()> {
+    /// Takes out the song at `index`; `song` is the song the screen showed there. When the
+    /// playlist changed meanwhile (a sync), nothing is taken out.
+    pub fn remove_from_playlist(&self, id: String, index: u32, song: String) -> Result<()> {
         let mut playlist = self.playlist(&id)?;
+        changed_meanwhile(&playlist, index, &song)?;
         if (index as usize) < playlist.track_ids.len() {
             playlist.track_ids.remove(index as usize);
             playlist.updated_at = chrono::Utc::now().timestamp();
@@ -424,8 +436,10 @@ impl Needle {
         Ok(())
     }
 
-    pub fn move_in_playlist(&self, id: String, from: u32, to: u32) -> Result<()> {
+    /// Moves the song at `from` to `to`; `song` is the song the screen showed at `from`.
+    pub fn move_in_playlist(&self, id: String, from: u32, to: u32, song: String) -> Result<()> {
         let mut playlist = self.playlist(&id)?;
+        changed_meanwhile(&playlist, from, &song)?;
         let (from, to) = (from as usize, to as usize);
         if from < playlist.track_ids.len() && to < playlist.track_ids.len() {
             let song = playlist.track_ids.remove(from);
@@ -570,4 +584,19 @@ impl Needle {
             .loop_range
             .map_or(vec![], |(a, b)| vec![a, b])
     }
+}
+
+/// The song a screen showed at `index` is not there now: the playlist changed since the
+/// screen read it (a sync brought or took songs), so its places are not the ones meant.
+fn changed_meanwhile(
+    playlist: &needle_core::model::Playlist,
+    index: u32,
+    song: &str,
+) -> Result<()> {
+    if playlist.track_ids.get(index as usize).map(String::as_str) != Some(song) {
+        return Err(NeedleError::Failed(
+            "The playlist changed. Try again.".into(),
+        ));
+    }
+    Ok(())
 }

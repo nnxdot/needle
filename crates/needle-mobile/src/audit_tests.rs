@@ -76,7 +76,7 @@ fn visible_playlist_occurrences_and_theme_ownership_are_stable() {
         ["a", "b", "a"]
     );
     needle
-        .remove_from_playlist("p".into(), detail.positions[2])
+        .remove_from_playlist("p".into(), detail.positions[2], detail.songs[2].id.clone())
         .unwrap();
     assert_eq!(
         needle
@@ -89,7 +89,12 @@ fn visible_playlist_occurrences_and_theme_ownership_are_stable() {
     );
     let detail = needle.playlist_detail("p".into()).unwrap();
     needle
-        .move_in_playlist("p".into(), detail.positions[1], detail.positions[0])
+        .move_in_playlist(
+            "p".into(),
+            detail.positions[1],
+            detail.positions[0],
+            detail.songs[1].id.clone(),
+        )
         .unwrap();
     assert_eq!(
         needle
@@ -232,5 +237,64 @@ fn visible_playlist_occurrences_and_theme_ownership_are_stable() {
     );
     assert!(needle.can_undo_tidy());
     assert_eq!(needle.undo_tidy().unwrap(), 1);
+    needle.shutdown();
+}
+
+#[test]
+fn phone_playlist_edits_apply_only_what_the_screen_meant() {
+    let dir = tempfile::tempdir().unwrap();
+    let needle = Needle::new(dir.path().to_string_lossy().into()).unwrap();
+    for id in ["a", "b", "x"] {
+        needle
+            .library
+            .upsert(&Track {
+                id: id.into(),
+                path: format!("/{id}.wav"),
+                title: id.into(),
+                ..Default::default()
+            })
+            .unwrap();
+    }
+    let p = StoredPlaylist {
+        id: "p".into(),
+        name: "Mix".into(),
+        description: "Old words".into(),
+        track_ids: vec!["a".into(), "b".into()],
+        ..Default::default()
+    };
+    needle.library.save_playlist(&p).unwrap();
+    // The screen shows [a, b]; a sync puts x first before the screen reloads.
+    let shown = needle.playlist_detail("p".into()).unwrap();
+    let mut synced = needle.library.playlist_by_id("p").unwrap().unwrap();
+    synced.track_ids.insert(0, "x".into());
+    synced.name = "Renamed on the server".into();
+    needle.library.save_playlist(&synced).unwrap();
+    // Taking out the b the screen showed at place 1 must not take out a.
+    assert!(
+        needle
+            .remove_from_playlist("p".into(), shown.positions[1], shown.songs[1].id.clone())
+            .is_err()
+    );
+    assert!(
+        needle
+            .move_in_playlist("p".into(), shown.positions[1], 0, shown.songs[1].id.clone())
+            .is_err()
+    );
+    let now = needle.library.playlist_by_id("p").unwrap().unwrap();
+    assert_eq!(now.track_ids, ["x", "a", "b"]);
+    // An editor that showed "Mix" saves new words only: the new name stays.
+    needle
+        .edit_playlist(
+            "p".into(),
+            "Mix".into(),
+            "New words".into(),
+            None,
+            shown.name.clone(),
+            shown.description.clone(),
+        )
+        .unwrap();
+    let now = needle.library.playlist_by_id("p").unwrap().unwrap();
+    assert_eq!(now.name, "Renamed on the server");
+    assert_eq!(now.description, "New words");
     needle.shutdown();
 }

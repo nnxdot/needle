@@ -1509,7 +1509,10 @@ impl AppView {
                 &detail,
                 div().when(ambient, |el| el.opacity(0.4)).child(segmented(
                     "window-material",
-                    &choices.iter().map(|(_, label, _)| *label).collect::<Vec<_>>(),
+                    &choices
+                        .iter()
+                        .map(|(_, label, _)| *label)
+                        .collect::<Vec<_>>(),
                     index,
                     cx,
                     {
@@ -1519,8 +1522,7 @@ impl AppView {
                                 if this.ambient_look() {
                                     return;
                                 }
-                                this.settings.window_material =
-                                    Material::choices()[i].0.into();
+                                this.settings.window_material = Material::choices()[i].0.into();
                                 this.persist_settings();
                                 cx.notify();
                             });

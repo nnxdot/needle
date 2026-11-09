@@ -411,8 +411,9 @@ impl AppView {
             }
         }
         let new = editor.editing.is_none();
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
+        // A server playlist saved after it left Needle comes back under an id of its own.
+        match self.library.save_playlist_as(&playlist) {
+            Ok(id) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.editor = None;
                 self.notify(if new {
@@ -420,7 +421,7 @@ impl AppView {
                 } else {
                     format!("Saved “{}”.", playlist.name)
                 });
-                self.navigate(Page::Playlist(playlist.id.clone()), window, cx);
+                self.navigate(Page::Playlist(id), window, cx);
                 self.refresh(cx);
             }
             Err(error) => self.fail(error.to_string()),

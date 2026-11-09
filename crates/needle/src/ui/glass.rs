@@ -308,12 +308,16 @@ pub fn system_blur() -> bool {
         *FOUND.get_or_init(|| {
             let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
                 || std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t == "wayland");
-            let kde = ["XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "DESKTOP_SESSION"]
-                .iter()
-                .any(|key| {
-                    std::env::var(key)
-                        .is_ok_and(|v| v.to_ascii_lowercase().contains("kde") || v.contains("plasma"))
-                });
+            let kde = [
+                "XDG_CURRENT_DESKTOP",
+                "XDG_SESSION_DESKTOP",
+                "DESKTOP_SESSION",
+            ]
+            .iter()
+            .any(|key| {
+                std::env::var(key)
+                    .is_ok_and(|v| v.to_ascii_lowercase().contains("kde") || v.contains("plasma"))
+            });
             wayland && kde
         })
     }
@@ -481,7 +485,11 @@ mod tests {
     #[test]
     fn three_corner_sizes() {
         for r in [6., 8., 9., 10., 12., 14., 16., 18., 22., 24., 26.] {
-            assert!([8., 14., 20.].contains(&corner(r)), "{r} gives {}", corner(r));
+            assert!(
+                [8., 14., 20.].contains(&corner(r)),
+                "{r} gives {}",
+                corner(r)
+            );
         }
     }
 

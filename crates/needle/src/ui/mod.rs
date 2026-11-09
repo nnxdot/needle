@@ -3605,11 +3605,7 @@ impl Render for AppView {
                                 } else {
                                     glass::Lift::Flat
                                 };
-                                glass::edge(
-                                    el.rounded(px(glass::MEDIUM)).bg(p.canvas),
-                                    lift,
-                                    cx,
-                                )
+                                glass::edge(el.rounded(px(glass::MEDIUM)).bg(p.canvas), lift, cx)
                             })
                             .when(floating && !on_glass && !glass_sheet, |el| el.size_full())
                             // macOS Liquid Glass: the page is drawn under the glass, so the

@@ -515,16 +515,8 @@ impl AppView {
         let d = p.dark;
         // (cover, gradient start and end, wash top and foot).
         let (cover, glow, wash) = match (ambient, painted) {
-            (true, _) => (
-                0.8,
-                (0.55, 0.08),
-                if d { (0.3, 0.65) } else { (0.55, 0.8) },
-            ),
-            (false, true) => (
-                0.7,
-                (0.45, 0.06),
-                if d { (0.2, 0.5) } else { (0.4, 0.65) },
-            ),
+            (true, _) => (0.8, (0.55, 0.08), if d { (0.3, 0.65) } else { (0.55, 0.8) }),
+            (false, true) => (0.7, (0.45, 0.06), if d { (0.2, 0.5) } else { (0.4, 0.65) }),
             (false, false) => (
                 0.55,
                 (0.35, 0.05),

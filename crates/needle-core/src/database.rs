@@ -476,6 +476,12 @@ impl Library {
         json.iter().map(|s| Ok(serde_json::from_str(s)?)).collect()
     }
     pub fn save_playlist(&self, playlist: &Playlist) -> Result<()> {
+        self.save_playlist_as(playlist).map(|_| ())
+    }
+    /// [`Self::save_playlist`], giving the id it was saved under: a server playlist's editor
+    /// saving after the playlist left Needle (signed out, or deleted) saves it as the person's
+    /// own, under an id of its own, so the server's copy coming back never writes over it.
+    pub fn save_playlist_as(&self, playlist: &Playlist) -> Result<String> {
         if playlist.name.trim().is_empty() {
             bail!("Give the playlist a name")
         }
@@ -497,6 +503,12 @@ impl Library {
                 *playlist.to_mut() = merged;
                 copy = clash;
             }
+            // Gone from Needle meanwhile: the person's own now, under a new id.
+            (seen, None) if seen.is_some() || playlist.id.starts_with("srv-") => {
+                let own = playlist.to_mut();
+                own.id = uuid::Uuid::new_v4().to_string();
+                own.server = None;
+            }
             _ => {
                 if playlist.server != link {
                     playlist.to_mut().server = link;
@@ -516,7 +528,7 @@ impl Library {
         {
             crate::server_playlists::edited(plugin);
         }
-        Ok(())
+        Ok(playlist.id.clone())
     }
     /// Save a playlist as it is (the server playlists' sync).
     pub(crate) fn store_playlist(&self, playlist: &Playlist) -> Result<()> {
