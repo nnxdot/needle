@@ -21,6 +21,40 @@ fn when(timestamp: i64) -> String {
 }
 
 impl AppView {
+    /// The side panel as a pane that moves: just opened, it slides in from the right and
+    /// fades in; closing (`shown` false), it slides out and fades. Still otherwise.
+    pub(super) fn panel_pane(
+        &self,
+        width: f32,
+        shown: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let pane = div()
+            .h_full()
+            .flex_shrink_0()
+            .flex()
+            .child(self.panel(width, window, cx));
+        let (opened, since) = self.panel_opened;
+        match self.panel_closing {
+            Some(closing) if !shown => motion::animate(
+                pane.occlude(),
+                ("panel-out", closing),
+                super::PANEL_OUT_MS,
+                cx,
+                |el, t| el.opacity(1. - t).relative().left(px(28. * t)),
+            ),
+            // Only just after it opened: a panel drawn again later (after the big player)
+            // does not slide in again.
+            _ if opened > 0 && since.elapsed() < std::time::Duration::from_millis(400) => {
+                motion::animate(pane, ("panel-open", opened), 220, cx, |el, t| {
+                    el.opacity(t).relative().left(px(28. * (1. - t)))
+                })
+            }
+            _ => pane.into_any_element(),
+        }
+    }
+
     pub(super) fn panel(
         &self,
         width: f32,

@@ -376,6 +376,9 @@ pub struct Toast {
     leaving: Option<Instant>,
 }
 
+/// How long the side panel takes to slide out.
+const PANEL_OUT_MS: u64 = 180;
+
 /// How long a message takes to fade out.
 const TOAST_OUT_MS: u64 = 180;
 
@@ -555,6 +558,10 @@ pub struct AppView {
     /// there until the page changes.
     details_here: bool,
     panel_serial: u64,
+    /// The side panel's openings so far, and when the last one was.
+    panel_opened: (u64, Instant),
+    /// The side panel is sliding out (the opening it closes).
+    panel_closing: Option<u64>,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     group_menu: Option<menus::GroupMenu>,
@@ -1282,6 +1289,8 @@ impl AppView {
             panel_shown: None,
             details_here: false,
             panel_serial: 0,
+            panel_opened: (0, Instant::now()),
+            panel_closing: None,
             menu: None,
             playlist_menu: None,
             group_menu: None,
@@ -3383,6 +3392,30 @@ impl Render for AppView {
             && (self.page.is_tracks() || self.panel != Panel::Details || self.details_here);
         let shown = show_panel.then_some(self.panel);
         if shown != self.panel_shown {
+            // Opening, the pane slides in; closing, it slides out over the page, then goes.
+            match (self.panel_shown, shown) {
+                (None, Some(_)) => {
+                    self.panel_opened = (self.panel_opened.0 + 1, Instant::now());
+                    self.panel_closing = None;
+                }
+                (Some(_), None) if motion::enabled(cx) => {
+                    let serial = self.panel_opened.0;
+                    self.panel_closing = Some(serial);
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(PANEL_OUT_MS + 20))
+                            .await;
+                        let _ = this.update(cx, |this, cx| {
+                            if this.panel_closing == Some(serial) {
+                                this.panel_closing = None;
+                                cx.notify();
+                            }
+                        });
+                    })
+                    .detach();
+                }
+                _ => {}
+            }
             self.panel_shown = shown;
             if shown.is_some() {
                 self.panel_serial += 1;
@@ -3842,20 +3875,24 @@ impl Render for AppView {
                                                         .pb(px(PAGE_INSET))
                                                 })
                                                 .child(sheet)
-                                                .when(show_panel, |el| {
-                                                    el.child(
-                                                        div()
-                                                            .absolute()
-                                                            .top(px(6. + inset))
-                                                            .right(px(10. + inset))
-                                                            .bottom(px(10. + inset))
-                                                            .child(self.panel(
-                                                                panel_width,
-                                                                window,
-                                                                cx,
-                                                            )),
-                                                    )
-                                                })
+                                                .when(
+                                                    show_panel || self.panel_closing.is_some(),
+                                                    |el| {
+                                                        el.child(
+                                                            div()
+                                                                .absolute()
+                                                                .top(px(6. + inset))
+                                                                .right(px(10. + inset))
+                                                                .bottom(px(10. + inset))
+                                                                .child(self.panel_pane(
+                                                                    panel_width,
+                                                                    show_panel,
+                                                                    window,
+                                                                    cx,
+                                                                )),
+                                                        )
+                                                    },
+                                                )
                                                 .children(over.map(|player| {
                                                     div()
                                                         .absolute()
@@ -3911,7 +3948,12 @@ impl Render for AppView {
                                                         })),
                                                 )
                                                 .when(show_panel, |el| {
-                                                    el.child(self.panel(panel_width, window, cx))
+                                                    el.child(self.panel_pane(
+                                                        panel_width,
+                                                        true,
+                                                        window,
+                                                        cx,
+                                                    ))
                                                 }),
                                         )
                                         .children(below),
