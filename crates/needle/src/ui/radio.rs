@@ -1,6 +1,6 @@
 //! Offline radio in the interface: measuring songs in the background, stations from a song or
 //! an artist, and blends of two artists.
-use super::{AppView, Event, menus::Entry, motion, pal};
+use super::{AppView, Event, menus::Entry, motion};
 use gpui::{prelude::*, *};
 use gpui_component::ActiveTheme;
 use needle_core::{
@@ -194,7 +194,6 @@ impl AppView {
 
     pub(super) fn blend_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let menu = self.blend_menu.as_ref()?;
-        let p = pal(cx);
         let mut entries = vec![Entry::Label(format!("Blend {} with", menu.artist).into())];
         match &menu.choices {
             None => entries.push(Entry::Label("Listening for similar artists…".into())),
@@ -216,9 +215,6 @@ impl AppView {
             .w(px(240.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {

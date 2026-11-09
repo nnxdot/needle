@@ -178,12 +178,13 @@ pub trait StyledExt: Styled + Sized {
         // Needle patch: a see-through popover colour means the window's glass shows behind.
         let glass = cx.theme().popover.a < 0.01;
         let this = if glass { self.glass() } else { self };
-        this.bg(cx.theme().popover)
+        let this = this
+            .bg(cx.theme().popover)
             .text_color(cx.theme().popover_foreground)
             .border_1()
-            .border_color(cx.theme().border)
-            .shadow_lg()
-            .rounded(cx.theme().radius)
+            .border_color(popover_border(cx))
+            .rounded(cx.theme().popover_radius);
+        popover_shadow(this, cx)
     }
 
     /// Set corner radii for the element.
@@ -196,6 +197,39 @@ pub trait StyledExt: Styled + Sized {
 }
 
 impl<E: Styled> StyledExt for E {}
+
+/// Needle patch: the outline of popovers, menus and tooltips.
+pub fn popover_border(cx: &App) -> Hsla {
+    let theme = cx.theme();
+    if theme.popover_border.a > 0. {
+        theme.popover_border
+    } else {
+        theme.border
+    }
+}
+
+/// Needle patch: the shadow of popovers, menus and tooltips, with a 1 px light along the top
+/// edge (a line one pixel above, so it follows the round corners) when the theme has one.
+pub fn popover_shadow<E: Styled>(el: E, cx: &App) -> E {
+    let edge = cx.theme().popover_edge;
+    if edge.a <= 0. {
+        return el.shadow_lg();
+    }
+    el.shadow(vec![
+        BoxShadow {
+            color: gpui::hsla(0., 0., 0., 0.24),
+            offset: point(px(0.), px(8.)),
+            blur_radius: px(24.),
+            spread_radius: px(0.),
+        },
+        BoxShadow {
+            color: edge,
+            offset: point(px(0.), px(-1.)),
+            blur_radius: px(0.),
+            spread_radius: px(0.),
+        },
+    ])
+}
 
 /// A size for elements.
 #[derive(Clone, Default, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]

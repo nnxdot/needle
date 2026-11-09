@@ -165,6 +165,11 @@ const PAGE_SIZE: usize = 1000;
 /// How long the big player takes to grow or shrink.
 const BIG_MS: u64 = 260;
 
+/// Windows and Linux glass: how far the floating sidebar and the page sheet keep from the
+/// window's edges and from each other.
+pub(crate) const SIDEBAR_INSET: f32 = 8.;
+pub(crate) const PAGE_INSET: f32 = 8.;
+
 /// Collections that can be added to the sidebar (the + beside Collections): key, name, icon,
 /// and the rule for their songs.
 pub const MORE_COLLECTIONS: &[(&str, &str, &str, &str)] = &[
@@ -3254,8 +3259,17 @@ impl Render for AppView {
             }
         }
         // The page and the side panel share one content surface to the right of the sidebar.
-        let content_width =
-            f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
+        // Windows and Linux glass: the sheet keeps clear of the sidebar and the window's edge.
+        let sheet_insets = if self.floating_glass() {
+            PAGE_INSET * 2. + 1.
+        } else {
+            0.
+        };
+        let content_width = f32::from(width)
+            - sidebar
+            - if show_panel { panel_width } else { 0. }
+            - 1.
+            - sheet_insets;
         // With Liquid Glass the system draws the cover behind the whole window instead.
         let backdrop = if self.liquid() {
             div().into_any_element()
@@ -3562,6 +3576,9 @@ impl Render for AppView {
                         // the player sits beside the sidebar, which runs the window's height.
                         let floating = self.floating();
                         let on_glass = self.on_glass();
+                        // Windows and Linux glass: the page floats as a sheet, inset on every
+                        // side, with the panes' corners.
+                        let glass_sheet = self.floating_glass();
                         let sheet = div()
                             .id("sheet")
                             .flex_1()
@@ -3573,14 +3590,28 @@ impl Render for AppView {
                             // Elsewhere, the content surface: flush with the window's right edge
                             // and the player, one hairline and a rounded corner where it meets
                             // the sidebar and title bar, like Windows 11's own apps.
-                            .when(!on_glass, |el| {
+                            .when(!on_glass && !glass_sheet, |el| {
                                 el.rounded_tl(px(if floating { 12. } else { 10. }))
                                     .bg(p.canvas)
                                     .border_t_1()
                                     .border_l_1()
                                     .border_color(if p.dark { p.line_soft } else { p.line })
                             })
-                            .when(floating && !on_glass, |el| el.size_full())
+                            .when(glass_sheet, |el| {
+                                // A see-through page (Ambient, or Glass behind the page) has
+                                // no shadow: GPUI would draw it under the page too.
+                                let lift = if p.canvas.a > 0.95 {
+                                    glass::Lift::Low
+                                } else {
+                                    glass::Lift::Flat
+                                };
+                                glass::edge(
+                                    el.rounded(px(glass::MEDIUM)).bg(p.canvas),
+                                    lift,
+                                    cx,
+                                )
+                            })
+                            .when(floating && !on_glass && !glass_sheet, |el| el.size_full())
                             // macOS Liquid Glass: the page is drawn under the glass, so the
                             // floating player shows the songs passing beneath it.
                             .when(on_glass, |el| el.size_full().under_glass())
@@ -3603,6 +3634,11 @@ impl Render for AppView {
                             })
                             .when(show_panel && !floating, |el| {
                                 el.child(self.panel(panel_width, window, cx))
+                            })
+                            // Windows and Linux: the page fades out under the title bar and
+                            // under the floating player, not a hard cut.
+                            .when(floating && !on_glass && !cfg!(target_os = "macos"), |el| {
+                                el.children(self.scroll_edges(cx))
                             });
                         // The player at the bottom; or, with it in the title bar and the
                         // sidebar folded away, the search field there (unless hidden too).
@@ -3657,6 +3693,9 @@ impl Render for AppView {
                             } else {
                                 self.player_lyrics(cx)
                             };
+                            // On glass the sheet is inset, and the panel and the player keep
+                            // to it.
+                            let inset = if glass_sheet { PAGE_INSET } else { 0. };
                             el.child(
                                 row.child(
                                     div()
@@ -3670,14 +3709,20 @@ impl Render for AppView {
                                                 .flex_1()
                                                 .min_h_0()
                                                 .relative()
+                                                .when(glass_sheet, |el| {
+                                                    el.flex()
+                                                        .pl(px(PAGE_INSET))
+                                                        .pr(px(PAGE_INSET))
+                                                        .pb(px(PAGE_INSET))
+                                                })
                                                 .child(sheet)
                                                 .when(show_panel, |el| {
                                                     el.child(
                                                         div()
                                                             .absolute()
-                                                            .top(px(6.))
-                                                            .right(px(10.))
-                                                            .bottom(px(10.))
+                                                            .top(px(6. + inset))
+                                                            .right(px(10. + inset))
+                                                            .bottom(px(10. + inset))
                                                             .child(self.panel(
                                                                 panel_width,
                                                                 window,
@@ -3688,13 +3733,13 @@ impl Render for AppView {
                                                 .children(over.map(|player| {
                                                     div()
                                                         .absolute()
-                                                        .left_0()
+                                                        .left(px(inset))
                                                         .right(px(if show_panel {
-                                                            panel_width
+                                                            panel_width + inset
                                                         } else {
-                                                            0.
+                                                            inset
                                                         }))
-                                                        .bottom(px(14.))
+                                                        .bottom(px(14. + inset))
                                                         .flex()
                                                         .justify_center()
                                                         .child(player)

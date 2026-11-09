@@ -54,7 +54,12 @@ impl AppView {
                 ))
             })
             .when(frosted, |el| {
-                super::player2::frosted(el, 22., cx)
+                let radius = if cfg!(target_os = "macos") {
+                    22.
+                } else {
+                    super::glass::LARGE
+                };
+                super::player2::frosted(el, radius, cx)
                     .overflow_hidden()
                     .py(px(6.))
             })

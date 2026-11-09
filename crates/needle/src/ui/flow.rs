@@ -26,7 +26,6 @@ impl Render for DragPreview {
             .map(|el| super::glass::pane(el, 8., 12., cx.theme().popover, cx))
             .border_1()
             .border_color(p.accent.opacity(0.6))
-            .shadow_lg()
             .flex()
             .items_center()
             .gap_2()
