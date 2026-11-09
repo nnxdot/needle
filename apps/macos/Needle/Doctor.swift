@@ -100,8 +100,8 @@ struct DoctorPage: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -417,7 +417,7 @@ private struct OrganizeTab: View {
                         .disabled(plan.moves == 0 || working || previewing)
                 }
                 .padding(12)
-                .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 10))
+                .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
             }
             if store.core.canUndoTidy() {
                 Button("Undo last move") {

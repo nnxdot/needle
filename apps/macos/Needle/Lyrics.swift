@@ -280,7 +280,7 @@ struct TimingPage: View {
                     .font(.system(size: 14))
                     .scrollContentBackground(.hidden)
                     .padding(8)
-                    .background(colors.raised, in: RoundedRectangle(cornerRadius: 10))
+                    .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 Button { begin(LyricTimer(lyrics: nil, text: text)) } label: { Label("Start timing", systemImage: "play.fill") }
                     .glassButton(prominent: true)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -357,8 +357,8 @@ struct TimingPage: View {
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(selected == i ? colors.raised : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isNext ? colors.accent.opacity(0.6) : .clear))
+                        .background(selected == i ? colors.raised : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(isNext ? colors.accent.opacity(0.6) : .clear))
                         .contentShape(Rectangle())
                         .id(i)
                         .onTapGesture { choose(i, at: line.time) }
@@ -368,7 +368,7 @@ struct TimingPage: View {
             }
             .onChange(of: next.line) { _, line in withAnimation(store.motion ? .default : nil) { reader.scrollTo(line, anchor: .center) } }
         }
-        .background(colors.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .background(colors.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
     }
 
     /// Word mode: tapped words full strength, the rest faint, the next one underlined.
@@ -399,7 +399,7 @@ struct TimingPage: View {
             }
             .foregroundStyle(playingThis ? colors.accentInk : colors.ink3)
             .frame(maxWidth: .infinity, minHeight: 64)
-            .background(playingThis ? colors.accent : colors.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(playingThis ? colors.accent : colors.raised, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

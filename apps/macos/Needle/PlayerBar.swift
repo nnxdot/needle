@@ -101,7 +101,7 @@ struct TopScreen: View {
                     .buttonStyle(.plain)
                     .help("Open the big player · ⌘P")
                 } else {
-                    RoundedRectangle(cornerRadius: 5).fill(colors.raised).frame(width: 30, height: 30)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(colors.raised).frame(width: 30, height: 30)
                         .overlay { Image(systemName: "music.note").font(.system(size: 12)).foregroundStyle(colors.ink3) }
                 }
             }
@@ -197,7 +197,7 @@ struct NowScreen: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    RoundedRectangle(cornerRadius: 5).fill(colors.raised).frame(width: side, height: side)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(colors.raised).frame(width: side, height: side)
                         .overlay { Image(systemName: "music.note").foregroundStyle(colors.ink3) }
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Nothing playing").font(.system(size: small ? 12 : 13, weight: .semibold)).foregroundStyle(colors.ink2)

@@ -28,7 +28,7 @@ struct ImportPage: View {
                         Button("Stop") { store.core.cancelImport() }
                     }
                     .padding(12)
-                    .background(colors.raised, in: RoundedRectangle(cornerRadius: 10))
+                    .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
                 if !found.isEmpty {
                     Text("Found on this Mac").font(.needle(.headline))
@@ -98,7 +98,7 @@ struct ImportPage: View {
             action()
         }
         .padding(14)
-        .background(store.colors.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .background(store.colors.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
         .disabled(store.importProgress != nil)
     }
 

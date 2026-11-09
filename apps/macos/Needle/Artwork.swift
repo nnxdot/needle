@@ -260,7 +260,14 @@ struct Cover: View {
     var body: some View {
         Artwork(path: path, seed: seed, size: Int(side * 2))
             .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: corner ?? max(3, side * 0.06), style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Self.radius(corner ?? side * 0.06), style: .continuous))
+    }
+
+    /// Soft covers (the look's rule 6): 6 to 8 points round, 12 in the big player (asked for
+    /// with 12 or more), square at 0 (a record's label).
+    static func radius(_ asked: CGFloat) -> CGFloat {
+        if asked <= 0 { return 0 }
+        return asked >= 12 ? 12 : min(8, max(6, asked))
     }
 }
 
@@ -480,7 +487,7 @@ struct PlaylistArt: View {
             }
         }
         .frame(width: side, height: side)
-        .clipShape(RoundedRectangle(cornerRadius: max(3, side * 0.08), style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Cover.radius(side * 0.08), style: .continuous))
     }
 }
 

@@ -42,7 +42,7 @@ struct SleepButton: View {
             Image(systemName: running == nil ? "moon" : "moon.fill")
                 .foregroundStyle(running == nil ? colors.ink2 : colors.accent)
                 .frame(width: 26, height: 26)
-                .background(running == nil ? Color.clear : colors.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(running == nil ? Color.clear : colors.accent.opacity(0.18), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -187,12 +187,12 @@ struct SongsHeader: View {
         let colors = store.colors
         let seed = album.album + album.displayAlbumArtist
         return HStack(alignment: .bottom, spacing: 28) {
-            Cover(path: album.artwork, seed: seed, side: store.headerFolded ? 64 : 232, corner: store.headerFolded ? 6 : 12)
+            Cover(path: album.artwork, seed: seed, side: store.headerFolded ? 64 : 232, corner: store.headerFolded ? 6 : 8)
                 .modifier(TravelingCover(id: albumQuery, on: store.travelingTile?.hasSuffix("|" + albumQuery) == true))
                 // The album's moving cover (beside its songs or on the server), as in the big player.
                 .overlay {
                     MovingCoverLayer(songID: album.id, on: store.settings.animatedCovers && store.motion)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .shadow(color: .black.opacity(colors.dark ? 0.45 : 0.25), radius: 30, y: 16)
             VStack(alignment: .leading, spacing: 5) {
@@ -445,7 +445,7 @@ struct FolderStrip: View {
                                 }
                             }
                             .padding(.vertical, 6).padding(.horizontal, 10)
-                            .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 8))
+                            .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -488,7 +488,7 @@ struct ServerSongs: View {
                                         .accessibilityLabel("Play")
                                 }
                                 .padding(6)
-                                .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 8))
+                                .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                             }
                         }
                     }
@@ -574,10 +574,10 @@ struct Skeleton: View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(0..<9, id: \.self) { i in
                 HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 4).fill(store.colors.raised).frame(width: 36, height: 36)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(store.colors.raised).frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 7) {
-                        RoundedRectangle(cornerRadius: 3).fill(store.colors.raised).frame(width: 160 + CGFloat(i % 3) * 50, height: 10)
-                        RoundedRectangle(cornerRadius: 3).fill(store.colors.raised.opacity(0.7)).frame(width: 110 + CGFloat(i % 4) * 30, height: 8)
+                        RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(store.colors.raised).frame(width: 160 + CGFloat(i % 3) * 50, height: 10)
+                        RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(store.colors.raised.opacity(0.7)).frame(width: 110 + CGFloat(i % 4) * 30, height: 8)
                     }
                 }
             }

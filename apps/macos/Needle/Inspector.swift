@@ -189,7 +189,7 @@ struct Details: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(colors.raised, in: RoundedRectangle(cornerRadius: 8))
+                    .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
             }
             .padding(16)
@@ -269,7 +269,7 @@ struct QueuePanel: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(colors.raised, in: RoundedRectangle(cornerRadius: 10))
+                .background(colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 .padding(.horizontal, 14)
             }
             HStack(alignment: .firstTextBaseline) {
@@ -340,7 +340,7 @@ private struct QueueRow: View {
         .onHover { inside in withAnimation(store.motion ? .easeOut(duration: 0.12) : nil) { hover = inside } }
         // The soft highlight under the pointer, as on Windows: in the side panel, the big
         // player, and the mini player alike.
-        .listRowBackground(RoundedRectangle(cornerRadius: 6, style: .continuous)
+        .listRowBackground(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
             .fill(hover ? Color.primary.opacity(0.08) : .clear)
             .padding(.horizontal, 6))
         .onTapGesture(count: 2) { store.core.jumpTo(id: entry.id, index: UInt32(index)) }

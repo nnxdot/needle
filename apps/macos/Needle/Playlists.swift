@@ -37,7 +37,7 @@ struct PlaylistEditor: View {
                         }
                     }
                     .frame(width: 120, height: 120)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     Button("Choose picture…") { choosePicture() }.controlSize(.small)
                     if picture != nil || (playlist.cover != nil && !clearPicture) {
                         Button("Use song covers") { picture = nil; clearPicture = true }.controlSize(.small).buttonStyle(.link)

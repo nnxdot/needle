@@ -171,7 +171,7 @@ struct PlayerButtonsEditor: View {
             // The bar.
             HStack(spacing: 6) {
                 ForEach(before, id: \.self) { slot($0, in: list) }
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
                     .fill(Color.primary.opacity(0.07))
                     .frame(width: 120, height: 26)
                     .overlay(Text("Song").font(.needle(.caption2)).foregroundStyle(.tertiary))
@@ -248,7 +248,7 @@ struct PlayerButtonsEditor: View {
             .font(.system(size: 13))
             .foregroundStyle(lit ? Color.primary : .secondary)
             .frame(width: 26, height: 26)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(lit ? 0 : 0.06)))
+            .background(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(Color.primary.opacity(lit ? 0 : 0.06)))
             .contentShape(Rectangle())
     }
 

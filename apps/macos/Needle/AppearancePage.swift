@@ -264,8 +264,8 @@ private struct PickCard<Picture: View>: View {
                 picture
                     .frame(maxWidth: .infinity)
                     .frame(height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.7), lineWidth: chosen ? 2 : 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.7), lineWidth: chosen ? 2 : 1))
                     .overlay(alignment: .topTrailing) { if chosen { CheckBadge().offset(x: 7, y: -7) } }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.needle(.callout).weight(chosen ? .semibold : .regular)).lineLimit(1)
@@ -315,8 +315,8 @@ private struct SketchChoice: View {
             VStack(spacing: 4) {
                 WindowSketch(kind: kind)
                     .frame(width: 76, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.6), lineWidth: chosen ? 2 : 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.6), lineWidth: chosen ? 2 : 1))
                 Text(caption).font(.needle(.caption)).foregroundStyle(chosen ? .primary : .secondary)
             }
             .contentShape(Rectangle())

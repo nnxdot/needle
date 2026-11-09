@@ -230,8 +230,8 @@ struct GenreMapPage: View {
     private func map(_ bubbles: [GenreBubble], width: Double, height: Double) -> some View {
         let colors = store.colors
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(colors.raised)
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(colors.ink3.opacity(0.2)))
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).fill(colors.raised)
+                .overlay(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous).strokeBorder(colors.ink3.opacity(0.2)))
             ForEach(bubbles) { bubble in
                 let tone = GenreLayout.tone(bubble.genre, dark: colors.dark)
                 let many = bubble.genre.contains(" ") || bubble.genre.contains("-")
@@ -271,7 +271,7 @@ struct GenreMapPage: View {
             .allowsHitTesting(false)
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
     }
 
     private var artSummary: String {

@@ -284,7 +284,7 @@ struct TitleCell: View {
                 }
                 if track.missing {
                     Text("Missing file").font(.needle(.caption2)).padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(colors.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
+                        .background(colors.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                         .foregroundStyle(colors.danger)
                 }
             }

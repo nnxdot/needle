@@ -82,7 +82,7 @@ private struct NowCard: View {
             .padding(16)
             .background {
                 LinearGradient(colors: [colors.glow.opacity(0.35), colors.raised.opacity(0.6)], startPoint: .leading, endPoint: .trailing)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
             }
         }
     }
@@ -798,7 +798,7 @@ struct FoldersPage: View {
                                         if let art = folder.artwork {
                                             Cover(path: art, seed: folder.name, side: 140, corner: 8)
                                         } else {
-                                            RoundedRectangle(cornerRadius: 8).fill(store.colors.raised).frame(width: 140, height: 140)
+                                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(store.colors.raised).frame(width: 140, height: 140)
                                                 .overlay { Image(systemName: "folder").font(.needle(.largeTitle)).foregroundStyle(store.colors.ink3) }
                                         }
                                     }

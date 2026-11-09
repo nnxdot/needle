@@ -121,7 +121,7 @@ struct NumbersPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {

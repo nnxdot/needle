@@ -169,7 +169,7 @@ struct ServicesSettings: View {
                         }
                     }
                     .padding(10)
-                    .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 8))
+                    .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 } else {
                     if info?.status.lastfmApp.configured != true {
                         Text("Needle needs a Last.fm API account to sign in. Create one at last.fm/api/account/create, then paste its key and shared secret.")
@@ -665,8 +665,8 @@ private struct SourceCard: View {
             }
         }
         .padding(14)
-        .background(p.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(p.line.opacity(0.6), lineWidth: 1))
+        .background(p.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(p.line.opacity(0.6), lineWidth: 1))
     }
 
     private func signIn(_ source: MusicSource) {
@@ -734,7 +734,7 @@ private struct ServerBadge: View {
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
-            .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
             .accessibilityHidden(true)
     }
 }
@@ -754,7 +754,7 @@ private struct Stat: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }

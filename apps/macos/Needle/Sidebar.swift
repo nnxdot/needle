@@ -132,7 +132,7 @@ struct Sidebar: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .pane(RoundedRectangle(cornerRadius: 10))
+                .pane(RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 .padding(.bottom, 4)
             }
             footerButton("Add music folder", "folder.badge.plus", rail) { store.addFolder() }
@@ -380,7 +380,7 @@ private struct HeaderPlus: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(hovering ? .primary : .secondary)
             .frame(width: 20, height: 20)
-            .background(hovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }

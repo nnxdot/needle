@@ -79,7 +79,7 @@ struct BigPlayer: View {
                                 Cover(path: p.artwork, seed: p.album + p.artist, side: min(geo.size.height * 0.5, wide ? 460 : 340), corner: 14)
                                     .overlay {
                                         MovingCoverLayer(songID: store.current?.id, on: store.settings.animatedCovers && store.motion)
-                                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     }
                                     .shadow(color: .black.opacity(0.45), radius: 40, y: 18)
                             }
@@ -419,7 +419,7 @@ struct MiniPlayer: View {
                 Color.black.opacity(0.3)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
         .onHover { inside in
             withAnimation(store.motion ? .easeOut(duration: 0.18) : nil) { hovering = inside }
         }
