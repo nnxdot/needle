@@ -47,9 +47,27 @@ enum NeedleFonts {
         return list.first { $0.key == key }?.name ?? list[0].name
     }
 
+    /// The fonts now, watched: a view that drew text in them draws again when one changes,
+    /// keeping its place (the whole app was made anew, and went back to Home).
+    @Observable final class Chosen {
+        var text: String?
+        var title: String?
+        /// The reader's text size (Settings › Accessibility › Larger Text): sizes Needle sets
+        /// itself grow with it, as the system's text styles do.
+        var textSize = UIContentSizeCategory.large
+    }
+
+    nonisolated(unsafe) static let chosen = Chosen()
+
     /// The fonts now, for `Font.needle` and titles; nil for Plain. Set as the settings change.
-    nonisolated(unsafe) static var text: String?
-    nonisolated(unsafe) static var title: String?
+    static var text: String? {
+        get { chosen.text }
+        set { if chosen.text != newValue { chosen.text = newValue } }
+    }
+    static var title: String? {
+        get { chosen.title }
+        set { if chosen.title != newValue { chosen.title = newValue } }
+    }
 
     /// Font files added on this iPhone.
     static var ownFolder: URL {
@@ -57,8 +75,13 @@ enum NeedleFonts {
             .appendingPathComponent("Needle/fonts", isDirectory: true)
     }
 
-    /// Makes Needle's fonts, and the ones added on this iPhone, usable (once, at start).
-    static func registerAll() {
+    /// Makes Needle's fonts, and the ones added on this iPhone, usable (once, at start), and
+    /// follows the reader's text size.
+    @MainActor static func registerAll() {
+        chosen.textSize = UIApplication.shared.preferredContentSizeCategory
+        NotificationCenter.default.addObserver(forName: UIContentSizeCategory.didChangeNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { chosen.textSize = UIApplication.shared.preferredContentSizeCategory }
+        }
         var files = Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? []
         files += (try? FileManager.default.contentsOfDirectory(at: ownFolder, includingPropertiesForKeys: nil)) ?? []
         for file in files {
@@ -82,19 +105,28 @@ enum NeedleFonts {
     }
 
     /// Takes the settings: the fonts for `Font.needle`, titles, and the bars' big titles.
-    static func apply(title: String, text: String) {
+    @MainActor static func apply(title: String, text: String) {
         Self.title = family(title, in: titles)
         Self.text = family(text, in: texts)
-        let bar = UINavigationBar.appearance()
-        if let family = Self.title {
-            bar.largeTitleTextAttributes = [.font: uiFont(family, size: 34, bold: !singleWeight.contains(family))]
-        } else {
-            bar.largeTitleTextAttributes = nil
+        let large: [NSAttributedString.Key: Any]? = Self.title.map {
+            [.font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: uiFont($0, size: 34, bold: !singleWeight.contains($0)))]
         }
-        if let family = Self.text {
-            bar.titleTextAttributes = [.font: uiFont(family, size: 17, bold: true)]
-        } else {
-            bar.titleTextAttributes = nil
+        let small: [NSAttributedString.Key: Any]? = Self.text.map {
+            [.font: UIFontMetrics(forTextStyle: .headline).scaledFont(for: uiFont($0, size: 17, bold: true))]
+        }
+        let bar = UINavigationBar.appearance()
+        bar.largeTitleTextAttributes = large
+        bar.titleTextAttributes = small
+        // The bars already on screen too: they are kept (with the pages under them), not made anew.
+        func follow(_ view: UIView) {
+            if let bar = view as? UINavigationBar {
+                bar.largeTitleTextAttributes = large
+                bar.titleTextAttributes = small
+            }
+            view.subviews.forEach(follow)
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            (scene as? UIWindowScene)?.windows.forEach(follow)
         }
     }
 
@@ -128,9 +160,28 @@ extension Font {
 
     /// A title (a section's, a page's name) in the title font chosen; the system's with Plain.
     static func needleTitle(size: CGFloat, relativeTo style: Font.TextStyle = .title2) -> Font {
-        guard let family = NeedleFonts.title else { return .system(size: size, weight: .bold) }
+        guard let family = NeedleFonts.title else { return .scaled(size, relativeTo: style, weight: .bold) }
         if NeedleFonts.singleWeight.contains(family) { return .custom(family, size: size, relativeTo: style) }
         return .custom(family, size: size, relativeTo: style).weight(family == "Roboto Condensed" ? .black : .bold)
+    }
+
+    /// The system font at `size`, grown or shrunk with the reader's text size as `style` is.
+    static func scaled(_ size: CGFloat, relativeTo style: Font.TextStyle = .body, weight: Font.Weight = .regular) -> Font {
+        let ui: UIFont.TextStyle = switch style {
+        case .largeTitle: .largeTitle
+        case .title: .title1
+        case .title2: .title2
+        case .title3: .title3
+        case .headline: .headline
+        case .subheadline: .subheadline
+        case .callout: .callout
+        case .footnote: .footnote
+        case .caption: .caption1
+        case .caption2: .caption2
+        default: .body
+        }
+        let traits = UITraitCollection(preferredContentSizeCategory: NeedleFonts.chosen.textSize)
+        return .system(size: UIFontMetrics(forTextStyle: ui).scaledValue(for: size, compatibleWith: traits), weight: weight)
     }
 }
 

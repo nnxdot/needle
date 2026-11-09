@@ -2,31 +2,40 @@ import SwiftUI
 
 @main
 struct NeedleApp: App {
-    @State private var store = Store.main
+    @State private var launch: Launch
 
     init() {
         NeedleFonts.registerAll()
+        _launch = State(initialValue: Launch.shared)
     }
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                // The text font chosen (Settings › Appearance › Text): drawn anew when it changes.
-                .font(.needle(.body))
-                .id("\(store.choices.displayFont)|\(store.choices.textFont)")
-                .environment(store)
-                .onOpenURL { store.open($0) }
-                .task {
-                    WatchLink.shared.start(store)
-                    store.moveOldTitleFont()
-                    store.allowPictures()
-                }
+            if let store = launch.store {
+                RootView()
+                    // The text font chosen (Settings › Appearance › Text). Every `Font.needle`
+                    // follows a change by itself, so the pages and their places stay.
+                    .font(.needle(.body))
+                    .environment(store)
+                    .onOpenURL { store.open($0) }
+                    .task {
+                        WatchLink.shared.start(store)
+                        store.moveOldTitleFont()
+                        store.allowPictures()
+                        if phase == .active { store.cameToFront() }
+                    }
+            } else {
+                RecoveryView(launch: launch)
+            }
         }
         .onChange(of: phase) { _, now in
+            guard let store = launch.store else { return }
             // Only here, where the listener sees it: a start in the background (a widget,
             // Control Center, Siri, the Lock Screen, the watch) plays and reads nothing.
             if now == .active { store.cameToFront() }
+            // Ticks slowly while no one looks (the lock screen and the watch still follow).
+            store.onScreen(now == .active)
             // The phone may end the app while it is away: the queue, the place, and what was
             // heard of a paused song are kept now.
             if now == .background {
@@ -48,33 +57,31 @@ struct RootView: View {
     @State private var welcomeTest = false
     @State private var paths: [Place: NavigationPath] = [:]
     @Namespace private var player
-    /// Album covers zoom from their tile into the album's page in this.
-    @Namespace private var covers
 
     var body: some View {
         @Bindable var store = store
         let colors = store.colors
         TabView(selection: $place) {
+            // Each tab its own stack, and its own space for covers zooming into their pages.
             Tab("Home", systemImage: "house.fill", value: .home) {
-                NavigationStack(path: path(.home)) { HomeView().routes() }
+                TabStack(path: path(.home)) { HomeView() }
             }
             Tab("Library", systemImage: "square.stack.fill", value: .library) {
-                NavigationStack(path: path(.library)) { LibraryView().routes() }
+                TabStack(path: path(.library)) { LibraryView() }
             }
             // Radio, not Sources: stations made from songs are Needle's own, and were hidden in
             // songs' menus; where the music comes from is in Settings › Sources.
             Tab("Radio", systemImage: "dot.radiowaves.left.and.right", value: .radio) {
-                NavigationStack(path: path(.radio)) { RadioView().routes() }
+                TabStack(path: path(.radio)) { RadioView() }
             }
             Tab(value: .search, role: .search) {
-                NavigationStack(path: path(.search)) { SearchView().routes() }
+                TabStack(path: path(.search)) { SearchView() }
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         // Every page fades softly under the bars at the top and under the tab bar, as Apple's
         // own apps do; a page can still ask for its own.
         .scrollEdgeEffectStyle(.soft, for: .all)
-        .environment(\.coverSpace, covers)
         #if DEBUG
         // For testing from a shell: -tab library|radio|search, -albums opens Albums there, and
         // -route settings|appearance|sources opens that page.
@@ -201,23 +208,25 @@ struct RootView: View {
         }
         #endif
         .tabViewBottomAccessory {
-            MiniPlayer()
+            MiniPlayer { if store.playback?.current != nil { store.showPlayer = true } }
                 .matchedTransitionSource(id: "player", in: player)
                 .contentShape(.rect)
                 .onTapGesture { if store.playback?.current != nil { store.showPlayer = true } }
         }
+        // With Reduce motion the player comes and goes at once, without the zoom.
+        .transaction(value: store.showPlayer) { if Motion.reduced { $0.disablesAnimations = true } }
         .fullScreenCover(isPresented: $store.showPlayer) {
             NowPlayingView()
-                .navigationTransition(.zoom(sourceID: "player", in: player))
+                .modifier(PlayerZoom(space: player))
                 .sheet(item: $store.sheet) { SheetView(sheet: $0) }
-                .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
+                .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
                 .modifier(QuestionAlert(shown: true))
         }
         .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest }, set: { if !$0 { welcomeTest = false } })) {
             WelcomeView { where_, route in welcomeTest = false; go(where_, route) }
         }
         .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
-        .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
+        .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
         .modifier(QuestionAlert(shown: !store.showPlayer))
         .onChange(of: store.opening) { _, route in
             guard let route else { return }
@@ -246,6 +255,22 @@ struct RootView: View {
             next.append(route)
             paths[where_] = next
             opened[where_] = (next.count, route)
+        }
+    }
+}
+
+/// The player grows out of the mini player; with Reduce motion (the iPhone's or Needle's) it
+/// does not.
+private struct PlayerZoom: ViewModifier {
+    @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    let space: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if systemReduceMotion || store.app.reduceMotion {
+            content
+        } else {
+            content.navigationTransition(.zoom(sourceID: "player", in: space))
         }
     }
 }
