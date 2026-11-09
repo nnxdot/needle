@@ -204,39 +204,43 @@ struct AlbumTile: View {
     private var me: String { place + "|" + album.query }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ZStack(alignment: .bottomTrailing) {
+        // A real button, so the keyboard (Tab, with keyboard navigation on) reaches it and
+        // Space opens it; the play button sits beside it over the cover, not inside it.
+        Button { open() } label: {
+            VStack(alignment: .leading, spacing: 5) {
                 Cover(path: album.artwork, seed: album.album + album.artist, side: side, corner: 8)
                     .modifier(TravelingCover(id: album.query, on: store.travelingTile == me))
                     // Under the pointer the cover lifts a little, with a soft light in its own colour.
                     .shadow(color: hover ? (glow ?? .black).opacity(0.55) : .black.opacity(0.15), radius: hover ? 16 : 6, y: hover ? 6 : 4)
                     .offset(y: hover && store.motion ? -2 : 0)
-                if hover {
-                    Button { play() } label: {
-                        Image(systemName: "play.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(store.colors.accentInk)
-                            .frame(width: 34, height: 34)
-                            .background(store.colors.accent, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(8)
-                    .transition(store.motion ? .scale.combined(with: .opacity) : .opacity)
-                }
+                Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist)
+                    .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
-            Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
-            Text(album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist)
-                .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
+            .frame(width: side, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .frame(width: side)
-        .contentShape(Rectangle())
-        .onHover { h in withAnimation(.snappy(duration: 0.15)) { hover = h } }
+        .buttonStyle(.plain)
+        .overlay(alignment: .topLeading) {
+            if hover {
+                Button { play() } label: {
+                    Image(systemName: "play.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(store.colors.accentInk)
+                        .frame(width: 34, height: 34)
+                        .background(store.colors.accent, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play \(album.title)")
+                .padding(8)
+                .frame(width: side, height: side, alignment: .bottomTrailing)
+                .offset(y: store.motion ? -2 : 0)
+                .transition(store.motion ? .scale.combined(with: .opacity) : .opacity)
+            }
+        }
+        .onHover { h in withAnimation(store.motion ? .snappy(duration: 0.15) : nil) { hover = h } }
         .task(id: hover) {
             guard hover, glow == nil else { return }
             glow = Color(nsColor: await Covers.pageColor(album.artwork, seed: album.album + album.artist))
         }
-        .onTapGesture { open() }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { open() }
         .accessibilityAction(named: "Play") { play() }
         .contextMenu { GroupMenu(route: album.route, title: album.title) }
     }
@@ -259,19 +263,19 @@ struct ArtistTile: View {
     let side: CGFloat
 
     var body: some View {
-        VStack(spacing: 6) {
-            ArtistPhoto(name: artist.name, side: side)
-                .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
-            Text(artist.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
-            Text(artist.albums == 1 ? count(artist.tracks, "track") : "\(artist.albums) albums · \(count(artist.tracks, "track"))")
-                .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
+        // A real button, so the keyboard reaches it.
+        Button { store.navigate(.artist(artist.name)) } label: {
+            VStack(spacing: 6) {
+                ArtistPhoto(name: artist.name, side: side)
+                    .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+                Text(artist.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(artist.albums == 1 ? count(artist.tracks, "track") : "\(artist.albums) albums · \(count(artist.tracks, "track"))")
+                    .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
+            }
+            .frame(width: side)
+            .contentShape(Rectangle())
         }
-        .frame(width: side)
-        .contentShape(Rectangle())
-        .onTapGesture { store.navigate(.artist(artist.name)) }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { store.navigate(.artist(artist.name)) }
+        .buttonStyle(.plain)
         .contextMenu { GroupMenu(route: .artist(artist.name), title: artist.title) }
     }
 }
@@ -778,6 +782,7 @@ struct FoldersPage: View {
                         Text(root).font(.needle(.caption)).foregroundStyle(.secondary)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 18, alignment: .top)], spacing: 20) {
                             ForEach(inside[root] ?? [], id: \.path) { folder in
+                                Button { store.navigate(.folder(folder.path)) } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     ZStack {
                                         if let art = folder.artwork {
@@ -792,10 +797,8 @@ struct FoldersPage: View {
                                 }
                                 .frame(width: 140)
                                 .contentShape(Rectangle())
-                                .onTapGesture { store.navigate(.folder(folder.path)) }
-                                .accessibilityElement(children: .combine)
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityAction { store.navigate(.folder(folder.path)) }
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
