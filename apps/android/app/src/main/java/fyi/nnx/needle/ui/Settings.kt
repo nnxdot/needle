@@ -741,6 +741,15 @@ private fun SoundSettingsPage() {
             mine = withContext(Dispatchers.IO) { core.myPresets() }
         }
     }
+    val saveEq = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        NeedleApp.instance.scope.launch(Dispatchers.IO) {
+            runCatching {
+                val text = core.eqFileText()
+                context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) } ?: error("Could not save it")
+            }.onSuccess { showMessage("Saved in the Equalizer APO format.") }.onFailure { showMessage(it.message ?: "Could not save it") }
+        }
+    }
     val correction = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         pickedFile(context, uri, { core.loadEqFile(it) }) {
             showMessage("Loaded a correction with ${count(it.toInt(), "band")}")
@@ -802,8 +811,13 @@ private fun SoundSettingsPage() {
                     TextButton(onClick = { naming = true }) { Text("Save as a preset") }
                     if (s.preset in mine) TextButton(onClick = { background { core.deletePreset(s.preset) }; mine = mine - s.preset }) { Text("Delete ${s.preset}") }
                 }
-                TextButton(onClick = { tryOpen("file picker") { correction.launch(arrayOf("text/plain", "*/*")) } }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
-                    Text("Load a headphone correction…")
+                // Onto a second line with large text, rather than squeezed.
+                androidx.compose.foundation.layout.FlowRow(Modifier.padding(start = 8.dp, bottom = 8.dp)) {
+                    TextButton(onClick = { tryOpen("file picker") { correction.launch(arrayOf("text/plain", "*/*")) } }) {
+                        Text("Load a headphone correction…")
+                    }
+                    // As the Mac: the equalizer as a ParametricEQ.txt, which AutoEq and other players read.
+                    TextButton(onClick = { tryOpen("file picker") { saveEq.launch("ParametricEQ.txt") } }) { Text("Save EQ file…") }
                 }
             }
         }
