@@ -1,10 +1,18 @@
 # 2.0.6 [windows, linux]
-Glass all over, and your Navidrome playlists.
-- **Glass all over.** The sidebar floats on glass, the page is a sheet with round corners, and the playing cover's colours glow behind it all. The player, the side panel, menus, dialogs, and tooltips are tinted glass with a light along their top edge.
-- **Glass on Linux.** Settings › Appearance has Glass on Linux too: Blur uses KDE's own blur on Wayland, and other desktops get the cover's glow.
-- **Softer edges.** The page fades out under the title bar and under the player, instead of stopping at a hard line.
-- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy.
+Glass all over, your Navidrome playlists, and a Radio page.
+- **Glass all over.** The sidebar floats on glass, the page is a sheet with round corners, and the playing cover's colours glow behind it all, fading from one cover to the next. The player, the side panel, the small floating player, menus, dialogs, dropdown lists, and tooltips are glass with a light along their top edge.
+- **Glass on Linux.** The cover's glow behind glass panes is the look on every Linux desktop. Settings › Appearance offers Blur and Clear where your desktop can show them (KDE's own blur on Wayland), and says which one is on.
+- **Softer edges.** The page fades out under the title bar and under the player as it scrolls, instead of stopping at a hard line.
+- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy: Needle tells you, and opens the copy. A weak connection does not undo a change; Needle keeps it and sends it later. Playlists you can only read on the server say so.
+- [radio] **A Radio page.** Your station, quick mixes, and a station from each of the songs you play most. It is in the sidebar and in the command palette.
+- **Remove a music folder.** Settings › Library has Stop reading for each folder. Its songs leave Needle; the files stay.
+- **Things move.** The side panel slides in and out, the sidebar folds with a move, dialogs and messages fade in and out, and rows light up softly under the pointer. Reduce motion turns all of it off.
 - Ambient and glass are one look now, so Ambient gets the floating sidebar too.
+- Saving a playlist no longer freezes the window while a server syncs.
+- A playlist removed on your server while its page is open: Needle goes back and says so.
+- Your own fanart.tv key for artists' logos, in Settings › Artwork and lyrics.
+- Home's shelves are in the same order as on the Mac.
+- The Lyrics look and the visualizer use less power, and the visualizer rests with Reduce motion.
 
 # 2.0.4 [windows, linux]
 A genre cloud and genre bubbles, a new Fix my library, and fewer surprises on slow or costly networks.
@@ -71,8 +79,22 @@ A new look, after the Mac's, and a lot more to see and hear.
 - Plugins can translate lyrics: a Translate button then shows under them.
 
 # 2.0.6 [macos]
-Your Navidrome playlists.
-- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy.
+Your Navidrome playlists, a Radio page, and glass in the cover's colour.
+- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy: Needle tells you, and opens the copy. A weak connection does not undo a change; Needle keeps it and sends it later. Playlists you can only read on the server say so.
+- **Glass in the cover's colour.** The player, the side panel, the lyrics strip, the command palette, and messages take a faint colour from the cover playing, and it fades to the next song's. The player and its lyrics strip are one piece of glass, and the page fades softly under the player.
+- **A Radio page.** Your station, quick mixes, and a station from each of the songs you play most, each in its cover's colour.
+- **Shortcuts everywhere.** Keys that control Needle while it is in the background. They are in Settings › Keyboard, off until you turn them on.
+- **Shortcuts and Siri.** Play or pause, next, previous, your favorites, your radio, favorite this song, and play a playlist, from the Shortcuts app, Siri, and Spotlight.
+- **Look up all.** Fix my library › Tags looks up every album with gaps, and you check the sure matches before Needle writes them.
+- Export… for your own themes, to share them.
+- The album cover flies back to its tile when you go Back. Shuffle, Repeat, and the heart bounce, and queue rows slide into place.
+- Reduce Motion in System Settings works the moment you turn it on.
+- Needle uses less power while paused or hidden.
+- ⌘ with an arrow key moves the cursor while you type.
+- The keyboard reaches album, artist, and folder tiles.
+- Fix my library scrolls as one page, and the page no longer jumps at each new song.
+- A playlist removed on your server says so, instead of showing your whole library.
+- Control Center's clock is right at other speeds.
 
 # 2.0.4 [macos]
 A genre cloud and genre bubbles, a new Fix my library, and fixes.
