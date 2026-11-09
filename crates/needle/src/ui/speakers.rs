@@ -261,7 +261,6 @@ impl AppView {
         entries: Vec<Entry>,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let p = pal(cx);
         let rows = Self::menu_rows(&entries, None, cx);
         let body = div()
             .id("speaker-menu")
@@ -269,9 +268,6 @@ impl AppView {
             .w(px(280.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {

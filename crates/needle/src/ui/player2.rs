@@ -40,9 +40,15 @@ fn chosen_buttons(settings: &needle_core::model::Settings) -> Vec<&'static str> 
     }
 }
 
-/// A floating pane's fill on Windows and Linux, where nothing blurs behind it: the look's
-/// raised colour, nearly solid, with a thin line and a soft shadow.
+/// A floating pane's fill where nothing blurs behind it. Windows and Linux: tinted glass
+/// (`glass::floating_pane`). macOS without Liquid Glass: the look's raised colour, nearly
+/// solid, with a thin line and a soft shadow.
 pub(super) fn frosted<E: Styled>(el: E, radius: f32, cx: &App) -> E {
+    // Windows and Linux: tinted glass, with the cover's colour from the left and the edge
+    // light.
+    if !cfg!(target_os = "macos") {
+        return super::glass::floating_pane(el, radius, cx);
+    }
     let p = pal(cx);
     el.rounded(px(radius))
         .bg(p.raised.opacity(0.95))
@@ -511,7 +517,6 @@ impl AppView {
 
     pub(super) fn player_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (position, serial, narrow) = self.player_menu?;
-        let p = pal(cx);
         let entries = self.player_menu_entries(position, narrow);
         let rows = Self::menu_rows(&entries, None, cx);
         let body = div()
@@ -520,9 +525,6 @@ impl AppView {
             .w(px(240.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {

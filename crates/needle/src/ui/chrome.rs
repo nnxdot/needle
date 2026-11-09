@@ -176,6 +176,8 @@ impl AppView {
     ) -> Stateful<Div> {
         let p = pal(cx);
         let glass = p.back.a < 1.;
+        // Windows and Linux glass: the chosen and hovered rows are light capsules.
+        let capsule = p.glass;
         let active = self.page == page
             || matches!(
                 (&self.page, &page),
@@ -195,23 +197,38 @@ impl AppView {
             .h(px(34.))
             .mx_2()
             .px(px(10.))
-            .rounded(px(6.))
+            .map(|el| {
+                if capsule {
+                    el.rounded_full()
+                } else {
+                    el.rounded(px(6.))
+                }
+            })
             .flex()
             .items_center()
             .gap(px(10.))
             .cursor_pointer()
             .text_size(px(13.5))
             .when(active, |el| {
-                el.bg(p.accent_soft)
-                    .text_color(p.ink)
-                    .font_weight(FontWeight::MEDIUM)
+                el.bg(if capsule {
+                    super::glass::capsule(&p, false)
+                } else {
+                    p.accent_soft
+                })
+                .text_color(p.ink)
+                .font_weight(FontWeight::MEDIUM)
             })
             .when(!active, |el| {
                 // On glass, grey text over a see-through layer loses its edges: use full ink
                 // and a touch more weight there so labels stay crisp.
+                let hover = if capsule {
+                    super::glass::capsule(&p, true)
+                } else {
+                    p.raised.opacity(0.6)
+                };
                 el.text_color(if glass { p.ink } else { p.ink_2 })
                     .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
-                    .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                    .hover(move |s| s.bg(hover).text_color(p.ink))
             })
             .child(picture.unwrap_or_else(|| {
                 glyph(glyph_name)
@@ -294,13 +311,30 @@ impl AppView {
         let p = pal(cx);
         let rail = self.settings.layout.sidebar_hidden;
         let floating = self.on_glass();
+        // Windows and Linux glass: the sidebar floats as a pane, 8 px in from the window's
+        // edges, with round corners and a soft shadow, as on the Mac.
+        let pane = self.floating_glass();
+        let width = if pane { width - super::SIDEBAR_INSET } else { width };
         div()
             .w(px(width))
             .flex_shrink_0()
-            .h_full()
+            // As a pane it stretches to the row's height, less its margin.
+            .when(!pane, |el| el.h_full())
             .relative()
             .flex()
             .flex_col()
+            .when(pane, |el| {
+                super::glass::edge(
+                    el.ml(px(super::SIDEBAR_INSET))
+                        .mb(px(super::SIDEBAR_INSET))
+                        .pt(px(6.))
+                        .rounded(px(super::glass::LARGE))
+                        .bg(super::glass::sidebar_fill(&p))
+                        .overflow_hidden(),
+                    super::glass::Lift::Mid,
+                    cx,
+                )
+            })
             // macOS: the sidebar floats on glass from the window's top to its foot, the window
             // buttons in it.
             // Its rows keep clear of the glass's edges.
@@ -1846,13 +1880,7 @@ impl AppView {
                         .pr_2()
                         .py_2()
                         .map(|el| super::glass::pane(el, 10., 18., cx.theme().popover, cx))
-                        .border_1()
-                        .border_color(if toast.error {
-                            p.danger.opacity(0.5)
-                        } else {
-                            p.line
-                        })
-                        .shadow_lg()
+                        .when(toast.error, |el| el.border_color(p.danger.opacity(0.5)))
                         .flex()
                         .items_center()
                         .gap_3()
@@ -1918,24 +1946,34 @@ fn rail_item(
         .flex_shrink_0()
         .size(px(40.))
         .mx_auto()
-        .rounded(px(8.))
         .flex()
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .when(active, |el| {
-            el.bg(p.accent_soft).child(
-                div()
-                    .absolute()
-                    .left(px(-(RAIL - 40.) / 2.))
-                    .top(px(11.))
-                    .w(px(3.))
-                    .h(px(18.))
-                    .rounded(px(2.))
-                    .bg(p.accent),
-            )
+        // Windows and Linux glass: a light capsule marks the page, as in the sidebar's rows.
+        .when(p.glass, |el| {
+            el.rounded_full()
+                .when(active, |el| el.bg(super::glass::capsule(&p, false)))
+                .when(!active, |el| {
+                    el.hover(move |s| s.bg(super::glass::capsule(&p, true)))
+                })
         })
-        .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
+        .when(!p.glass, |el| {
+            el.rounded(px(8.))
+                .when(active, |el| {
+                    el.bg(p.accent_soft).child(
+                        div()
+                            .absolute()
+                            .left(px(-(RAIL - 40.) / 2.))
+                            .top(px(11.))
+                            .w(px(3.))
+                            .h(px(18.))
+                            .rounded(px(2.))
+                            .bg(p.accent),
+                    )
+                })
+                .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
+        })
         .child(picture.unwrap_or_else(|| {
             glyph(glyph_name)
                 .size(px(18.))

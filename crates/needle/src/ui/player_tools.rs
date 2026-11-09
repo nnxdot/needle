@@ -555,9 +555,6 @@ impl AppView {
             .w(px(290.))
             .p(px(16.))
             .map(|el| super::glass::pane(el, 16., 22., cx.theme().popover, cx))
-            .border_1()
-            .border_color(pal(cx).line)
-            .shadow_lg()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.tool_pane = None;
                 cx.notify();

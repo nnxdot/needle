@@ -241,6 +241,27 @@ impl AppView {
         self.material() == super::glass::Material::Liquid
     }
 
+    /// Windows and Linux: the glass look is on, with window glass or with Ambient (one look
+    /// with two strengths of cover). The sidebar and the page then float as panes over the
+    /// back layer, with the cover glowing behind them. Never on macOS.
+    pub(super) fn glass_look(&self) -> bool {
+        !cfg!(target_os = "macos")
+            && (self.ambient_look() || self.material() != super::glass::Material::Solid)
+    }
+
+    /// The glass look with the floating layout: the sidebar and the page as panes.
+    pub(super) fn floating_glass(&self) -> bool {
+        self.glass_look() && self.floating()
+    }
+
+    /// Linux, where the desktop cannot blur: the window stays solid, and Needle paints the
+    /// glass (the cover's glow on the back layer's colour) itself.
+    pub(super) fn painted_glass(&self) -> bool {
+        cfg!(target_os = "linux")
+            && self.material() == super::glass::Material::Acrylic
+            && !super::glass::system_blur()
+    }
+
     /// The player and the side panel float over the page (Needle 2.0's layout, after the
     /// Mac's), unless a full-window view (the big player, Immersive) covers them. On macOS with
     /// Liquid Glass they float on the system's glass; elsewhere on a frosted fill.
@@ -342,6 +363,7 @@ impl AppView {
             target.back = target.chrome.opacity(if target.dark { 0.5 } else { 0.55 });
             target.canvas = target.canvas.opacity(if target.dark { 0.62 } else { 0.7 });
         }
+        target.glass = self.glass_look();
         let shown = theme::pal(cx);
         if target != self.fade.to {
             // Switching dark and light snaps; covers fade.
@@ -445,25 +467,30 @@ impl AppView {
         self.settings.ambient || self.settings.theme == "ambient"
     }
 
-    /// Windows: Glass is on, with the cover on it (Settings › Appearance › The cover on the
-    /// glass), so the glass takes the music's colours, as on the Mac.
+    /// Windows and Linux: Glass is on, so the playing cover glows behind the back layer and
+    /// the glass takes the music's colours, as the Mac's `glass_backdrop` does. It follows
+    /// Colors from the music; where Linux cannot blur, it is the glass itself, so it is
+    /// always there.
     pub(super) fn glass_cover(&self) -> bool {
         use super::glass::Material;
-        cfg!(windows)
-            && self.settings.glass_ambient
+        !cfg!(target_os = "macos")
             && !self.ambient_look()
+            && (self.settings.music_colors || self.painted_glass())
             && matches!(
                 self.material(),
                 Material::Mica | Material::Acrylic | Material::Clear
             )
     }
 
-    /// The Ambient look's background: the page's or the playing song's cover, blurred, over
-    /// the whole window (or the chosen colour as a soft gradient), with a dark wash on top so
-    /// text stays readable on any cover.
+    /// The cover's glow behind the back layer, for Ambient and for glass alike: the page's or
+    /// the playing song's cover, blurred (the cached `Look::blur`, so nothing is redrawn per
+    /// frame), or the music's colour as a soft gradient, with a wash on top so text stays
+    /// readable on any cover. Ambient lays it strongly over a solid base; glass half
+    /// see-through over the window's glass, or a little stronger over a solid base where Linux
+    /// cannot blur.
     pub(super) fn ambient_layer(&mut self, cx: &App) -> Option<AnyElement> {
-        let on_glass = self.glass_cover();
-        if !self.ambient_look() && !on_glass {
+        let ambient = self.ambient_look();
+        if !ambient && !self.glass_cover() {
             return None;
         }
         let p = theme::pal(cx);
@@ -484,36 +511,30 @@ impl AppView {
                 )
             })
         });
-        if on_glass {
-            // Over the glass: the cover half see-through, so the glass still shows through it,
-            // and a light wash for the words.
-            let layer = div().absolute().inset_0();
-            let layer = match blur {
-                Some((blur, fit)) => layer.child(
-                    img(blur)
-                        .absolute()
-                        .inset_0()
-                        .size_full()
-                        .object_fit(ObjectFit::Cover)
-                        .opacity(0.55 * fit),
-                ),
-                None => layer.child(div().absolute().inset_0().bg(linear_gradient(
-                    150.,
-                    linear_color_stop(p.glow.opacity(0.35), 0.),
-                    linear_color_stop(p.glow.opacity(0.05), 1.),
-                ))),
-            };
-            return Some(
-                layer
-                    .child(div().absolute().inset_0().bg(linear_gradient(
-                        180.,
-                        linear_color_stop(p.chrome.opacity(if p.dark { 0.1 } else { 0.25 }), 0.),
-                        linear_color_stop(p.chrome.opacity(if p.dark { 0.35 } else { 0.5 }), 1.),
-                    )))
-                    .into_any_element(),
-            );
-        }
-        let layer = div().absolute().inset_0().bg(p.chrome);
+        let painted = ambient || self.painted_glass();
+        let d = p.dark;
+        // (cover, gradient start and end, wash top and foot).
+        let (cover, glow, wash) = match (ambient, painted) {
+            (true, _) => (
+                0.8,
+                (0.55, 0.08),
+                if d { (0.3, 0.65) } else { (0.55, 0.8) },
+            ),
+            (false, true) => (
+                0.7,
+                (0.45, 0.06),
+                if d { (0.2, 0.5) } else { (0.4, 0.65) },
+            ),
+            (false, false) => (
+                0.55,
+                (0.35, 0.05),
+                if d { (0.1, 0.35) } else { (0.25, 0.5) },
+            ),
+        };
+        let layer = div()
+            .absolute()
+            .inset_0()
+            .when(painted, |el| el.bg(p.chrome));
         let layer = match blur {
             Some((blur, fit)) => layer.child(
                 img(blur)
@@ -521,12 +542,12 @@ impl AppView {
                     .inset_0()
                     .size_full()
                     .object_fit(ObjectFit::Cover)
-                    .opacity(0.8 * fit),
+                    .opacity(cover * fit),
             ),
             None => layer.child(div().absolute().inset_0().bg(linear_gradient(
                 150.,
-                linear_color_stop(p.glow.opacity(0.55), 0.),
-                linear_color_stop(p.glow.opacity(0.08), 1.),
+                linear_color_stop(p.glow.opacity(glow.0), 0.),
+                linear_color_stop(p.glow.opacity(glow.1), 1.),
             ))),
         };
         Some(
@@ -535,8 +556,8 @@ impl AppView {
                 // so the wash is lighter and more even there.
                 .child(div().absolute().inset_0().bg(linear_gradient(
                     180.,
-                    linear_color_stop(p.chrome.opacity(if p.dark { 0.3 } else { 0.55 }), 0.),
-                    linear_color_stop(p.chrome.opacity(if p.dark { 0.65 } else { 0.8 }), 1.),
+                    linear_color_stop(p.chrome.opacity(wash.0), 0.),
+                    linear_color_stop(p.chrome.opacity(wash.1), 1.),
                 )))
                 .into_any_element(),
         )
@@ -570,6 +591,43 @@ impl AppView {
             return div().into_any_element();
         }
         self.backdrop(path.as_deref(), height, strength, cx)
+    }
+
+    /// Windows and Linux: soft edges on the page, so it fades out under the title bar and
+    /// under the floating player rather than stopping at a hard line.
+    pub(super) fn scroll_edges(&self, cx: &App) -> Vec<AnyElement> {
+        let c = theme::pal(cx).canvas;
+        let mut edges = vec![
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .h(px(14.))
+                .bg(linear_gradient(
+                    180.,
+                    linear_color_stop(c, 0.),
+                    linear_color_stop(c.opacity(0.), 1.),
+                ))
+                .into_any_element(),
+        ];
+        if !self.settings.layout.player_on_top {
+            edges.push(
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(super::player2::HEIGHT + 28.))
+                    .bg(linear_gradient(
+                        180.,
+                        linear_color_stop(c.opacity(0.), 0.),
+                        linear_color_stop(c.opacity(c.a * 0.85), 1.),
+                    ))
+                    .into_any_element(),
+            );
+        }
+        edges
     }
 
     /// Film grain over the whole window, so large surfaces do not look like flat paint.

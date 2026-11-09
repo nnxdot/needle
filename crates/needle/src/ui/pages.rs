@@ -1473,14 +1473,15 @@ impl AppView {
                 .into_any_element(),
             ];
         }
-        // Glass is Windows' Mica and Acrylic; Linux has no setting for it.
-        if !cfg!(windows) {
+        // Glass is Windows' Mica and Acrylic, and Linux's blur.
+        if !cfg!(windows) && !cfg!(target_os = "linux") {
             return Vec::new();
         }
         let p = pal(cx);
         let (allowed, win11) = self.glass_system;
         let chosen = Material::from_name(&self.settings.window_material);
-        let index = Material::ALL
+        let choices = Material::choices();
+        let index = choices
             .iter()
             .position(|(name, _, _)| Material::from_name(name) == chosen)
             .unwrap_or(0);
@@ -1492,8 +1493,14 @@ impl AppView {
             "Windows' Transparency effects setting is off, so Needle stays solid. Turn it on in Windows Settings › Personalization › Colors.".to_string()
         } else if chosen == Material::Mica && !win11 {
             "Mica needs Windows 11, so Needle uses Acrylic here.".to_string()
+        } else if cfg!(target_os = "linux")
+            && chosen == Material::Acrylic
+            && !super::glass::system_blur()
+        {
+            "Your desktop does not blur windows, so Needle shows the cover's colours instead."
+                .to_string()
         } else {
-            Material::ALL[index].2.to_string()
+            choices[index].2.to_string()
         };
         let solid = chosen == Material::Solid || !allowed || ambient;
         let mut rows = vec![
@@ -1502,7 +1509,7 @@ impl AppView {
                 &detail,
                 div().when(ambient, |el| el.opacity(0.4)).child(segmented(
                     "window-material",
-                    &Material::ALL.map(|(_, label, _)| label),
+                    &choices.iter().map(|(_, label, _)| *label).collect::<Vec<_>>(),
                     index,
                     cx,
                     {
@@ -1512,7 +1519,8 @@ impl AppView {
                                 if this.ambient_look() {
                                     return;
                                 }
-                                this.settings.window_material = Material::ALL[i].0.into();
+                                this.settings.window_material =
+                                    Material::choices()[i].0.into();
                                 this.persist_settings();
                                 cx.notify();
                             });
@@ -1527,7 +1535,7 @@ impl AppView {
             rows.push(
                 setting_row(
                     "See-through",
-                    "How much the glass shows through the sidebar, title bar, and player.",
+                    "How much shows through the sidebar and around the page.",
                     div()
                         .w(px(220.))
                         .flex()
@@ -1548,27 +1556,12 @@ impl AppView {
             );
             rows.push(
                 setting_row(
-                    "Glass behind the page",
-                    "A little glass through the page too. Text stays readable.",
+                    "See-through page",
+                    "The page lets a little glass through too.",
                     Switch::new("glass-page")
                         .checked(self.settings.glass_page)
                         .on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.glass_page = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                    cx,
-                )
-                .into_any_element(),
-            );
-            rows.push(
-                setting_row(
-                    "The cover on the glass",
-                    "The song that plays, blurred, colours the glass, as on the Mac.",
-                    Switch::new("glass-ambient")
-                        .checked(self.settings.glass_ambient)
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.glass_ambient = *checked;
                             this.persist_settings();
                             cx.notify();
                         })),

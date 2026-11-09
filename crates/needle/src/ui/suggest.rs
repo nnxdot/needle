@@ -177,9 +177,6 @@ impl AppView {
                                     .map(|el| {
                                         super::glass::pane(el, 8., 14., cx.theme().popover, cx)
                                     })
-                                    .border_1()
-                                    .border_color(p.line)
-                                    .shadow_lg()
                                     .flex()
                                     .flex_col()
                                     .children(rows)

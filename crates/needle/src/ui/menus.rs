@@ -620,9 +620,6 @@ impl AppView {
             .w(px(252.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -836,7 +833,6 @@ impl AppView {
 
     pub(super) fn playlist_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let menu = self.playlist_menu.as_ref()?;
-        let p = pal(cx);
         let entries = self.playlist_menu_entries();
         if entries.is_empty() {
             return None;
@@ -848,9 +844,6 @@ impl AppView {
             .w(px(220.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -1010,9 +1003,6 @@ impl AppView {
             .w(px(220.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -1098,7 +1088,6 @@ impl AppView {
 
     pub(super) fn collections_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (position, serial) = self.collections_menu?;
-        let p = pal(cx);
         let entries = self.collections_menu_entries();
         let rows = Self::menu_rows(&entries, None, cx);
         let body = div()
@@ -1107,9 +1096,6 @@ impl AppView {
             .w(px(220.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {

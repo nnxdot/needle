@@ -326,7 +326,8 @@ impl Render for MiniView {
         let (current, playing, position, volume, seek, volume_state, blur, material) = {
             let a = app.read(cx);
             let material = a.material();
-            let ambient = a.ambient_look();
+            // Linux without the desktop's blur paints its glass on a solid base, as Ambient does.
+            let ambient = a.ambient_look() || a.painted_glass();
             let blur = a
                 .settings
                 .music_colors
