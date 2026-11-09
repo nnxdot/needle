@@ -83,7 +83,12 @@ plays and the one main button.
   your library", "On repeat", "Favorites") and "Artists you play most" in circles, each shelf
   with a grey line under its title and See all where there is a page of it.
 - **Library** is one page with filter pills at the top (Playlists, Albums, Artists, Songs, and
-  More). With no pill chosen: Favorites and History as plain rows, then what came in lately.
+  More). With no pill chosen: Favorites, History, and Radio as plain rows, then what came in lately.
+- **Radio** (`Radio.kt`) is the iPhone's Radio tab, under Library on a phone (the dock keeps its
+  three tabs) and in the side bar under Home: your station (a large cover, darkened at its foot,
+  with a round Play), quick mixes as plain tiles in the page's raised colour (not glass, not
+  Material cards), each mix's sign in the colour of a cover from it, and a station for each song
+  played most.
 - **Grids:** two covers across on phones, a title and one grey line under each; on tablets as
   many as fit (`gridColumns` in Adaptive.kt).
 - **Search** (`Search.kt`): the field, then chips (All, Songs, Albums, Artists, Lyrics). All
@@ -103,7 +108,7 @@ plays and the one main button.
 - The side bar (`SideBar.kt`) in place of the dock's tabs, as on the Mac and the computer:
   - 240 dp wide, a pane of glass on the window's colour (`surfaceContainerLowest`). No logo.
   - At its top, a rounded search field ("Search"); it opens the Search page.
-  - Home, Songs, Albums, Artists, Folders. Then a grey "Collections" label: Favorites,
+  - Home, Radio, Songs, Albums, Artists, Folders. Then a grey "Collections" label: Favorites,
     Recently added, Listening history. Then a grey "Playlists" label with a +, and the
     playlists, each with an 18 dp cover.
   - At its foot: Add music folder, Fix my library, Import, Settings.

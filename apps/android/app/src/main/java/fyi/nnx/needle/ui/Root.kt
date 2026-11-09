@@ -100,6 +100,7 @@ sealed interface Route {
     data object Favorites : Route
     data object RecentlyAdded : Route
     data object History : Route
+    data object Radio : Route
     /** A music folder or a folder in one; `null` lists the music folders. */
     data class Folder(val path: String?) : Route
     data class Wrapped(val year: Int?) : Route
@@ -587,6 +588,7 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         Route.Favorites -> FavoritesScreen(open)
         Route.RecentlyAdded -> RecentlyAddedScreen(open)
         Route.History -> HistoryScreen(open)
+        Route.Radio -> RadioScreen(open)
         is Route.Folder -> FoldersScreen(route.path, open)
         is Route.Wrapped -> WrappedScreen(route.year, open)
         is Route.YearReview -> YearReviewScreen(route.year, open)
@@ -732,6 +734,7 @@ private fun routeJson(route: Route): org.json.JSONObject {
         Route.Favorites -> kind("favorites")
         Route.RecentlyAdded -> kind("recent")
         Route.History -> kind("history")
+        Route.Radio -> kind("radio")
         is Route.Folder -> kind("folder", "path" to route.path)
         is Route.Wrapped -> kind("wrapped", "year" to route.year)
         is Route.YearReview -> kind("yearReview", "year" to route.year)
@@ -783,6 +786,7 @@ private fun routeFrom(o: org.json.JSONObject?): Route? {
             "favorites" -> Route.Favorites
             "recent" -> Route.RecentlyAdded
             "history" -> Route.History
+            "radio" -> Route.Radio
             "folder" -> Route.Folder(str("path"))
             "wrapped" -> Route.Wrapped(int("year"))
             "yearReview" -> Route.YearReview(int("year"))

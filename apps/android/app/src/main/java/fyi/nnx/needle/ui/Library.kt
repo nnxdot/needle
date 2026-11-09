@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Album
@@ -283,7 +284,9 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
         span {
             Column(Modifier.padding(horizontal = 0.dp)) {
                 LibraryLink(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }) { open(Route.Favorites) }
-                LibraryLink(Icons.Rounded.History, "History", "What you played", last = true) { open(Route.History) }
+                LibraryLink(Icons.Rounded.History, "History", "What you played") { open(Route.History) }
+                // The iPhone's Radio tab: stations and quick mixes (a tablet's side bar has it too).
+                LibraryLink(Icons.Rounded.Radio, "Radio", "Your station and quick mixes", last = true) { open(Route.Radio) }
             }
         }
         span { Text("Recently added", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp)) }
