@@ -7,8 +7,9 @@ struct RadioView: View {
     @State private var seeds: [Ranked]?
     @State private var songs: UInt32 = 0
     @State private var favorites = 0
-    /// A cover for each quick mix, which gives the tile its colour (the music is the colour).
-    @State private var covers: [String: String] = [:]
+    /// An album for each quick mix: its cover (or its made-up one) gives the tile its colour
+    /// (the music is the colour).
+    @State private var covers: [String: MixCover] = [:]
 
     var body: some View {
         ScrollView {
@@ -48,16 +49,18 @@ struct RadioView: View {
             songs = await store.load { try $0.songCount() } ?? 0
             let loved = await store.load { try $0.favorites() } ?? []
             favorites = loved.count
-            covers = await store.load { core -> [String: String] in
-                var found: [String: String] = [:]
+            covers = await store.load { core -> [String: MixCover] in
+                var found: [String: MixCover] = [:]
                 let home = try? core.home()
-                found["shuffle"] = home?.mostPlayed.first?.artwork ?? home?.recent.first?.artwork
-                found["new"] = home?.added.first?.artwork
-                found["listening"] = (try? core.stats(days: 30))?.topAlbums.first?.artwork ?? home?.recent.dropFirst().first?.artwork
-                found["genres"] = (try? core.genres())?.first { $0.artwork != nil }?.artwork
+                let album = { (a: Album?) in a.map { MixCover(path: $0.artwork, seed: $0.title + $0.artist) } }
+                found["shuffle"] = album(home?.mostPlayed.first ?? home?.recent.first)
+                found["new"] = album(home?.added.first)
+                found["listening"] = (try? core.stats(days: 30))?.topAlbums.first.map { MixCover(path: $0.artwork, seed: $0.album + $0.artist) }
+                    ?? album(home?.recent.dropFirst().first)
+                found["genres"] = (try? core.genres())?.first.map { MixCover(path: $0.artwork, seed: $0.name) }
                 return found
             } ?? [:]
-            covers["favorites"] = loved.first { $0.artwork != nil }?.artwork
+            covers["favorites"] = loved.first.map { MixCover(path: $0.artwork, seed: $0.album + $0.artist) }
         }
     }
 
@@ -176,12 +179,19 @@ private struct StationCard: View {
     }
 }
 
+/// The album a quick mix takes its colour from: its cover, or the name its made-up cover is
+/// drawn from.
+struct MixCover: Sendable, Equatable {
+    let path: String?
+    let seed: String
+}
+
 /// A mix to start with one tap.
 private struct MixTile: View {
     let title: String
     let detail: String
     let symbol: String
-    let cover: String?
+    let cover: MixCover?
     let action: () -> Void
 
     var body: some View {
@@ -199,15 +209,15 @@ private struct MixTileLabel: View {
     let title: String
     let detail: String
     let symbol: String
-    let cover: String?
+    let cover: MixCover?
     @State private var look: PageColors?
 
-    init(title: String, detail: String, symbol: String, cover: String?) {
+    init(title: String, detail: String, symbol: String, cover: MixCover?) {
         self.title = title
         self.detail = detail
         self.symbol = symbol
         self.cover = cover
-        _look = State(initialValue: cover.flatMap { PageColors.cached($0, seed: title) })
+        _look = State(initialValue: cover.flatMap { PageColors.cached($0.path, seed: $0.seed) })
     }
 
     var body: some View {
@@ -228,7 +238,7 @@ private struct MixTileLabel: View {
         .contentShape(.rect)
         .task(id: cover) {
             guard let cover else { return }
-            let found = await PageColors.of(cover, seed: title)
+            let found = await PageColors.of(cover.path, seed: cover.seed)
             if !Task.isCancelled, found != look { withFade { look = found } }
         }
     }

@@ -59,6 +59,7 @@ struct AppearanceView: View {
                         .accessibilityValue(app.grain <= 0.001 ? "Off" : "\(Int((app.grain * 100).rounded())) percent")
                 }
             }
+            .id("colors")
             Section("The player") {
                 toggle("Immersive cover", "The cover fills the top of the player.", "rectangle.tophalf.inset.filled", .indigo, \.immersiveCover)
                 if !app.immersiveCover {
@@ -120,6 +121,7 @@ struct AppearanceView: View {
                     SketchChoice(caption: "Compact", chosen: app.density == "compact", part: .rowsCompact) { store.updateApp { $0.density = "compact" } }
                 }
             }
+            .id("lists")
             Section("Lyrics") {
                 toggle("Live lyrics", "They move with the song, the line playing lit.", "text.quote", .orange, \.liveLyrics)
                 // The player's own switch keeps the screen on with the lyrics too.
@@ -151,11 +153,11 @@ struct AppearanceView: View {
             }
         }
         #if DEBUG
-        // Test builds: -appearance-scroll player opens the page at The player.
+        // Test builds: -appearance-scroll player|colors|lists opens the page at that group.
         .task {
-            guard UserDefaults.standard.string(forKey: "appearance-scroll") == "player" else { return }
+            guard let group = UserDefaults.standard.string(forKey: "appearance-scroll") else { return }
             try? await Task.sleep(for: .milliseconds(700))
-            reader.scrollTo("player", anchor: .top)
+            reader.scrollTo(group, anchor: .top)
         }
         #endif
         }
