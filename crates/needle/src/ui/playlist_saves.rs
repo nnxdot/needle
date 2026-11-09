@@ -17,7 +17,7 @@ type Done =
 /// A save: the playlist as shown when the change was made (`None` for a new one), and after;
 /// or a deletion.
 enum Job {
-    Save(Option<Playlist>, Playlist),
+    Save(Box<(Option<Playlist>, Playlist)>),
     Delete(String),
     /// The playlist of a year's most played songs (Wrapped).
     Year(i32),
@@ -39,10 +39,10 @@ impl PlaylistSaves {
             .spawn(move || {
                 for job in inbox {
                     let saved = match job {
-                        Job::Save(Some(before), after) => {
-                            library.save_playlist_changes(&before, &after)
-                        }
-                        Job::Save(None, after) => library.save_playlist_as(&after),
+                        Job::Save(save) => match *save {
+                            (Some(before), after) => library.save_playlist_changes(&before, &after),
+                            (None, after) => library.save_playlist_as(&after),
+                        },
                         Job::Delete(id) => library.delete_playlist(&id).map(|()| id),
                         Job::Year(year) => library.save_year_playlist(year).map(|p| p.name),
                     };
@@ -96,7 +96,7 @@ impl AppView {
                 self.tracks.sort_by_key(|t| place[t.id.as_str()]);
             }
         }
-        self.queue_playlist_job(Job::Save(before, after), Box::new(done));
+        self.queue_playlist_job(Job::Save(Box::new((before, after))), Box::new(done));
     }
 
     fn queue_playlist_job(&mut self, job: Job, done: Done) {
@@ -240,10 +240,10 @@ mod tests {
             ..removed.clone()
         };
         for job in [
-            Job::Save(None, made.clone()),
-            Job::Save(Some(made), moved.clone()),
-            Job::Save(Some(moved), removed.clone()),
-            Job::Save(Some(removed), added.clone()),
+            Job::Save(Box::new((None, made.clone()))),
+            Job::Save(Box::new((Some(made), moved.clone()))),
+            Job::Save(Box::new((Some(moved), removed.clone()))),
+            Job::Save(Box::new((Some(removed), added.clone()))),
         ] {
             saves.jobs.send(job).unwrap();
         }
