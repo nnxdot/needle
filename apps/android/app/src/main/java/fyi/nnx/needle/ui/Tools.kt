@@ -91,6 +91,7 @@ import fyi.nnx.needle.core.SoundMatch
 import fyi.nnx.needle.core.TagChange
 import fyi.nnx.needle.core.TagReport
 import fyi.nnx.needle.core.TidyPlan
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1117,6 +1118,11 @@ fun SpeakersSheet(context: Context) {
     val chosen = remember { mutableStateMapOf<String, Boolean>() }
     val delays = remember { mutableStateMapOf<String, Int>() }
     var phone by remember { mutableStateOf(true) }
+    // The group playing now, as it was when the sheet opened: its members' timing moves while it
+    // plays (Speaker timing, as on the Mac), each slider at once.
+    var members by remember { mutableStateOf<List<fyi.nnx.needle.core.GroupMember>>(emptyList()) }
+    val live = remember { mutableStateMapOf<String, Int>() }
+    var before by remember { mutableStateOf<Pair<Set<String>, Boolean>?>(null) }
     LaunchedEffect(Unit) {
         // Finding speakers needs the phone to listen to the network's announcements.
         // A TV box on a cable may have no Wi-Fi at all: then the network is heard without it.
@@ -1128,13 +1134,23 @@ fun SpeakersSheet(context: Context) {
                 found.chosen.forEach { chosen[it] = true }
                 delays.putAll(found.delays)
                 phone = found.thisPhone
+                before = found.chosen.toSet() to found.thisPhone
+                members = withContext(Dispatchers.IO) { runCatching { core.groupMembers() }.getOrDefault(emptyList()) }
+                members.forEach { live[it.key] = it.delay }
                 all = found.all
             } else all = emptyList()
         } finally {
             lock?.release()
         }
     }
+    // The same speakers as when the sheet opened: their timing is set already, live.
+    val unchanged = before == (chosen.filterValues { it }.keys.toSet() to phone)
+    val timing = unchanged && members.size > 1
     fun apply() {
+        if (timing) {
+            Ui.sheet.value = null
+            return
+        }
         // Only speakers found now: one not on the network has no row to turn it off by.
         val found = all.orEmpty().map { it.id }.toSet()
         val ids = chosen.filterValues { it }.keys.filter { it in found }
@@ -1167,7 +1183,31 @@ fun SpeakersSheet(context: Context) {
             }
             if (list != null && list.isEmpty()) Explain("No speakers found. Chromecast, DLNA, and AirPlay speakers on the same Wi-Fi show here.")
             val playing = chosen.filterValues { it }.keys.toList() + (if (phone) listOf("") else emptyList())
-            if (playing.size > 1) {
+            if (timing) {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text("Speaker timing", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = Edge))
+                Explain("Move a late or early speaker's slider.")
+                members.forEach { member ->
+                    // The core names the group's own player after a computer.
+                    val label = if (member.key.isEmpty()) "This phone" else member.name
+                    val ms = live[member.key] ?: 0
+                    Column(Modifier.padding(horizontal = Edge)) {
+                        Row { Text(label, Modifier.weight(1f)); Text("${if (ms > 0) "+" else ""}$ms ms", color = MaterialTheme.colorScheme.primary) }
+                        Slider(
+                            ms.toFloat(),
+                            { live[member.key] = (it / 10).roundToInt() * 10 },
+                            valueRange = -1000f..1000f,
+                            onValueChangeFinished = {
+                                val set = live[member.key] ?: 0
+                                NeedleApp.instance.scope.launch(Dispatchers.IO) {
+                                    runCatching { core.setSpeakerDelay(member.key, set) }.onFailure { showMessage(it.message ?: "Could not move it") }
+                                }
+                            },
+                            modifier = Modifier.named("$label timing", "$ms ms"),
+                        )
+                    }
+                }
+            } else if (playing.size > 1) {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Text("Line them up", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = Edge))
                 Explain("Hold back any that plays early, until they sound as one.")
