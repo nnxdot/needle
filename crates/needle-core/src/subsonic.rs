@@ -7,7 +7,10 @@
 //! (`plugin:subsonic` in the library), its password (the `subsonic` plugin's secret), and its
 //! songs (`source://subsonic/<id>`). So people who used the plugin stay signed in, and their
 //! songs keep their ratings, plays, and playlists.
-use crate::database::Library;
+use crate::{
+    database::Library,
+    server_playlists::{Listed, Remote, ServerError},
+};
 use serde_json::{Map, Value, json};
 use std::{collections::BTreeMap, collections::HashMap, time::Duration};
 
@@ -38,6 +41,13 @@ static ALBUM_COVERS: std::sync::Mutex<Option<HashMap<String, String>>> =
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// The most a server's answer may hold, so a broken server cannot fill the memory.
 const MAX_ANSWER: u64 = 64 << 20;
+/// The most one playlist's answer may hold: less on 32-bit systems (TV boxes), whose memory runs
+/// out sooner. A playlist of 10,000 songs is about 10 MB.
+const MAX_PLAYLIST_ANSWER: u64 = if cfg!(target_pointer_width = "32") {
+    24 << 20
+} else {
+    MAX_ANSWER
+};
 /// The API version Needle speaks: 1.13.0 brought salted passwords.
 const API_VERSION: &str = "1.16.1";
 
@@ -375,54 +385,107 @@ impl Subsonic {
 
 /// The server's playlists (see [`crate::server_playlists`]).
 impl crate::server_playlists::Server for Subsonic {
-    fn playlist_ids(&self) -> Result<Vec<String>, String> {
-        let reply = self.ask("getPlaylists", &[])?;
+    fn playlists(&self) -> Result<Vec<Listed>, ServerError> {
+        let session = self.session().map_err(ServerError::Unreachable)?;
+        let reply = session.ask_within("getPlaylists", &[], MAX_ANSWER)?;
+        let me = self.text("username");
         Ok(list(&reply["playlists"]["playlist"])
             .iter()
-            .map(|p| text(&p["id"]))
-            .filter(|id| !id.is_empty())
+            .map(|p| Listed {
+                id: text(&p["id"]),
+                read_only: read_only(p, &me),
+                changed: text(&p["changed"]),
+                song_count: text(&p["songCount"]).parse().ok(),
+            })
+            .filter(|p| !p.id.is_empty())
             .collect())
     }
 
-    fn playlist(&self, id: &str) -> Result<crate::server_playlists::Remote, String> {
-        let session = self.session()?;
-        let reply = session.ask("getPlaylist", &[("id", id.to_string())])?;
+    fn playlist(&self, id: &str) -> Result<Remote, ServerError> {
+        let session = self.session().map_err(ServerError::Unreachable)?;
+        let reply = session.ask_within(
+            "getPlaylist",
+            &[("id", id.to_string())],
+            MAX_PLAYLIST_ANSWER,
+        )?;
         let playlist = &reply["playlist"];
-        let covers = ALBUM_COVERS
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-            .unwrap_or_default();
-        Ok(crate::server_playlists::Remote {
+        let entries: Vec<Value> = list(&playlist["entry"])
+            .into_iter()
+            .filter(|e| !text(&e["id"]).is_empty())
+            .collect();
+        // The albums' cover ids, read where they are kept, not copied for each playlist.
+        let found = {
+            let covers = ALBUM_COVERS.lock().unwrap_or_else(|e| e.into_inner());
+            let none = HashMap::new();
+            to_songs(&entries, &session, covers.as_ref().unwrap_or(&none))
+        };
+        let (mut songs, mut unread) = (vec![], vec![]);
+        for (at, (entry, value)) in entries.iter().zip(&found).enumerate() {
+            match crate::sources::Song::from_value(value) {
+                Some(song) => songs.push(song),
+                // No title: not a song Needle can show, but kept on the server at a push.
+                None => unread.push((at, text(&entry["id"]))),
+            }
+        }
+        Ok(Remote {
             id: id.to_string(),
             name: text(&playlist["name"]),
             comment: text(&playlist["comment"]),
-            songs: to_songs(&list(&playlist["entry"]), &session, &covers)
-                .iter()
-                .filter_map(crate::sources::Song::from_value)
-                .collect(),
+            songs,
+            unread,
+            read_only: read_only(playlist, &self.text("username")),
+            changed: text(&playlist["changed"]),
         })
     }
 
-    fn save_playlist(&self, id: &str, name: &str, songs: &[String]) -> Result<(), String> {
-        let session = self.session()?;
+    fn save_playlist(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        songs: &[String],
+    ) -> Result<(), ServerError> {
+        let session = self.session().map_err(ServerError::Unreachable)?;
         // createPlaylist with a playlist's id gives it exactly these songs. Sent as a form:
         // a long playlist does not fit in a link.
         let mut form = vec![("playlistId", id.to_string())];
         form.extend(songs.iter().map(|song| ("songId", song.clone())));
-        session.post("createPlaylist", &form)?;
-        session
-            .ask(
+        session.post_within("createPlaylist", &form)?;
+        if let Some(name) = name {
+            session.ask_within(
                 "updatePlaylist",
                 &[("playlistId", id.to_string()), ("name", name.to_string())],
-            )
+                MAX_ANSWER,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn delete_playlist(&self, id: &str) -> Result<(), ServerError> {
+        self.session()
+            .map_err(ServerError::Unreachable)?
+            .ask_within("deletePlaylist", &[("id", id.to_string())], MAX_ANSWER)
             .map(drop)
     }
 
-    fn delete_playlist(&self, id: &str) -> Result<(), String> {
-        self.ask("deletePlaylist", &[("id", id.to_string())])
-            .map(drop)
+    fn account(&self) -> String {
+        let server = self.text("server");
+        if server.is_empty() {
+            return String::new();
+        }
+        format!(
+            "{}|{}",
+            server.to_lowercase(),
+            self.text("username").to_lowercase()
+        )
     }
+}
+
+/// Whether the server lets the person signed in (`me`) only read a playlist: Navidrome marks
+/// smart playlists `readonly`, and another person's public playlist has another `owner`.
+fn read_only(playlist: &Value, me: &str) -> bool {
+    let owner = text(&playlist["owner"]);
+    playlist["readonly"].as_bool() == Some(true)
+        || (!owner.is_empty() && !me.is_empty() && !owner.eq_ignore_ascii_case(me))
 }
 
 /// What every request to the server needs (see `Subsonic::session`).
@@ -444,17 +507,29 @@ impl Session {
         get(&self.link(method, params))
     }
 
+    /// [`Self::ask`], telling a refusal from no answer, for answers of at most `cap` bytes.
+    fn ask_within(
+        &self,
+        method: &str,
+        params: &[(&str, String)],
+        cap: u64,
+    ) -> Result<Value, ServerError> {
+        let client = client().map_err(ServerError::Unreachable)?;
+        answer_within(client.get(self.link(method, params)), cap)
+    }
+
     /// Ask with the values in a form instead of the link.
-    fn post(&self, method: &str, params: &[(&str, String)]) -> Result<Value, String> {
+    fn post_within(&self, method: &str, params: &[(&str, String)]) -> Result<Value, ServerError> {
         let body: Vec<String> = params
             .iter()
             .map(|(key, value)| format!("{key}={}", encode(value)))
             .collect();
-        let request = client()?
+        let request = client()
+            .map_err(ServerError::Unreachable)?
             .post(self.link(method, &[]))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body.join("&"));
-        answer(request)
+        answer_within(request, MAX_ANSWER)
     }
 }
 
@@ -568,36 +643,54 @@ fn get(url: &str) -> Result<Value, String> {
 
 /// Send a request to the server, and return its `subsonic-response` when it says "ok".
 fn answer(request: reqwest::blocking::RequestBuilder) -> Result<Value, String> {
+    answer_within(request, MAX_ANSWER).map_err(|e| e.to_string())
+}
+
+/// [`answer`], reading at most `cap` bytes, and telling a real "no" from the server (a
+/// Subsonic `failed` answer about what was asked) from no answer: no connection, a timeout, an
+/// error page, an answer cut short or not from a Subsonic server, or a sign-in the server does
+/// not take (that is about the password, not what was asked).
+fn answer_within(
+    request: reqwest::blocking::RequestBuilder,
+    cap: u64,
+) -> Result<Value, ServerError> {
+    use ServerError::{Refused, Unreachable};
     use std::io::Read;
     let response = request
         .timeout(TIMEOUT)
         .send()
-        .map_err(|e| crate::sources::http_error(&e))?;
+        .map_err(|e| Unreachable(crate::sources::http_error(&e)))?;
     let status = response.status();
     if status == reqwest::StatusCode::NOT_FOUND {
         // Something answered, but not a music server: often the port is missing.
-        return Err("No music server at this address. Check it, and the port: Navidrome uses :4533 unless it was changed".into());
+        return Err(Unreachable("No music server at this address. Check it, and the port: Navidrome uses :4533 unless it was changed".into()));
     }
     if !status.is_success() {
-        return Err(format!("The server answered {status}"));
+        return Err(Unreachable(format!("The server answered {status}")));
     }
     let mut body = vec![];
     response
-        .take(MAX_ANSWER)
+        .take(cap)
         .read_to_end(&mut body)
-        .map_err(|_| "The connection to the server failed".to_string())?;
-    let answer: Value = serde_json::from_slice(&body)
-        .map_err(|_| "That address did not answer like a Subsonic server".to_string())?;
+        .map_err(|_| Unreachable("The connection to the server failed".into()))?;
+    let not_subsonic = || Unreachable("That address did not answer like a Subsonic server".into());
+    let answer: Value = serde_json::from_slice(&body).map_err(|_| not_subsonic())?;
     let reply = answer
         .get("subsonic-response")
         .filter(|r| r.is_object())
-        .ok_or_else(|| "That address did not answer like a Subsonic server".to_string())?;
+        .ok_or_else(not_subsonic)?;
     if reply["status"] != "ok" {
-        return Err(reply["error"]["message"]
+        let message = reply["error"]["message"]
             .as_str()
             .filter(|m| !m.is_empty())
             .unwrap_or("The server refused the request")
-            .to_string());
+            .to_string();
+        // 20 and 30: versions that do not match; 40 to 44: the sign-in. Neither is about what
+        // was asked: it may work once that is put right.
+        return Err(match reply["error"]["code"].as_i64() {
+            Some(20 | 30 | 40..=44) => Unreachable(message),
+            _ => Refused(message),
+        });
     }
     Ok(reply.clone())
 }
@@ -784,7 +877,7 @@ mod tests {
         library.delete_playlist(&edited.id).unwrap();
         let report = sync(&library, ID, &server, true).unwrap();
         assert_eq!(report.sent, 1, "{report:?}");
-        assert!(server.playlist_ids().unwrap().is_empty());
+        assert!(server.playlists().unwrap().is_empty());
 
         // A new one whose song is not in the library: the song comes with it.
         let missing = &songs[0];
@@ -809,11 +902,11 @@ mod tests {
         // Signing out takes it from Needle, not from the server.
         crate::server_playlists::forget(&library, ID).unwrap();
         assert!(library.playlists().unwrap().is_empty());
-        assert_eq!(server.playlist_ids().unwrap().len(), 1);
+        assert_eq!(server.playlists().unwrap().len(), 1);
         server
             .ask(
                 "deletePlaylist",
-                &[("id", server.playlist_ids().unwrap()[0].clone())],
+                &[("id", server.playlists().unwrap()[0].id.clone())],
             )
             .unwrap();
     }
