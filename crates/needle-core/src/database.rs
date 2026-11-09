@@ -446,6 +446,47 @@ impl Library {
             .query_map([], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?)
     }
+    /// Stop reading a music folder: it leaves the list of folders (however it was written
+    /// there), and its songs leave the library, in one transaction. Their playlists keep their
+    /// places, as for songs whose file is gone. Returns how many songs left. An app with a scan
+    /// running keeps that scan from bringing them back itself.
+    pub fn remove_root(&self, path: &str) -> Result<usize> {
+        let real = canonical_root(path);
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let roots: Vec<String> = tx
+            .prepare("SELECT path FROM roots")?
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        let bare = |p: &str| p.trim_end_matches(['/', '\\']).to_string();
+        let (typed, real_bare) = (bare(path), bare(&real));
+        for root in roots {
+            let this = bare(&root);
+            if this == typed || this == real_bare || bare(&canonical_root(&root)) == real_bare {
+                tx.execute("DELETE FROM roots WHERE path=?", [&root])?;
+            }
+        }
+        // The songs are kept by the folder's real path; the folder as typed too, to be sure.
+        // Either separator: Windows writes `\`.
+        let mut removed = 0;
+        let mut folders = vec![real.as_str(), path];
+        folders.dedup();
+        for folder in folders {
+            let base = folder.trim_end_matches(['/', '\\']);
+            for separator in ['/', '\\'] {
+                removed += tx.execute(
+                    "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
+                    [format!("{base}{separator}")],
+                )?;
+            }
+        }
+        tx.execute(
+            "DELETE FROM features WHERE track_id NOT IN (SELECT id FROM tracks)",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(removed)
+    }
     pub fn add_root(&self, path: &str) -> Result<()> {
         // By its real path, as the scan stores its songs: else one folder could be two.
         let path = canonical_root(path);
@@ -1113,6 +1154,40 @@ mod tests {
         std::fs::write(&nothing, "#EXTM3U\nmissing.wav\n").unwrap();
         assert!(db.import_playlist(&nothing).is_err());
         assert_eq!(db.playlists().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_removed_folder_takes_only_its_own_songs() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let song = |id: &str, path: &str| Track {
+            id: id.into(),
+            path: path.into(),
+            title: id.into(),
+            ..Default::default()
+        };
+        library.add_root("/music/rock").unwrap();
+        library.add_root("/music/rockabilly").unwrap();
+        for t in [
+            song("a", "/music/rock/a.flac"),
+            song("b", "/music/rock/deep/b.flac"),
+            song("c", "/music/rockabilly/c.flac"),
+            song("w", "/music/rock\\w.flac"),
+            song("s", "source://subsonic/1"),
+        ] {
+            library.upsert(&t).unwrap();
+        }
+        assert_eq!(library.remove_root("/music/rock/").unwrap(), 3);
+        assert_eq!(library.roots().unwrap(), ["/music/rockabilly"]);
+        let left: Vec<String> = library
+            .search("")
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        let mut left = left;
+        left.sort();
+        assert_eq!(left, ["c", "s"]);
     }
 
     #[test]

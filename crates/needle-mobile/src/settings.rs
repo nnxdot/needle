@@ -423,24 +423,12 @@ impl Needle {
 
     /// Stops reading a music folder; its songs leave the library.
     pub fn remove_folder(&self, path: String) -> Result<()> {
-        let db = self.library.connection()?;
-        db.execute("DELETE FROM roots WHERE path=?", [&path])
-            .map_err(|e| failed(e.into()))?;
-        // The songs are kept by the folder's real path.
-        let path = needle_core::database::canonical_root(&path);
-        db.execute("DELETE FROM roots WHERE path=?", [&path])
-            .map_err(|e| failed(e.into()))?;
         // A scan running now must not bring it back.
         crate::REMOVED_ROOTS
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .push(path.clone());
-        let prefix = format!("{}/", path.trim_end_matches('/'));
-        db.execute(
-            "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
-            [&prefix],
-        )
-        .map_err(|e| failed(e.into()))?;
+            .push(needle_core::database::canonical_root(&path));
+        self.library.remove_root(&path)?;
         Ok(())
     }
 
