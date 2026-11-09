@@ -652,6 +652,15 @@ final class Store {
 
     /// Opens the player (if that is on) once a song plays: a radio station takes a moment to
     /// make, and an empty player showed until then.
+    /// Plays songs from both artists that flow from one to the other (a blend), as on the Mac.
+    func blend(_ first: String, _ second: String) {
+        message = "Tuning in…"
+        playedWhenReady()
+        Task {
+            if let n = await ask({ try $0.startBlend(first: first, second: second) }) { message = "\(first) × \(second): \(n) songs." }
+        }
+    }
+
     func playedWhenReady() {
         guard app.openPlayerOnPlay else { return }
         let before = local?.queueVersion

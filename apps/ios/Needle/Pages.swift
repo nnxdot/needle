@@ -685,6 +685,8 @@ struct ArtistView: View {
     @State private var pictures = 0
     /// The page's height: the picture at its top is at most about 60% of it.
     @State private var pageHeight: CGFloat = 0
+    /// The artists that sound nearest to them, for a blend (nil while they are measured).
+    @State private var similar: [String]?
 
     init(name: String) {
         self.name = name
@@ -746,6 +748,11 @@ struct ArtistView: View {
             (banner, photo) = (await wide ?? nil, await portrait ?? nil)
             colors = await PageColors.of(picture, seed: name)
             if let colors { PageColors.keep(colors, as: "artist:" + name) }
+        }
+        // Similar artists measure the whole library: once for the page, as on the Mac.
+        .task(id: name) {
+            let name = name
+            similar = await store.load { $0.similarArtists(artist: name) } ?? []
         }
         // The logo on its own: it shows as soon as it is found, not after the pictures.
         .task(id: "\(store.libraryVersion)|\(pictures)") {
@@ -827,17 +834,32 @@ struct ArtistView: View {
                             }
                             .buttonStyle(Pressable())
                             .accessibilityLabel("Play")
-                            Button {
+                            // A tap starts their radio; held, it offers a blend with an
+                            // artist that sounds near them (the Mac's Blend button).
+                            Menu {
+                                Section("Blend with another artist") {
+                                    if let similar {
+                                        if similar.isEmpty { Text("No other artists are measured yet.") }
+                                        ForEach(similar, id: \.self) { other in
+                                            Button(other, systemImage: "circle.lefthalf.filled") { store.blend(name, other) }
+                                        }
+                                    } else {
+                                        Text("Listening for similar artists…")
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "dot.radiowaves.left.and.right").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
+                            } primaryAction: {
                                 let name = name
                                 store.run { $0.startArtistRadio(name: name) }
                                 store.playedWhenReady()
                                 store.message = "Starting radio from \(name)"
-                            } label: {
-                                Image(systemName: "dot.radiowaves.left.and.right").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
                             }
+                            .menuStyle(.button)
                             .buttonStyle(.glass)
                             .buttonBorderShape(.circle)
                             .accessibilityLabel("Radio")
+                            .accessibilityHint("Hold for a blend with another artist")
                         }
                     }
                     .disabled(top.isEmpty)
