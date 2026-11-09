@@ -55,6 +55,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -182,9 +183,15 @@ fun NeedleRoot() {
     // while the page is under another, so Back finds it as it was; dropped once the page is.
     val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val kept = remember { HashSet<String>() }
+    // Which pages have scrolled from their top (by their key in the stack), for the soft edge at
+    // the top (Glass.kt TopEdge): it blurs only once there is something under it. Told by the
+    // lists' own scrolling, seen on its way up (see pageScroll).
+    val scrolledPages = remember { mutableStateMapOf<String, Boolean>() }
+    val shownKey = pageKey(tab, stack.lastIndex, stack.last())
+    val pageScroll = remember(shownKey) { topWatch { scrolledPages[shownKey] = it } }
     androidx.compose.runtime.SideEffect {
         val live = Tab.entries.flatMap { t -> (stacks[t] ?: listOf(t.root)).mapIndexed { i, r -> pageKey(t, i, r) } }.toSet()
-        (kept - live).forEach(pageStates::removeState)
+        (kept - live).forEach { pageStates.removeState(it); scrolledPages.remove(it) }
         kept.clear()
         kept += live
     }
@@ -321,7 +328,7 @@ fun NeedleRoot() {
                     contentWindowInsets = androidx.compose.material3.ScaffoldDefaults.contentWindowInsets.only(
                         androidx.compose.foundation.layout.WindowInsetsSides.Horizontal,
                     ),
-                    modifier = Modifier.then(aboveCrease).hazeSource(haze),
+                    modifier = Modifier.then(aboveCrease).then(if (wide) Modifier.paneSheet() else Modifier).nestedScroll(pageScroll).hazeSource(haze),
                 ) { padding ->
                     AnimatedContent(
                         targetState = tab to stack,
@@ -373,7 +380,7 @@ fun NeedleRoot() {
                 val edge by androidx.compose.animation.core.animateFloatAsState(if (bleeds) 0f else 1f, tween(200), label = "top edge")
                 if (edge > 0f) {
                     val status = if (wide) 0.dp else with(LocalDensity.current) { androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(this).toDp() }
-                    TopEdge(status, 20.dp, Modifier.align(androidx.compose.ui.Alignment.TopStart).then(Modifier.alpha(edge)))
+                    TopEdge(status, 20.dp, scrolledPages[shownKey] == true, Modifier.align(androidx.compose.ui.Alignment.TopStart).then(if (wide) Modifier.paneSheet() else Modifier).then(Modifier.alpha(edge)))
                 }
                 // A tablet's side pane, floating over the page's right side above the player.
                 if (wide) {
@@ -545,6 +552,25 @@ private fun Page(route: Route, open: (Route) -> Unit) {
             val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
             ThemeEditorScreen(route.id) { back?.onBackPressedDispatcher?.onBackPressed() }
         }
+    }
+}
+
+/**
+ * Watches a page's lists scroll, to tell whether the page is away from its top: a list that moves
+ * its content up has scrolled; a pull down that the list could not take all of (it is at its top)
+ * means it is back. Sideways scrolling (a shelf) says nothing.
+ */
+private fun topWatch(scrolled: (Boolean) -> Unit) = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+    override fun onPostScroll(
+        consumed: androidx.compose.ui.geometry.Offset,
+        available: androidx.compose.ui.geometry.Offset,
+        source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+    ): androidx.compose.ui.geometry.Offset {
+        when {
+            available.y > 0.5f -> scrolled(false)
+            consumed.y < -0.5f -> scrolled(true)
+        }
+        return androidx.compose.ui.geometry.Offset.Zero
     }
 }
 

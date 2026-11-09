@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -228,7 +229,7 @@ fun Modifier.coverGlass(shape: Shape, cover: Color): Modifier {
     val night = Color(0xFF0F0E0D)
     val style = remember(cover) {
         HazeBlurStyle {
-            blurRadius(36.dp)
+            blurRadius(28.dp)
             noiseFactor(0.05f)
             backgroundColor(night)
             colorEffects(listOf(HazeColorEffect.tint(Brush.verticalGradient(listOf(cover.copy(alpha = 0.8f), night.copy(alpha = 0.88f))))))
@@ -237,7 +238,8 @@ fun Modifier.coverGlass(shape: Shape, cover: Color): Modifier {
     return this
         .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
         .clip(shape)
-        .hazeBlur(HazeInput.Sources(haze), style)
+        // A big pane under a deep tint: a smaller copy of the page is enough to blur.
+        .hazeBlur(HazeInput.Sources(haze), style, performanceMode = dev.chrisbanes.haze.HazePerformanceMode.Performance)
         .edgeLight(shape, dark = true)
 }
 
@@ -270,19 +272,23 @@ fun glassCover(path: String?): Color {
 }
 
 /**
- * The soft edge at the top of a page: what scrolls up blurs more and more and fades into the
- * page's colour before it goes under the status bar (or the top of a tablet's sheet), rather than
- * stopping at a hard line. `solid` is how far down the page's colour is solid (where the pages
- * stop: the status bar), `fade` how far below that it reaches. On a TV, or before Android 12, the
- * fade alone.
+ * The soft edge at the top of a page: once the page has scrolled, what scrolls up blurs more and
+ * more and fades into the page's colour before it goes under the status bar (or the top of a
+ * tablet's sheet), rather than stopping at a hard line. Before it has scrolled, nothing is there
+ * to hide: only the page's colour under the status bar, no fade over the page's top (its Back
+ * button) and no blur to work out. `solid` is how far down the page's colour is solid (where the
+ * pages stop: the status bar), `fade` how far below that it reaches. On a TV, or before Android
+ * 12, the fade alone.
  */
 @Composable
-fun TopEdge(solid: Dp, fade: Dp, modifier: Modifier = Modifier) {
+fun TopEdge(solid: Dp, fade: Dp, scrolled: Boolean, modifier: Modifier = Modifier) {
     val page = MaterialTheme.colorScheme.background
     val haze = LocalHaze.current
-    val blur = haze != null && blurAllowed(large = true)
+    val blur = scrolled && haze != null && blurAllowed(large = true)
     val height = solid + fade
     val from = if (height > 0.dp) solid / height else 0f
+    // Read only where it is drawn, so its frames do not compose the edge again.
+    val shown = animateFloatAsState(if (scrolled) 1f else 0f, tween(if (scrolled) 180 else 120), label = "top edge")
     val brush = Brush.verticalGradient(
         0f to page,
         from to page,
@@ -303,8 +309,14 @@ fun TopEdge(solid: Dp, fade: Dp, modifier: Modifier = Modifier) {
         modifier
             .fillMaxWidth()
             .height(height)
-            .then(if (blur) Modifier.hazeBlur(HazeInput.Sources(haze), style) else Modifier)
-            .background(brush),
+            // A thin strip of a big page: a smaller copy of what is under it is enough to blur.
+            .then(if (blur) Modifier.hazeBlur(HazeInput.Sources(haze), style, performanceMode = dev.chrisbanes.haze.HazePerformanceMode.Performance) else Modifier)
+            .drawBehind {
+                val top = solid.toPx()
+                if (top > 0f) drawRect(page, size = androidx.compose.ui.geometry.Size(size.width, top))
+                val a = shown.value
+                if (a > 0f) drawRect(brush, alpha = a)
+            },
     )
 }
 
