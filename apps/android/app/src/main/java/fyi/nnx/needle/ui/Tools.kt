@@ -637,9 +637,26 @@ private fun AlbumProblems() {
     var looking by remember { mutableStateOf<AlbumProblem?>(null) }
     var round by remember { mutableIntStateOf(0) }
     LaunchedEffect(round) { problems = withContext(Dispatchers.IO) { core.albumProblems() } }
+    // Online lookups (Settings › Library › Look up lyrics and artists) are what lets Needle ask
+    // MusicBrainz for them all at once, as on the computer.
+    val online = rememberLoaded { playbackSettings().onlineMedia }.value == true
+    var bulk by remember { mutableStateOf<LookUpAll?>(null) }
+    bulk?.let { run ->
+        BulkLookUp(run, onChange = { bulk = it }, onWritten = { bulk = null; round++ })
+        return
+    }
     Column {
-        Explain("Albums missing a year or track numbers, or with mixed artists. MusicBrainz can fill them in.")
         val list = problems
+        Explain(
+            when {
+                list.isNullOrEmpty() -> "Albums missing a year or track numbers, or with mixed artists. MusicBrainz can fill them in."
+                online -> "${count(list.size, "album")} with gaps in their tags. Look one up to match it with a release on MusicBrainz, or look them all up: Look up all keeps only sure matches for you to check. You see every change before anything is written, and Needle keeps a backup of each file."
+                else -> "${count(list.size, "album")} with gaps in their tags. Turn on online lookups in Settings to match them on MusicBrainz."
+            },
+        )
+        if (online && list != null && list.size > 1) {
+            FilledTonalButton(onClick = { bulk = LookUpAll(list) }, modifier = Modifier.padding(horizontal = Edge)) { Text("Look up all") }
+        }
         when {
             list == null -> Loading("Checking your albums…")
             list.isEmpty() -> Explain("Every album looks right.")
@@ -654,6 +671,111 @@ private fun AlbumProblems() {
         }
     }
     looking?.let { p -> ReleaseDialog(p) { changed -> looking = null; if (changed) round++ } }
+}
+
+/** Look up all, as on the computer: the albums it goes through. */
+private class LookUpAll(val albums: List<AlbumProblem>)
+
+/**
+ * Look up all: every album with gaps looked up on MusicBrainz, one after another (it takes one
+ * request a second), keeping only sure matches. Its progress and Stop while it runs; then the
+ * matches to tick, and Write. Nothing is written before the person says so.
+ */
+@Composable
+private fun BulkLookUp(run: LookUpAll, onChange: (LookUpAll?) -> Unit, onWritten: () -> Unit) {
+    var done by remember(run) { mutableIntStateOf(0) }
+    var failed by remember(run) { mutableIntStateOf(0) }
+    var finished by remember(run) { mutableStateOf(false) }
+    var stopping by remember(run) { mutableStateOf(false) }
+    var writing by remember(run) { mutableStateOf(false) }
+    val found = remember(run) { androidx.compose.runtime.mutableStateListOf<Pair<AlbumProblem, fyi.nnx.needle.core.SureMatch>>() }
+    // The matches the person unticked, by their release.
+    val unticked = remember(run) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val total = run.albums.size
+    // Stop, Back, or leaving the page ends it between two albums.
+    LaunchedEffect(run) {
+        for ((i, album) in run.albums.withIndex()) {
+            if (stopping) break
+            val result = withContext(Dispatchers.IO) {
+                runCatching { core.lookUpSureMatch(album.album, album.artist, album.songIds, i == 0) }
+            }
+            result.getOrNull()?.let { found += album to it }
+            if (result.isFailure) failed++
+            done = i + 1
+        }
+        finished = true
+    }
+    androidx.activity.compose.BackHandler { stopping = true; onChange(null) }
+    val chosen = found.filter { unticked[it.second.release.id] != true }
+    val access = rememberFileAccess(chosen.flatMap { it.second.songIds })
+    val matches = if (found.size == 1) "1 sure match" else "${found.size} sure matches"
+    Column {
+        Row(
+            Modifier.padding(horizontal = Edge, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { stopping = true; onChange(null) }) { Text("Back to the list") }
+            if (!finished) {
+                androidx.compose.material3.OutlinedButton(enabled = !stopping, onClick = { stopping = true }) { Text(if (stopping) "Stopping…" else "Stop") }
+            } else {
+                Button(enabled = chosen.isNotEmpty() && !writing, onClick = {
+                    access {
+                        writing = true
+                        work({ core.applySureMatches(chosen.map { it.second.release.id }) }, { writing = false }) { report ->
+                            showMessage(
+                                if (report.failed.isEmpty()) "Updated ${count(report.saved.toInt(), "song")} in ${count(chosen.size, "album")}. Needle kept a backup of each file."
+                                else "Updated ${report.saved}; ${report.failed.size} failed: ${report.failed.take(3).joinToString("; ")}",
+                            )
+                            refresh()
+                            onWritten()
+                        }
+                    }
+                }) { Text(if (writing) "Writing…" else "Write ${count(chosen.size, "album")}") }
+            }
+        }
+        if (!finished) {
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { done.toFloat() / total.coerceAtLeast(1) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Edge),
+            )
+        }
+        Explain(
+            if (finished) "Looked up $done of $total: $matches. Untick any you do not want, then write them; Needle keeps a backup of each file."
+            else "Looking up $done of $total on MusicBrainz (about a second or two each): $matches so far. You can write them once it ends, or stop it.",
+        )
+        if (failed > 0) Explain("${count(failed, "album")} could not be looked up (no connection, or MusicBrainz was busy).")
+        found.forEachIndexed { i, (album, match) ->
+            val release = match.release
+            val ticked = unticked[release.id] != true
+            val about = listOfNotNull(
+                release.title, release.artist.ifBlank { null }, release.year.takeIf { it > 0u }?.toString(), release.country.ifBlank { null },
+            ).joinToString(" · ")
+            val changes = match.changes.toInt()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .toggleable(ticked, enabled = finished && !writing, role = androidx.compose.ui.semantics.Role.Checkbox) { unticked[release.id] = !it }
+                    .padding(horizontal = Edge)
+                    .then(if (i < found.lastIndex) Modifier.softLine() else Modifier)
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                androidx.compose.material3.Checkbox(ticked, onCheckedChange = null, enabled = finished && !writing)
+                Column(Modifier.weight(1f)) {
+                    Text(album.album.ifBlank { "Unknown album" }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "${album.artist} · $about · $changes ${if (changes == 1) "song changes" else "songs change"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
