@@ -1501,6 +1501,8 @@ struct SpeakersView: View {
     @State private var chosen = Set<String>()
     @State private var phone = true
     @State private var delays: [String: Int32] = [:]
+    /// The speakers of the group playing now, with their delays, moved while it plays.
+    @State private var members: [GroupMember] = []
 
     var body: some View {
         Form {
@@ -1524,8 +1526,29 @@ struct SpeakersView: View {
             } footer: {
                 Text("Choose one, or several to play on all at once. For AirPlay and Bluetooth, the AirPlay button in the player works too.")
             }
+            // As on the Mac: a group playing now is timed while it plays.
+            if !members.isEmpty {
+                Section {
+                    ForEach(members, id: \.key) { member in
+                        VStack(alignment: .leading) {
+                            LabeledContent(member.key.isEmpty ? "This iPhone" : member.name) {
+                                Text("\(member.delay > 0 ? "+" : "")\(member.delay) ms").monospacedDigit()
+                            }
+                            Slider(value: Binding(get: { Double(member.delay) }, set: { setDelay(member.key, Int32(($0 / 10).rounded() * 10)) }),
+                                   in: -1000...1000, step: 10)
+                                .accessibilityLabel(member.key.isEmpty ? "This iPhone" : member.name)
+                                .accessibilityValue("\(member.delay) ms")
+                        }
+                    }
+                } header: {
+                    Text("Speaker timing")
+                } footer: {
+                    Text("Move a late or early speaker's slider.")
+                }
+            }
             let playing = Array(chosen) + (phone ? [""] : [])
-            if playing.count > 1 {
+            // Lining up a group before it plays (one playing now is timed above).
+            if playing.count > 1 && members.isEmpty {
                 Section {
                     ForEach(playing, id: \.self) { id in
                         VStack(alignment: .leading) {
@@ -1555,14 +1578,28 @@ struct SpeakersView: View {
             phone = found.thisPhone
             delays = found.delays
             all = found.all
+            members = await store.load { $0.groupMembers() } ?? []
         }
+    }
+
+    /// Moves one speaker of the group playing now earlier or later, at once.
+    private func setDelay(_ key: String, _ ms: Int32) {
+        guard let i = members.firstIndex(where: { $0.key == key }), members[i].delay != ms else { return }
+        members[i].delay = ms
+        store.run { try $0.setSpeakerDelay(key: key, ms: ms) }
     }
 
     private func apply() {
         let ids = Array(chosen)
         let group = ids.count + (phone ? 1 : 0) > 1
-        let (here, wait) = (phone || ids.isEmpty, group ? delays : [:])
-        store.run { try $0.setSpeakers(ids: ids, thisPhone: here, delays: wait) }
+        let here = phone || ids.isEmpty
+        let timed = !members.isEmpty
+        let lined = delays
+        store.run { core in
+            // A group timed while it played keeps its timing (read again, as it is now).
+            let wait = group ? (timed ? core.speakers().delays : lined) : [:]
+            try core.setSpeakers(ids: ids, thisPhone: here, delays: wait)
+        }
         store.message = ids.isEmpty ? "Playing on this iPhone" : group ? "Playing on \(ids.count + (phone ? 1 : 0)) at once" : "Playing on \(all?.first { $0.id == ids[0] }?.name ?? "the speaker")"
         dismiss()
     }
