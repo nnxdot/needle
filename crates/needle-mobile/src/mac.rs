@@ -3,7 +3,7 @@
 //! folders watched for changes, updates that install themselves, and the rest of the desktop's
 //! tools. Rich data goes to Swift as JSON (the core's own types, which Swift decodes); what is
 //! read many times a second ([`MacPlayback`]) is a plain record.
-use crate::{Needle, NeedleError, Result, Song, log};
+use crate::{Needle, NeedleError, PlaylistSaved, Result, Song, log};
 use needle_core::{
     audio::{Command, QueueItem, Repeat},
     cast::{Group, Speaker},
@@ -1090,8 +1090,13 @@ impl Needle {
 
     /// Saves a playlist (a new one when its id is empty); a rule builder's rules become its
     /// rule. `before_json` is the playlist as the editor opened it: then only what the editor
-    /// changed is saved, so what a sync changed meanwhile stays. Returns its id.
-    pub fn save_playlist_json(&self, json: String, before_json: Option<String>) -> Result<String> {
+    /// changed is saved, so what a sync changed meanwhile stays. Says where it went: its id, and
+    /// a copy and a note when the save did not go just as asked (see `PlaylistSaved`).
+    pub fn save_playlist_json(
+        &self,
+        json: String,
+        before_json: Option<String>,
+    ) -> Result<PlaylistSaved> {
         let mut playlist: Playlist =
             serde_json::from_str(&json).map_err(|e| failed(e.to_string()))?;
         playlist.name = playlist.name.trim().to_string();
@@ -1115,10 +1120,14 @@ impl Needle {
                 before.query = Some(rules::to_query(set)?);
             }
             before.name = before.name.trim().to_string();
-            return Ok(self.library.save_playlist_changes(&before, &playlist)?);
+            let saved = self
+                .library
+                .save_playlist_changes_saved(&before, &playlist)?;
+            return Ok(PlaylistSaved::new(saved, 0));
         }
         // A server playlist saved after it left Needle comes back under an id of its own.
-        Ok(self.library.save_playlist_as(&playlist)?)
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, 0))
     }
 
     /// The rule builder's kinds of rule and orders: `{"kinds": [{label, ops, value,
@@ -1155,8 +1164,9 @@ impl Needle {
         Ok(self.library.search_page(&query, 0, 1)?.total as u32)
     }
 
-    /// Adds songs to a playlist of picked songs, each once. Returns how many were added.
-    pub fn add_songs_to_playlist(&self, id: String, ids: Vec<String>) -> Result<u32> {
+    /// Adds songs to a playlist of picked songs, each once. Says where they went, and how many
+    /// were added (`changed`).
+    pub fn add_songs_to_playlist(&self, id: String, ids: Vec<String>) -> Result<PlaylistSaved> {
         let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         if playlist.query.is_some() {
@@ -1177,26 +1187,27 @@ impl Needle {
             }
         }
         let count = new.len() as u32;
-        if count > 0 {
-            playlist.track_ids.extend(new);
-            playlist.updated_at = chrono::Utc::now().timestamp();
-            self.library.save_playlist(&playlist)?;
+        if count == 0 {
+            return Ok(PlaylistSaved::unchanged(id));
         }
-        Ok(count)
+        playlist.track_ids.extend(new);
+        playlist.updated_at = chrono::Utc::now().timestamp();
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, count))
     }
 
     /// Moves songs (already in it, or dropped from elsewhere) to just before the song
-    /// `before`, or to the end.
+    /// `before`, or to the end. Says where they went.
     pub fn place_in_playlist(
         &self,
         id: String,
         ids: Vec<String>,
         before: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<PlaylistSaved> {
         let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         if before.as_ref().is_some_and(|b| ids.contains(b)) {
-            return Ok(());
+            return Ok(PlaylistSaved::unchanged(id));
         }
         let moving: Vec<String> = playlist
             .track_ids
@@ -1223,19 +1234,25 @@ impl Needle {
             .unwrap_or(playlist.track_ids.len());
         playlist.track_ids.splice(at..at, adding);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        Ok(self.library.save_playlist(&playlist)?)
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, 0))
     }
 
-    /// Takes songs out of a playlist of picked songs. Returns how many went.
-    pub fn remove_songs_from_playlist(&self, id: String, ids: Vec<String>) -> Result<u32> {
+    /// Takes songs out of a playlist of picked songs. Says where the change went, and how many
+    /// went (`changed`).
+    pub fn remove_songs_from_playlist(
+        &self,
+        id: String,
+        ids: Vec<String>,
+    ) -> Result<PlaylistSaved> {
         let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         let before = playlist.track_ids.len();
         playlist.track_ids.retain(|t| !ids.contains(t));
         let removed = (before - playlist.track_ids.len()) as u32;
         playlist.updated_at = chrono::Utc::now().timestamp();
-        self.library.save_playlist(&playlist)?;
-        Ok(removed)
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, removed))
     }
 
     /// Reads an M3U or M3U8 file into a new playlist. Returns its name and songs, in words.

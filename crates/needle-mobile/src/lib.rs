@@ -176,6 +176,59 @@ pub struct Playlist {
     /// Shown with the small server icon, when Mark server songs is on.
     #[uniffi(default = false)]
     pub server: bool,
+    /// A server playlist the server lets this person only read (another person's, or a smart
+    /// one): its name and songs cannot change, and it cannot be deleted. An edit is saved as a
+    /// playlist of the person's own (see `PlaylistSaved`).
+    #[uniffi(default = false)]
+    pub read_only: bool,
+}
+
+/// Where a playlist save went. When `note` is set, tell the person: the save did not go just
+/// as asked (the server's playlist changed meanwhile, it is read-only on the server, or it
+/// left Needle).
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct PlaylistSaved {
+    /// The id the playlist is saved under (a new one when it became the person's own).
+    pub id: String,
+    /// The person's version, saved as a playlist of their own instead: its id and name.
+    pub copy_id: Option<String>,
+    pub copy_name: Option<String>,
+    /// What to tell the person, in words; `None` when it was saved as asked.
+    pub note: Option<String>,
+    /// Songs added or taken out, for the calls that add or take out songs (else 0).
+    pub changed: u32,
+}
+
+impl PlaylistSaved {
+    pub(crate) fn new(saved: needle_core::database::Saved, changed: u32) -> Self {
+        let (copy_id, copy_name) = match saved.copy {
+            Some(copy) => (Some(copy.id), Some(copy.name)),
+            None => (None, None),
+        };
+        Self {
+            id: saved.id,
+            copy_id,
+            copy_name,
+            note: saved.note,
+            changed,
+        }
+    }
+
+    /// Nothing was saved: the playlist stays as it is.
+    pub(crate) fn unchanged(id: String) -> Self {
+        Self {
+            id,
+            copy_id: None,
+            copy_name: None,
+            note: None,
+            changed: 0,
+        }
+    }
+}
+
+/// Whether a playlist lives on a music server that lets this person only read it.
+pub(crate) fn read_only(playlist: &needle_core::model::Playlist) -> bool {
+    playlist.server.as_ref().is_some_and(|s| s.read_only)
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -545,6 +598,7 @@ impl Needle {
             }
             out.push(Playlist {
                 server: playlist.server.is_some(),
+                read_only: read_only(&playlist),
                 mosaic,
                 picture: playlist.cover.clone(),
                 artwork: playlist
@@ -748,6 +802,7 @@ impl Needle {
                 });
                 Ok(Playlist {
                     server: p.server.is_some(),
+                    read_only: read_only(&p),
                     id: p.id,
                     name: p.name,
                     description: p.description,

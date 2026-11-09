@@ -1,6 +1,6 @@
 //! More of Needle for the phone: favorites, folders, history and its numbers, Wrapped,
 //! playlists to make and change, radio, and the A-B loop.
-use crate::{Needle, NeedleError, Result, Song, log};
+use crate::{Needle, NeedleError, PlaylistSaved, Result, Song, log};
 use needle_core::{
     audio::{Command, QueueItem},
     model::Playlist,
@@ -94,6 +94,10 @@ pub struct PlaylistDetail {
     /// It lives on a music server: changes to it, and deleting it, go to the server too.
     #[uniffi(default = false)]
     pub server: bool,
+    /// The server lets this person only read it: its name and songs cannot change here, and it
+    /// cannot be deleted (see `Playlist::read_only`).
+    #[uniffi(default = false)]
+    pub read_only: bool,
 }
 
 fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database::Library) -> Stats {
@@ -352,6 +356,7 @@ impl Needle {
         };
         Ok(PlaylistDetail {
             server: playlist.server.is_some(),
+            read_only: crate::read_only(&playlist),
             artwork: playlist.cover.clone(),
             id: playlist.id,
             name: playlist.name,
@@ -395,7 +400,7 @@ impl Needle {
         rule: Option<String>,
         before_name: String,
         before_description: String,
-    ) -> Result<()> {
+    ) -> Result<PlaylistSaved> {
         let mut playlist = self.playlist(&id)?;
         if name.trim() != before_name.trim() {
             playlist.name = name.trim().to_string();
@@ -408,36 +413,53 @@ impl Needle {
             playlist.rules = None;
         }
         playlist.updated_at = chrono::Utc::now().timestamp();
-        Ok(self.library.save_playlist(&playlist)?)
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, 0))
     }
 
-    pub fn add_to_playlist(&self, id: String, songs: Vec<String>) -> Result<()> {
+    /// Adds songs at the end. Says where they went (a copy, when the server's playlist changed
+    /// meanwhile or is read-only there).
+    pub fn add_to_playlist(&self, id: String, songs: Vec<String>) -> Result<PlaylistSaved> {
         let mut playlist = self.playlist(&id)?;
         if playlist.query.is_some() {
             return Err(NeedleError::Failed(
                 "A smart playlist picks its own songs".into(),
             ));
         }
+        let count = songs.len() as u32;
         playlist.track_ids.extend(songs);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        Ok(self.library.save_playlist(&playlist)?)
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, count))
     }
 
     /// Takes out the song at `index`; `song` is the song the screen showed there. When the
     /// playlist changed meanwhile (a sync), nothing is taken out.
-    pub fn remove_from_playlist(&self, id: String, index: u32, song: String) -> Result<()> {
+    pub fn remove_from_playlist(
+        &self,
+        id: String,
+        index: u32,
+        song: String,
+    ) -> Result<PlaylistSaved> {
         let mut playlist = self.playlist(&id)?;
         changed_meanwhile(&playlist, index, &song)?;
         if (index as usize) < playlist.track_ids.len() {
             playlist.track_ids.remove(index as usize);
             playlist.updated_at = chrono::Utc::now().timestamp();
-            self.library.save_playlist(&playlist)?;
+            let saved = self.library.save_playlist_saved(&playlist)?;
+            return Ok(PlaylistSaved::new(saved, 1));
         }
-        Ok(())
+        Ok(PlaylistSaved::unchanged(id))
     }
 
     /// Moves the song at `from` to `to`; `song` is the song the screen showed at `from`.
-    pub fn move_in_playlist(&self, id: String, from: u32, to: u32, song: String) -> Result<()> {
+    pub fn move_in_playlist(
+        &self,
+        id: String,
+        from: u32,
+        to: u32,
+        song: String,
+    ) -> Result<PlaylistSaved> {
         let mut playlist = self.playlist(&id)?;
         changed_meanwhile(&playlist, from, &song)?;
         let (from, to) = (from as usize, to as usize);
@@ -445,9 +467,10 @@ impl Needle {
             let song = playlist.track_ids.remove(from);
             playlist.track_ids.insert(to, song);
             playlist.updated_at = chrono::Utc::now().timestamp();
-            self.library.save_playlist(&playlist)?;
+            let saved = self.library.save_playlist_saved(&playlist)?;
+            return Ok(PlaylistSaved::new(saved, 0));
         }
-        Ok(())
+        Ok(PlaylistSaved::unchanged(id))
     }
 
     pub fn delete_playlist(&self, id: String) -> Result<()> {
