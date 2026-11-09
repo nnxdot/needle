@@ -644,6 +644,13 @@ where
     }
 
     /// Focus the select input.
+    /// Needle patch: open the list, as a click on the field does (for window pictures in tests).
+    pub fn open_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open = true;
+        self.list.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
     pub fn focus(&self, window: &mut Window, _: &mut App) {
         self.focus_handle.focus(window);
     }

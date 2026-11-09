@@ -62,6 +62,14 @@ impl PlaylistEditor {
         self.name.update(cx, |s, cx| s.set_value(name, window, cx));
     }
 
+    /// For window pictures: a smart playlist's editor with its first rule's field list open.
+    pub fn show_field_list(&mut self, window: &mut Window, cx: &mut App) {
+        self.smart = true;
+        if let Some(row) = self.rows.first() {
+            row.field.update(cx, |s, cx| s.open_list(window, cx));
+        }
+    }
+
     /// A save elsewhere moved the playlist this editor edits (`old`) under another id, or
     /// put the change in a copy: the editor now edits `now`, the playlist as stored there, so
     /// its own save goes there too and does not make one more copy. What was typed stays.
