@@ -12,6 +12,7 @@ struct Sidebar: View {
         List(selection: Binding<Route?>(get: { store.route.sidebarRoute }, set: { if let to = $0 { store.navigate(to) } })) {
             Section {
                 item("Home", "house", .home)
+                item("Radio", "dot.radiowaves.left.and.right", .radio)
                 item("Songs", "music.note", .songs)
                 item("Albums", "square.stack", .albums)
                 item("Artists", "music.mic", .artists)
@@ -296,6 +297,7 @@ struct Rail: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 4) {
                     page("Home", "house", .home)
+                    page("Radio", "dot.radiowaves.left.and.right", .radio)
                     page("Songs", "music.note", .songs)
                     page("Albums", "square.stack", .albums)
                     page("Artists", "music.mic", .artists)

@@ -124,7 +124,7 @@ struct CommandPalette: View {
     private var items: [Item] {
         var list: [Item] = []
         let pages: [(String, String, Route)] = [
-            ("Home", "house", .home), ("Songs", "music.note", .songs), ("Albums", "square.stack", .albums),
+            ("Home", "house", .home), ("Radio", "dot.radiowaves.left.and.right", .radio), ("Songs", "music.note", .songs), ("Albums", "square.stack", .albums),
             ("Artists", "music.mic", .artists), ("Folders", "folder", .folders), ("Favorites", "heart", .favorites),
             ("Recently added", "clock", .recent), ("Listening history", "chart.line.uptrend.xyaxis", .history),
             ("Sound and equalizer", "slider.vertical.3", .sound), ("Fix my library", "wrench.and.screwdriver", .doctor),

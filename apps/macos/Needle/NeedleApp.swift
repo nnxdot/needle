@@ -181,6 +181,7 @@ struct NeedleCommands: Commands {
             Button("Recently Added") { store.navigate(.recent) }.keyboardShortcut("6")
             Button("Listening History") { store.navigate(.history) }.keyboardShortcut("7")
             Button("Folders") { store.navigate(.folders) }
+            Button("Radio") { store.navigate(.radio) }
             Divider()
             if let current = store.current {
                 Button("Go to the Album Playing") { store.navigate(current.albumRoute) }
