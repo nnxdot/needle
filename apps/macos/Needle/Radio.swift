@@ -7,26 +7,14 @@ import SwiftUI
 struct RadioPage: View {
     private var store: Store { .shared }
     @State private var data: RadioData?
-    /// In a scroll view (always, but in test pictures, which cannot draw one).
-    private let scrolls: Bool
-
-    init(preloaded: RadioData? = nil, scrolls: Bool = true) {
-        _data = State(initialValue: preloaded)
-        self.scrolls = scrolls
-    }
 
     private var seeds: [Ranked]? { data?.seeds }
     private var home: HomeData? { data?.home }
 
     var body: some View {
-        Group {
-            if scrolls {
-                ScrollView { content }.scrollContentBackground(.hidden)
-            } else {
-                content
-            }
-        }
-        .task(id: store.libraryVersion) { data = await RadioData.load(store) }
+        ScrollView { content }
+            .scrollContentBackground(.hidden)
+            .task(id: store.libraryVersion) { data = await RadioData.load(store) }
     }
 
     private var content: some View {
@@ -46,32 +34,29 @@ struct RadioPage: View {
 
     /// Mixes of the whole library, each in the colour of a cover it plays from.
     private var mixes: some View {
-        let mostPlayed = home?.mostPlayed.first ?? home?.recent.first
-        let added = home?.added.first
-        let loved = home?.favorites.first
-        let recent = home?.recent.dropFirst().first ?? home?.added.dropFirst().first
-        let top = seeds?.first
+        let covers = tileCovers()
+        let (mostPlayed, loved, added, top, recent) = (covers[0], covers[1], covers[2], covers[3], covers[4])
         return VStack(alignment: .leading, spacing: 12) {
             ShelfTitle(title: "Quick mixes", detail: nil, all: nil)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
                 MixTile(title: "Shuffle all", detail: count(Int(data?.songs ?? 0), "song"), symbol: "shuffle",
-                        cover: mostPlayed?.artwork, seed: mostPlayed.map { $0.album + $0.artist } ?? "shuffle") {
+                        cover: mostPlayed.path, seed: mostPlayed.seed) {
                     let reason = "Shuffle all"
                     Task { _ = await store.ask { try $0.playView(query: "", playlist: nil, filter: "", start: 0, shuffle: true, reason: reason) } }
                 }
                 let favourites = data?.favourites ?? 0
                 MixTile(title: "Favorites", detail: favourites > 0 ? "\(count(favourites, "song")), shuffled" : "Star songs to fill it",
-                        symbol: "heart.fill", cover: loved?.artwork, seed: loved.map { $0.album + $0.artist } ?? "favorites") {
+                        symbol: "heart.fill", cover: loved.path, seed: loved.seed) {
                     let reason = "From your favorites"
                     Task { _ = await store.ask { try $0.playView(query: Route.favorites.base, playlist: nil, filter: "", start: 0, shuffle: true, reason: reason) } }
                 }
                 .disabled(favourites == 0)
                 MixTile(title: "New to you", detail: "Added lately, shuffled", symbol: "sparkles",
-                        cover: added?.artwork, seed: added.map { $0.album + $0.artist } ?? "new") { newToYou() }
+                        cover: added.path, seed: added.seed) { newToYou() }
                 MixTile(title: "Your listening", detail: "Top songs and artists", symbol: "chart.bar.fill",
-                        cover: top?.artwork, seed: top.map { $0.album + $0.artist } ?? "listening") { store.navigate(.history) }
+                        cover: top.path, seed: top.seed) { store.navigate(.history) }
                 MixTile(title: "Genre map", detail: "Click a genre to play it", symbol: "circle.hexagongrid.fill",
-                        cover: recent?.artwork, seed: recent.map { $0.album + $0.artist } ?? "genres") { store.navigate(.genreMap) }
+                        cover: recent.path, seed: recent.seed) { store.navigate(.genreMap) }
             }
         }
     }
@@ -99,18 +84,47 @@ struct RadioPage: View {
         }
     }
 
-    /// Your station: from the song played most lately, or any song when nothing has played yet.
+    /// The quick mixes' covers, in the tiles' order (Shuffle all, Favorites, New to you, Your
+    /// listening, Genre map): each its own album's while the library has enough of them.
+    private func tileCovers() -> [(path: String?, seed: String)] {
+        typealias Pick = (path: String?, seed: String)
+        let album = { (a: AlbumSummary) -> Pick in (a.artwork, a.album + a.artist) }
+        let all = ((home?.mostPlayed ?? []) + (home?.recent ?? []) + (home?.added ?? []) + (home?.favorites ?? [])).map(album)
+        let song = (seeds ?? []).prefix(1).map { (path: $0.artwork, seed: $0.album + $0.artist) }
+        let wishes: [[Pick]] = [
+            (home?.mostPlayed ?? []).map(album) + all,
+            (home?.favorites ?? []).map(album) + all,
+            (home?.added ?? []).map(album) + all,
+            song + all,
+            (home?.recent ?? []).map(album) + all,
+        ]
+        var used: Set<String> = []
+        // Favorites and New to you first: their covers say the most about them.
+        var picks = Array(repeating: Pick(path: nil, seed: "radio"), count: wishes.count)
+        for i in [1, 2, 3, 0, 4] {
+            let wish = wishes[i]
+            let pick = wish.first { !used.contains($0.path ?? $0.seed) } ?? wish.first ?? Pick(path: nil, seed: ["shuffle", "favorites", "new", "listening", "genres"][i])
+            used.insert(pick.path ?? pick.seed)
+            picks[i] = pick
+        }
+        return picks
+    }
+
+    /// Your station: from the song it shows (played most lately), else another played most,
+    /// or any song when nothing has played yet.
     private func yourStation() {
         store.notify("Tuning in…")
+        let shown = seeds?.first.flatMap { s in s.songId.map { ($0, s.title) } }
         Task {
             let started = await store.ask { core -> (String, UInt32) in
                 let top = try core.stats(days: 30).topSongs.compactMap { s in s.songId.map { ($0, s.title) } }
                 let any = try core.songs().randomElement().map { ($0.id, $0.title) }
                 // The first that can start one (a song whose file is gone cannot).
-                for (id, title) in top + [any].compactMap({ $0 }) {
-                    if let n = try? core.radioFrom(id: id) { return (title, n) }
+                var why: Error = NeedleError.Failed(message: "Add music first")
+                for (id, title) in [shown].compactMap({ $0 }) + top + [any].compactMap({ $0 }) {
+                    do { return (title, try core.radioFrom(id: id)) } catch { why = error }
                 }
-                throw NeedleError.Failed(message: "Add music first")
+                throw why
             }
             if case let (title, n)? = started { store.notify("Radio from “\(title)”: \(count(Int(n), "song")).") }
         }
@@ -142,24 +156,6 @@ struct RadioData {
                   songs: await store.load { try $0.songCount() } ?? 0,
                   favourites: await store.load { try $0.favorites().count } ?? 0,
                   home: JSON.decode(HomeData.self, await store.load { try $0.homeJson() }))
-    }
-
-    /// The covers and colours the page shows, read beforehand (test pictures run no `.task`).
-    @MainActor
-    func warm() async {
-        let albums = [home?.mostPlayed.first, home?.recent.first, home?.added.first, home?.favorites.first,
-                      home?.recent.dropFirst().first, home?.added.dropFirst().first].compactMap { $0 }
-        for album in albums {
-            if let path = album.artwork { _ = await Covers.load(path, size: 104) }
-            _ = await Covers.pageColor(album.artwork, seed: album.album + album.artist)
-        }
-        for (i, seed) in seeds.prefix(12).enumerated() {
-            if let path = seed.artwork {
-                _ = await Covers.load(path, size: i == 0 ? 1000 : 312)
-                if i == 0 { _ = await Covers.load(path, size: 312); _ = await Covers.load(path, size: 104) }
-            }
-            if i == 0 { _ = await Covers.pageColor(seed.artwork, seed: seed.album + seed.artist) }
-        }
     }
 }
 

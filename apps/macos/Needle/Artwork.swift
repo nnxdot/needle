@@ -235,21 +235,6 @@ struct Artwork: View {
     var size: Int = 600
     @State private var image: NSImage?
 
-    init(path: String?, seed: String, size: Int = 600) {
-        self.path = path
-        self.seed = seed
-        self.size = size
-        #if DEBUG
-        // Test pictures run no `.task`: covers read beforehand come from the cache at once.
-        if Self.fromCache, let path { _image = State(initialValue: Covers.cached(path, size: size)) }
-        #endif
-    }
-
-    #if DEBUG
-    /// Test pictures (`TestRenders`): a cover already read shows at once.
-    static var fromCache = false
-    #endif
-
     var body: some View {
         // The space the page gives sets the size, never the picture: a cover that is not square
         // fills it, its edges cut off, instead of growing past it.
