@@ -530,6 +530,62 @@ impl Library {
         }
         Ok(playlist.id.clone())
     }
+    /// Save what an editor changed: `before` is the playlist as the editor opened it, `after`
+    /// as it saves it. Only the fields that differ are taken onto the playlist as it is now,
+    /// so what changed meanwhile (a sync brought songs, took out songs not on the server, or
+    /// changed the words) is not undone. When the songs of a server playlist changed both in
+    /// the editor and meanwhile, the stored songs stay and the editor's version is kept as a
+    /// copy. Gives the id it was saved under (see [`Self::save_playlist_as`]).
+    pub fn save_playlist_changes(&self, before: &Playlist, after: &Playlist) -> Result<String> {
+        let write = crate::server_playlists::writing();
+        let Some(stored) = self.playlist_by_id(&after.id)? else {
+            drop(write);
+            return self.save_playlist_as(after);
+        };
+        let mut merged = stored.clone();
+        if after.name != before.name {
+            merged.name = after.name.clone();
+        }
+        if after.description != before.description {
+            merged.description = after.description.clone();
+        }
+        if after.cover != before.cover {
+            merged.cover = after.cover.clone();
+        }
+        if after.query != before.query || after.rules != before.rules {
+            merged.query = after.query.clone();
+            merged.rules = after.rules.clone();
+        }
+        let mut copy = None;
+        if after.track_ids != before.track_ids {
+            if stored.server.is_some() && stored.track_ids != before.track_ids {
+                copy = Some(crate::server_playlists::copy_of(after));
+            } else {
+                merged.track_ids = after.track_ids.clone();
+            }
+        }
+        if merged.query.is_some() {
+            merged.track_ids.clear();
+        }
+        merged.updated_at = after.updated_at;
+        if let Some(q) = &merged.query {
+            query::compile(q, chrono::Utc::now().timestamp())?;
+        }
+        if merged.server.is_some() && merged.query.is_some() {
+            bail!("A playlist on your music server holds songs you pick; it cannot follow rules")
+        }
+        if let Some(copy) = &copy {
+            self.store_playlist(copy)?;
+        }
+        self.store_playlist(&merged)?;
+        drop(write);
+        if merged.edited_here()
+            && let Some(plugin) = merged.server_plugin()
+        {
+            crate::server_playlists::edited(plugin);
+        }
+        Ok(merged.id)
+    }
     /// Save a playlist as it is (the server playlists' sync).
     pub(crate) fn store_playlist(&self, playlist: &Playlist) -> Result<()> {
         self.connection()?.execute("INSERT INTO playlists VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,data=excluded.data", params![playlist.id,playlist.name,serde_json::to_string(playlist)?])?;

@@ -86,6 +86,18 @@ pub(crate) fn writing() -> MutexGuard<'static, ()> {
     WRITING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Sources signing out: no full sync brings their playlists back meanwhile.
+static SIGNING_OUT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Signing out of a source starts (`true`) or is done (`false`).
+pub(crate) fn signing_out(plugin: &str, on: bool) {
+    let mut all = SIGNING_OUT.lock().unwrap_or_else(|e| e.into_inner());
+    all.retain(|p| p != plugin);
+    if on {
+        all.push(plugin.to_string());
+    }
+}
+
 type Hook = Arc<dyn Fn(&str) + Send + Sync>;
 static EDITED: RwLock<Option<Hook>> = RwLock::new(None);
 
@@ -134,6 +146,15 @@ pub fn sync(
 ) -> Result<Report> {
     let _one = SYNCING.lock().unwrap_or_else(|e| e.into_inner());
     let mut report = Report::default();
+    if !only_edited
+        && SIGNING_OUT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|p| p == plugin)
+    {
+        return Ok(report);
+    }
     let listed = server.playlist_ids().map_err(anyhow::Error::msg)?;
     let on_server: HashSet<&String> = listed.iter().collect();
 
@@ -182,22 +203,24 @@ pub fn sync(
         }
     }
     // Only the ones handled leave the list: a playlist deleted meanwhile waits for the next.
-    let waiting: HashSet<String> = {
+    // The deletions waiting and the playlists are read together, so a playlist deleted in
+    // between is in one or the other.
+    let (waiting, ours) = {
         let _write = writing();
         let mut now: Vec<ServerPlaylist> = library.get_json(&key)?.unwrap_or_default();
         now.retain(|link| !(settled.contains(&link.id) && deleted.contains(link)));
         library.set_json(&key, &now)?;
-        now.into_iter().map(|link| link.id).collect()
-    };
-
-    let mut ours: HashMap<String, Playlist> = HashMap::new();
-    for playlist in library.playlists()? {
-        if let Some(link) = &playlist.server
-            && link.plugin == plugin
-        {
-            ours.insert(link.id.clone(), playlist);
+        let waiting: HashSet<String> = now.into_iter().map(|link| link.id).collect();
+        let mut ours: HashMap<String, Playlist> = HashMap::new();
+        for playlist in library.playlists()? {
+            if let Some(link) = &playlist.server
+                && link.plugin == plugin
+            {
+                ours.insert(link.id.clone(), playlist);
+            }
         }
-    }
+        (waiting, ours)
+    };
 
     for id in &listed {
         if gone.contains(id) || waiting.contains(id) {
@@ -231,6 +254,14 @@ pub fn sync(
                     server: Some(link(plugin, &remote, theirs)),
                     ..Default::default()
                 };
+                // Deleted in Needle while the server was asked: it is not brought back.
+                let _write = writing();
+                let deleting: Vec<ServerPlaylist> = library.get_json(&key)?.unwrap_or_default();
+                if deleting.iter().any(|d| &d.id == id)
+                    || library.playlist_by_id(&playlist.id)?.is_some()
+                {
+                    continue;
+                }
                 library.store_playlist(&playlist)?;
                 report.added += 1;
             }
@@ -248,7 +279,7 @@ pub fn sync(
         let Some(now) = library.playlist_by_id(&playlist.id)? else {
             continue;
         };
-        if now.edited_here() {
+        if made_own(&now) {
             report.notes.push(format!(
                 "“{}” was deleted on the server; your changes are kept as your own playlist",
                 now.name
@@ -260,6 +291,18 @@ pub fn sync(
         }
     }
     Ok(report)
+}
+
+/// Whether the person made something of a server playlist that only Needle has: changes not
+/// sent yet, its own words (not the server's comment), or its own picture. Such a playlist is
+/// kept, as theirs, when it leaves the server or Needle signs out.
+fn made_own(playlist: &Playlist) -> bool {
+    playlist.edited_here()
+        || playlist.cover.is_some()
+        || playlist
+            .server
+            .as_ref()
+            .is_some_and(|link| playlist.description != link.comment)
 }
 
 /// Make a server playlist the person's own: no link, and an id of its own. The server
@@ -297,6 +340,8 @@ fn sync_one(
                 sent.server = Some(ServerPlaylist {
                     name: sent.name.clone(),
                     songs: sent.track_ids.clone(),
+                    // The comment as the server has it now (a push does not change it).
+                    comment: remote.comment.clone(),
                     ..base
                 });
                 commit(library, local, sent, Pushed, report)?;
@@ -432,6 +477,11 @@ fn commit(
                         keep_copy(library, &newest, report, "songs that are not on the server")?;
                     }
                     newest.track_ids = server_songs(library, &link.plugin, &newest.track_ids)?.0;
+                    // Words left as the old comment follow the server's new one.
+                    let old = local.server.as_ref().map(|s| s.comment.as_str());
+                    if Some(newest.description.as_str()) == old {
+                        newest.description = link.comment.clone();
+                    }
                     newest.server = Some(link.clone());
                     library.store_playlist(&newest)?;
                     // Changed meanwhile: that change goes next.
@@ -502,7 +552,7 @@ pub(crate) fn merge_save(
 }
 
 /// Needle's version of a server playlist, as a playlist of the person's own.
-fn copy_of(local: &Playlist) -> Playlist {
+pub(crate) fn copy_of(local: &Playlist) -> Playlist {
     Playlist {
         id: uuid::Uuid::new_v4().to_string(),
         name: format!("{} (Needle copy)", local.name),
@@ -604,7 +654,7 @@ pub fn forget(library: &Library, plugin: &str) -> Result<usize> {
         if playlist.server_plugin() != Some(plugin) {
             continue;
         }
-        if playlist.edited_here() {
+        if made_own(&playlist) {
             detach(library, playlist)?;
         } else {
             library.drop_playlist(&playlist.id)?;
@@ -1239,6 +1289,108 @@ mod tests {
         let now = server_list(&library, "subsonic", "1").unwrap();
         assert_eq!(now.name, "Renamed");
         assert_eq!(now.description, "New notes");
+    }
+
+    #[test]
+    fn own_words_or_picture_are_kept_when_signing_out() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Words", &["a"]));
+        fake.lists.borrow_mut().push(remote("2", "Picture", &["a"]));
+        fake.lists.borrow_mut().push(remote("3", "Plain", &["a"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let mut words = server_list(&library, "subsonic", "1").unwrap();
+        words.description = "My notes".into();
+        library.save_playlist(&words).unwrap();
+        let mut picture = server_list(&library, "subsonic", "2").unwrap();
+        picture.cover = Some("/art/p.jpg".into());
+        library.save_playlist(&picture).unwrap();
+        assert_eq!(forget(&library, "subsonic").unwrap(), 1);
+        let mut kept = names(&library);
+        kept.sort();
+        assert_eq!(kept, ["Picture", "Words"]);
+        assert!(
+            library
+                .playlists()
+                .unwrap()
+                .iter()
+                .all(|p| p.server.is_none())
+        );
+    }
+
+    #[test]
+    fn an_editor_saving_only_new_words_keeps_the_synced_songs() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let file = crate::model::Track {
+            id: "file".into(),
+            path: "/music/file.flac".into(),
+            title: "A file".into(),
+            ..Default::default()
+        };
+        Library::upsert_on(&library.connection().unwrap(), &file).unwrap();
+        let mut mix = server_list(&library, "subsonic", "1").unwrap();
+        mix.track_ids.push("file".into());
+        library.save_playlist(&mix).unwrap();
+        // An editor opens it with the file; the push takes the file out (and copies it once).
+        let opened = server_list(&library, "subsonic", "1").unwrap();
+        sync(&library, "subsonic", &fake, true).unwrap();
+        let mut saved = opened.clone();
+        saved.description = "New words".into();
+        library.save_playlist_changes(&opened, &saved).unwrap();
+        let now = server_list(&library, "subsonic", "1").unwrap();
+        assert_eq!(now.track_ids, ids("subsonic", &["a"]));
+        assert_eq!(now.description, "New words");
+        assert!(!now.edited_here());
+        sync(&library, "subsonic", &fake, true).unwrap();
+        let copies = library
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .filter(|p| p.name == "Mix (Needle copy)")
+            .count();
+        assert_eq!(copies, 1);
+    }
+
+    #[test]
+    fn a_push_takes_the_servers_comment_as_seen() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        fake.lists.borrow_mut()[0].comment = "Notes from the server".into();
+        let mut mix = server_list(&library, "subsonic", "1").unwrap();
+        mix.name = "Renamed".into();
+        library.save_playlist(&mix).unwrap();
+        sync(&library, "subsonic", &fake, true).unwrap();
+        let now = server_list(&library, "subsonic", "1").unwrap();
+        assert_eq!(now.description, "Notes from the server");
+        // Deleting it now deletes it on the server: nothing changed there since.
+        library.delete_playlist(&now.id).unwrap();
+        sync(&library, "subsonic", &fake, true).unwrap();
+        assert!(fake.playlist("1").is_err());
+        assert!(names(&library).is_empty());
+    }
+
+    #[test]
+    fn no_full_sync_while_signing_out() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        signing_out("test-signing-out", true);
+        assert_eq!(
+            sync(&library, "test-signing-out", &fake, false).unwrap(),
+            Report::default()
+        );
+        signing_out("test-signing-out", false);
+        assert_eq!(
+            sync(&library, "test-signing-out", &fake, false)
+                .unwrap()
+                .added,
+            1
+        );
     }
 
     #[test]

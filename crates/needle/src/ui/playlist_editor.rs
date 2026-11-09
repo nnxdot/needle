@@ -412,7 +412,13 @@ impl AppView {
         }
         let new = editor.editing.is_none();
         // A server playlist saved after it left Needle comes back under an id of its own.
-        match self.library.save_playlist_as(&playlist) {
+        // Only what the editor changed is saved onto the playlist as it is now: a sync may have
+        // changed it while the editor was open.
+        let saved = match &editor.editing {
+            Some(opened) => self.library.save_playlist_changes(opened, &playlist),
+            None => self.library.save_playlist_as(&playlist),
+        };
+        match saved {
             Ok(id) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.editor = None;

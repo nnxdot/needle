@@ -193,9 +193,11 @@ struct PlaylistEditor: View {
         encoder.keyEncodingStrategy = .convertToSnakeCase
         guard let data = try? encoder.encode(next) else { saving = false; return }
         let json = String(decoding: data, as: UTF8.self)
+        // As the editor opened it: only what was changed here is saved.
+        let before = playlist.id.isEmpty ? nil : (try? encoder.encode(playlist)).map { String(decoding: $0, as: UTF8.self) }
         let (picture, clear, isNew, title) = (picture, clearPicture, playlist.id.isEmpty, name)
         Task {
-            guard let id = await store.ask({ try $0.savePlaylistJson(json: json) }) else { saving = false; return }
+            guard let id = await store.ask({ try $0.savePlaylistJson(json: json, beforeJson: before) }) else { saving = false; return }
             if picture != nil || clear {
                 _ = await store.ask { try $0.setPlaylistPicture(id: id, path: picture) }
             }

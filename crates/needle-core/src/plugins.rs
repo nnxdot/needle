@@ -304,6 +304,9 @@ pub enum PluginEvent {
         fields: std::collections::BTreeMap<String, String>,
     },
     SourceSignOut(String),
+    /// The rest of signing out, once the source's playlist changes went to the server (sent
+    /// by the plugin thread to itself).
+    SourceSignedOut(String),
     /// Turn one of a source's switches on or off.
     SourceSwitch {
         plugin: String,
@@ -891,18 +894,29 @@ fn run(
             PluginEvent::SourceSignOut(plugin) => {
                 if let Some(target) = source_plugin(&mut loaded, &plugin) {
                     // Changes to its playlists made in Needle go to the server first; its
-                    // playlists then leave Needle (not the server).
-                    if let Some(native) = &target.native
-                        && native.signed_in()
-                    {
-                        let _ = crate::server_playlists::sync(&library, &plugin, native, true);
-                    }
-                    let _ = crate::server_playlists::forget(&library, &plugin);
+                    // playlists then leave Needle (not the server). Off this thread: a slow
+                    // server or a sync under way must not hold up streams and other sources.
+                    let flush = target.native.as_ref().is_some_and(|n| n.signed_in());
+                    crate::server_playlists::signing_out(&plugin, true);
+                    let (library, tx) = (library.clone(), tx.clone());
+                    std::thread::spawn(move || {
+                        if flush {
+                            let server = crate::subsonic::Subsonic::new(library.clone());
+                            let _ = crate::server_playlists::sync(&library, &plugin, &server, true);
+                        }
+                        let _ = crate::server_playlists::forget(&library, &plugin);
+                        let _ = tx.send(PluginEvent::SourceSignedOut(plugin));
+                    });
+                }
+            }
+            PluginEvent::SourceSignedOut(plugin) => {
+                if let Some(target) = source_plugin(&mut loaded, &plugin) {
                     let _ = call_source(target, "sign_out", vec![]);
                     let _ = crate::sources::forget(&library, &plugin);
                     refresh_source(target, &library);
                     actions(HostAction::LibraryChanged);
                 }
+                crate::server_playlists::signing_out(&plugin, false);
                 syncing.remove(&plugin);
                 publish(&loaded);
             }

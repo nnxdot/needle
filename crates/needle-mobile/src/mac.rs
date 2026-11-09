@@ -1089,8 +1089,9 @@ impl Needle {
     }
 
     /// Saves a playlist (a new one when its id is empty); a rule builder's rules become its
-    /// rule. Returns its id.
-    pub fn save_playlist_json(&self, json: String) -> Result<String> {
+    /// rule. `before_json` is the playlist as the editor opened it: then only what the editor
+    /// changed is saved, so what a sync changed meanwhile stays. Returns its id.
+    pub fn save_playlist_json(&self, json: String, before_json: Option<String>) -> Result<String> {
         let mut playlist: Playlist =
             serde_json::from_str(&json).map_err(|e| failed(e.to_string()))?;
         playlist.name = playlist.name.trim().to_string();
@@ -1107,6 +1108,15 @@ impl Needle {
             query::compile(rule, chrono::Utc::now().timestamp())?;
         }
         playlist.updated_at = chrono::Utc::now().timestamp();
+        if let Some(before) = before_json {
+            let mut before: Playlist =
+                serde_json::from_str(&before).map_err(|e| failed(e.to_string()))?;
+            if let Some(set) = &before.rules {
+                before.query = Some(rules::to_query(set)?);
+            }
+            before.name = before.name.trim().to_string();
+            return Ok(self.library.save_playlist_changes(&before, &playlist)?);
+        }
         // A server playlist saved after it left Needle comes back under an id of its own.
         Ok(self.library.save_playlist_as(&playlist)?)
     }

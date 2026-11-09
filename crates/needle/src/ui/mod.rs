@@ -2727,6 +2727,9 @@ impl AppView {
         else {
             return;
         };
+        // As shown when the change was made: only the change is saved (see
+        // `Library::save_playlist_changes`).
+        let opened = playlist.clone();
         // A song is in a playlist once.
         let mut new: Vec<String> = vec![];
         for track in tracks {
@@ -2741,8 +2744,8 @@ impl AppView {
         let count = new.len();
         playlist.track_ids.extend(new);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
+        match self.library.save_playlist_changes(&opened, &playlist) {
+            Ok(_) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.notify(format!(
                     "Added {} to “{}”.",
@@ -2776,6 +2779,9 @@ impl AppView {
         let Some(mut playlist) = self.arrangeable_playlist(cx) else {
             return;
         };
+        // As shown when the change was made: only the change is saved (see
+        // `Library::save_playlist_changes`).
+        let opened = playlist.clone();
         let before = self.tracks.get(target).map(|t| t.id.clone());
         if before.as_ref().is_some_and(|b| ids.contains(b)) {
             return;
@@ -2810,8 +2816,8 @@ impl AppView {
             .unwrap_or(playlist.track_ids.len());
         playlist.track_ids.splice(at..at, ids);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
+        match self.library.save_playlist_changes(&opened, &playlist) {
+            Ok(_) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.refresh(cx);
             }
@@ -2825,13 +2831,16 @@ impl AppView {
         let Some(mut playlist) = self.arrangeable_playlist(cx) else {
             return;
         };
+        // As shown when the change was made: only the change is saved (see
+        // `Library::save_playlist_changes`).
+        let opened = playlist.clone();
         let ids: Vec<String> = self.selected_tracks().into_iter().map(|t| t.id).collect();
         let before = playlist.track_ids.len();
         playlist.track_ids.retain(|id| !ids.contains(id));
         let removed = before - playlist.track_ids.len();
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
+        match self.library.save_playlist_changes(&opened, &playlist) {
+            Ok(_) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.selection = Selection::default();
                 self.notify(format!(
