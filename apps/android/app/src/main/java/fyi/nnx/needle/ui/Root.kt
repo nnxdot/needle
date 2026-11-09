@@ -132,8 +132,9 @@ enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
 @Composable
 fun NeedleRoot() {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
-    // Each tab keeps its own pages, as in Apple Music.
-    val stacks = remember { mutableStateMapOf<Tab, List<Route>>() }
+    // Each tab keeps its own pages, as in Apple Music; kept too when Android stops Needle in the
+    // background and starts it again (StacksSaver).
+    val stacks = rememberSaveable(saver = StacksSaver) { mutableStateMapOf<Tab, List<Route>>() }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     // Only whether a song is there, and its cover: the whole playback changes five times a
     // second as it plays, and would redraw every page with it.
@@ -631,6 +632,133 @@ private fun topWatch(scrolled: (Boolean) -> Unit) = object : androidx.compose.ui
         }
         return androidx.compose.ui.geometry.Offset.Zero
     }
+}
+
+/**
+ * The tabs' pages as text, to be kept while Android stops Needle in the background: each page by
+ * its kind and what it shows. A page that cannot be read back (a theme or a section gone in a
+ * new version) is left out, with the pages above it.
+ */
+private val StacksSaver = androidx.compose.runtime.saveable.Saver<androidx.compose.runtime.snapshots.SnapshotStateMap<Tab, List<Route>>, String>(
+    save = { stacks ->
+        org.json.JSONObject().apply {
+            stacks.forEach { (tab, pages) -> put(tab.name, org.json.JSONArray(pages.map { routeJson(it) })) }
+        }.toString()
+    },
+    restore = { text ->
+        val stacks = mutableStateMapOf<Tab, List<Route>>()
+        runCatching {
+            val o = org.json.JSONObject(text)
+            Tab.entries.forEach { tab ->
+                val pages = o.optJSONArray(tab.name) ?: return@forEach
+                val read = (0 until pages.length()).map { routeFrom(pages.optJSONObject(it)) }
+                val kept = read.takeWhile { it != null }.filterNotNull()
+                if (kept.isNotEmpty()) stacks[tab] = kept
+            }
+        }
+        stacks
+    },
+)
+
+private fun routeJson(route: Route): org.json.JSONObject {
+    val o = org.json.JSONObject()
+    fun kind(k: String, vararg fields: Pair<String, Any?>) {
+        o.put("k", k)
+        fields.forEach { (name, value) -> if (value != null) o.put(name, value) }
+    }
+    when (route) {
+        Route.Home -> kind("home")
+        Route.Library -> kind("library")
+        Route.Search -> kind("search")
+        Route.Settings -> kind("settings")
+        Route.Playlists -> kind("playlists")
+        Route.Artists -> kind("artists")
+        Route.Albums -> kind("albums")
+        Route.Songs -> kind("songs")
+        Route.Genres -> kind("genres")
+        is Route.AlbumPage -> route.album.let {
+            kind("album", "key" to it.key, "title" to it.title, "artist" to it.artist, "year" to it.year, "songs" to it.songs.toLong(), "duration" to it.duration, "artwork" to it.artwork, "added" to it.addedAt)
+        }
+        is Route.AlbumOf -> kind("albumOf", "title" to route.title, "song" to route.songId)
+        is Route.Artist -> kind("artist", "name" to route.name)
+        is Route.Playlist -> kind("playlist", "id" to route.id, "name" to route.name)
+        is Route.Genre -> kind("genre", "name" to route.name)
+        is Route.Rule -> kind("rule", "title" to route.title, "query" to route.query)
+        is Route.SettingsPage -> kind("settingsPage", "section" to route.section.name)
+        Route.Favorites -> kind("favorites")
+        Route.RecentlyAdded -> kind("recent")
+        Route.History -> kind("history")
+        is Route.Folder -> kind("folder", "path" to route.path)
+        is Route.Wrapped -> kind("wrapped", "year" to route.year)
+        is Route.YearReview -> kind("yearReview", "year" to route.year)
+        Route.Alarm -> kind("alarm")
+        Route.Numbers -> kind("numbers")
+        Route.MoodMap -> kind("moodMap")
+        Route.Crate -> kind("crate")
+        Route.Plugins -> kind("plugins")
+        is Route.Plugin -> kind("plugin", "id" to route.id)
+        Route.Connect -> kind("connect")
+        Route.Sync -> kind("sync")
+        Route.WhatsNew -> kind("whatsNew")
+        is Route.Timing -> kind("timing", "song" to route.songId)
+        is Route.Document -> kind("doc", "doc" to route.doc.name)
+        Route.FixLibrary -> kind("fix")
+        Route.Import -> kind("import")
+        is Route.ThemeEditor -> kind("theme", "id" to route.id)
+    }
+    return o
+}
+
+private fun routeFrom(o: org.json.JSONObject?): Route? {
+    o ?: return null
+    fun str(name: String) = if (o.has(name) && !o.isNull(name)) o.getString(name) else null
+    fun int(name: String) = if (o.has(name) && !o.isNull(name)) o.getInt(name) else null
+    return runCatching {
+        when (o.getString("k")) {
+            "home" -> Route.Home
+            "library" -> Route.Library
+            "search" -> Route.Search
+            "settings" -> Route.Settings
+            "playlists" -> Route.Playlists
+            "artists" -> Route.Artists
+            "albums" -> Route.Albums
+            "songs" -> Route.Songs
+            "genres" -> Route.Genres
+            "album" -> Route.AlbumPage(
+                Album(
+                    o.getString("key"), o.getString("title"), o.getString("artist"), o.getLong("year"),
+                    o.getLong("songs").toUInt(), o.getDouble("duration"), str("artwork"), o.getLong("added"),
+                ),
+            )
+            "albumOf" -> Route.AlbumOf(o.getString("title"), o.getString("song"))
+            "artist" -> Route.Artist(o.getString("name"))
+            "playlist" -> Route.Playlist(o.getString("id"), o.getString("name"))
+            "genre" -> Route.Genre(o.getString("name"))
+            "rule" -> Route.Rule(o.getString("title"), o.getString("query"))
+            "settingsPage" -> Route.SettingsPage(SettingsSection.valueOf(o.getString("section")))
+            "favorites" -> Route.Favorites
+            "recent" -> Route.RecentlyAdded
+            "history" -> Route.History
+            "folder" -> Route.Folder(str("path"))
+            "wrapped" -> Route.Wrapped(int("year"))
+            "yearReview" -> Route.YearReview(int("year"))
+            "alarm" -> Route.Alarm
+            "numbers" -> Route.Numbers
+            "moodMap" -> Route.MoodMap
+            "crate" -> Route.Crate
+            "plugins" -> Route.Plugins
+            "plugin" -> Route.Plugin(o.getString("id"))
+            "connect" -> Route.Connect
+            "sync" -> Route.Sync
+            "whatsNew" -> Route.WhatsNew
+            "timing" -> Route.Timing(o.getString("song"))
+            "doc" -> Route.Document(Doc.valueOf(o.getString("doc")))
+            "fix" -> Route.FixLibrary
+            "import" -> Route.Import
+            "theme" -> Route.ThemeEditor(str("id"))
+            else -> null
+        }
+    }.getOrNull()
 }
 
 /** A page's place in its tab's stack, the key its kept state is held under. */
