@@ -192,14 +192,6 @@ pub struct TagProgress {
 }
 
 #[derive(Clone, uniffi::Record)]
-pub struct GroupMember {
-    /// The member's address (empty for this computer), for [`Needle::set_speaker_delay`].
-    pub key: String,
-    pub name: String,
-    pub delay: i32,
-}
-
-#[derive(Clone, uniffi::Record)]
 pub struct MacUpdate {
     pub version: String,
     pub page: String,
@@ -999,30 +991,6 @@ impl Needle {
         needle_core::audio::devices().unwrap_or_default()
     }
 
-    /// Writes the equalizer as an Equalizer APO file ("ParametricEQ.txt").
-    pub fn save_eq_file(&self, path: String) -> Result<()> {
-        use needle_core::dsp::{BANDS, ParamBand, format_parametric};
-        let dsp = self.library.settings()?.dsp;
-        let bands: Vec<ParamBand> = if dsp.parametric_mode() {
-            dsp.parametric.clone()
-        } else {
-            BANDS
-                .iter()
-                .zip(dsp.bands)
-                .filter(|(_, g)| *g != 0.)
-                .map(|(f, g)| ParamBand {
-                    frequency: *f as f32,
-                    gain: g,
-                    q: 1.41,
-                    ..Default::default()
-                })
-                .collect()
-        };
-        std::fs::write(&path, format_parametric(dsp.preamp_db, &bands))
-            .map_err(anyhow::Error::from)?;
-        Ok(())
-    }
-
     /// How many songs are measured for radio, of how many: `[done, total]`.
     pub fn measured_count(&self) -> Vec<u64> {
         let found = *DESK.measured.lock().unwrap();
@@ -1266,35 +1234,6 @@ impl Needle {
     }
 
     // ---------- Radio
-
-    /// The artists that sound nearest to `artist`, for a blend.
-    pub fn similar_artists(&self, artist: String) -> Vec<String> {
-        self.library
-            .similar_artists(&artist, 10)
-            .unwrap_or_default()
-    }
-
-    /// Plays songs from both artists that flow from one to the other. Returns how many.
-    pub fn start_blend(&self, first: String, second: String) -> Result<u32> {
-        let station = self.library.blend(&first, &second, STATION)?;
-        if station.len() < 2 {
-            return Err(failed(
-                "Not enough songs are measured yet to make a station. Needle measures them in the background; try again soon.",
-            ));
-        }
-        let reason = format!("Blend: {first} × {second}");
-        let count = station.len() as u32;
-        self.player.send(Command::Play(
-            station
-                .into_iter()
-                .map(|track| QueueItem {
-                    track,
-                    reason: reason.clone(),
-                })
-                .collect(),
-        ));
-        Ok(count)
-    }
 
     /// Plays this song, then songs that sound like it. Returns how many.
     pub fn radio_from(&self, id: String) -> Result<u32> {
@@ -1662,49 +1601,7 @@ impl Needle {
             .unwrap_or_default())
     }
 
-    // ---------- Speakers
-
-    /// The members of the speaker group playing now, with their delays.
-    pub fn group_members(&self) -> Vec<GroupMember> {
-        let Some(group) = self
-            .library
-            .settings()
-            .ok()
-            .and_then(|s| s.output_device)
-            .as_deref()
-            .and_then(Group::from_device_name)
-        else {
-            return vec![];
-        };
-        group
-            .members()
-            .into_iter()
-            .map(|(key, name)| GroupMember {
-                delay: *group.delays.get(&key).unwrap_or(&0),
-                key,
-                name,
-            })
-            .collect()
-    }
-
-    /// Moves one member of the group playing now earlier or later, in ms.
-    pub fn set_speaker_delay(&self, key: String, ms: i32) -> Result<()> {
-        let settings = self.library.settings()?;
-        let Some(mut group) = settings
-            .output_device
-            .as_deref()
-            .and_then(Group::from_device_name)
-        else {
-            return Ok(());
-        };
-        group.delays.insert(key, ms.clamp(-1000, 1000));
-        group.delays.retain(|_, ms| *ms != 0);
-        let device = group.device_name();
-        self.save_settings_with(|s| s.output_device = Some(device))?;
-        self.player
-            .send(Command::SpeakerDelays(group.delays.clone()));
-        Ok(())
-    }
+    // ---------- Speakers (the group's timing is in `shared.rs`, with the phones)
 
     /// Speakers on the network as JSON (`[{name, kind, address, port, …}]`), after a few
     /// seconds of looking.
@@ -2162,32 +2059,6 @@ impl Needle {
             }
         }
         notes
-    }
-
-    // ---------- The log
-
-    pub fn log_folder(&self) -> String {
-        needle_core::logfile::log_folder(&self.library.directory)
-            .to_string_lossy()
-            .to_string()
-    }
-
-    /// An error report to paste in an email: the recent log and the last crash, without file
-    /// paths or names.
-    pub fn error_report(&self) -> String {
-        let data = &self.library.directory;
-        let crash = needle_core::logfile::pending(data)
-            .last()
-            .and_then(|f| std::fs::read_to_string(f).ok())
-            .map(|t| format!("\n\nLast crash:\n{t}"))
-            .unwrap_or_default();
-        needle_core::logfile::prepare(&format!(
-            "Needle {} on {} {}\n\nRecent log:\n{}{crash}",
-            env!("CARGO_PKG_VERSION"),
-            std::env::consts::OS,
-            std::env::consts::ARCH,
-            needle_core::logfile::recent(data, 80)
-        ))
     }
 }
 

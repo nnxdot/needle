@@ -216,10 +216,6 @@ const APP_KEY: &str = "android.app";
 /// A Last.fm sign-in waiting for the browser.
 pub(crate) static PENDING: Mutex<Option<LastfmPending>> = Mutex::new(None);
 
-fn failed(error: anyhow::Error) -> NeedleError {
-    NeedleError::from(error)
-}
-
 #[uniffi::export]
 impl Needle {
     pub fn playback_settings(&self) -> Result<PlaybackSettings> {

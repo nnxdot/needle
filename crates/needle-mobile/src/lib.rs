@@ -35,6 +35,7 @@ mod more;
 mod platform_output_tests;
 mod plugins;
 mod settings;
+mod shared;
 mod tools;
 mod usb_dac;
 

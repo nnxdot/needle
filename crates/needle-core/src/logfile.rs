@@ -479,9 +479,42 @@ pub fn recent(data: &Path, lines: usize) -> String {
     all[all.len().saturating_sub(lines)..].join("\n")
 }
 
+/// The log file being written now, in the log folder.
+pub fn log_file(data: &Path) -> PathBuf {
+    log_folder(data).join("needle.log")
+}
+
+/// "Copy error report": the version and system, the recent log, and the last crash, without
+/// file paths or names, to paste in an email.
+pub fn error_report(data: &Path) -> String {
+    let crash = pending(data)
+        .last()
+        .and_then(|f| fs::read_to_string(f).ok())
+        .map(|t| format!("\n\nLast crash:\n{t}"))
+        .unwrap_or_default();
+    prepare(&format!(
+        "Needle {} on {} {}\n\nRecent log:\n{}{crash}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        recent(data, 80)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_error_report_has_the_version_and_the_recent_log() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(log_folder(dir.path())).unwrap();
+        std::fs::write(log_file(dir.path()), "first\nsecond\n").unwrap();
+        let report = error_report(dir.path());
+        assert!(report.starts_with(&format!("Needle {}", env!("CARGO_PKG_VERSION"))));
+        assert!(report.contains("first\nsecond"));
+        assert!(!report.contains("Last crash"));
+    }
 
     #[test]
     fn a_macos_report_keeps_what_went_wrong_and_where_only() {
