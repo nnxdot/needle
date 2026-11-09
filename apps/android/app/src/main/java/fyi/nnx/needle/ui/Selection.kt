@@ -8,6 +8,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -67,10 +69,9 @@ object Selection {
 fun Song.fromServer() = id.startsWith("src-")
 
 /**
- * The bar over the tabs while songs are chosen: Material 3 Expressive's floating toolbar, in
- * its vibrant colours, with Play as its one filled button.
+ * The bar over the tabs while songs are chosen: a glass bar in the dock's shape (DESIGN.md ›
+ * Shapes), with Play as its one filled button.
  */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SelectionBar() {
     val chosen by Selection.songs.collectAsState()
@@ -94,14 +95,22 @@ fun SelectionBar() {
             }
         }
         androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-            androidx.compose.material3.HorizontalFloatingToolbar(
-                expanded = true,
-                colors = androidx.compose.material3.FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
+            Row(
+                Modifier.widthIn(max = 640.dp).fillMaxWidth().glass(DockShape, shadow = 12.dp).height(60.dp).padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = Selection::clear) { Icon(Icons.Rounded.Close, contentDescription = "Stop choosing") }
                 // Gives way to the buttons where large text leaves no room.
-                Text(count(shown.size, "song"), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).align(Alignment.CenterVertically).padding(end = 8.dp))
-                androidx.compose.material3.FilledIconButton(onClick = { once { playSongs(ids) } }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play") }
+                Text(count(shown.size, "song"), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(end = 8.dp))
+                // Play: the bar's one filled button, round, as the mini player's.
+                androidx.compose.material3.FilledIconButton(
+                    onClick = { once { playSongs(ids) } },
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play") }
                 IconButton(onClick = { once { addToQueue(next = true) { ids } } }) {
                     Icon(Icons.Rounded.QueuePlayNext, contentDescription = "Play next")
                 }

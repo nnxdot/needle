@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -163,11 +164,29 @@ fun AlarmScreen() {
         item { AlarmSwitch("On", null, s.on) { change(s.copy(on = it)) } }
     }
     if (timing) {
-        LaunchedEffect(Unit) {
-            android.app.TimePickerDialog(context, { _, h, m -> change(s.copy(hour = h, minute = m, on = true)) }, s.hour, s.minute, android.text.format.DateFormat.is24HourFormat(context))
-                .apply { setOnDismissListener { timing = false } }
-                .show()
-        }
+        // Material's time picker on glass, as the other dialogs. With a remote, the boxes to type
+        // in (the clock's dial needs touch).
+        val clock = androidx.compose.material3.rememberTimePickerState(s.hour, s.minute, android.text.format.DateFormat.is24HourFormat(context))
+        val keys = usingKeys()
+        GlassAlertDialog(
+            onDismissRequest = { timing = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    timing = false
+                    change(s.copy(hour = clock.hour, minute = clock.minute, on = true))
+                }) { Text("Set") }
+            },
+            dismissButton = { TextButton(onClick = { timing = false }) { Text("Cancel") } },
+            title = { Text("Wake me at") },
+            text = {
+                androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    if (keys) androidx.compose.material3.TimeInput(clock) else androidx.compose.material3.TimePicker(clock)
+                }
+            },
+            // The dial is wider than a small dialog.
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+            modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 420.dp),
+        )
     }
     if (picking) {
         GlassAlertDialog(

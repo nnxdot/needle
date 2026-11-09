@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
@@ -416,6 +418,7 @@ fun NeedleRoot() {
                             .padding(horizontal = if (wide) 20.dp else 10.dp)
                             .padding(bottom = FootGap),
                     ) {
+                        if (!typing) LoadErrorBar(Modifier.padding(bottom = 8.dp))
                         if (!typing) SelectionBar()
                         if (!typing) {
                             if (!wide) {
@@ -494,10 +497,16 @@ fun NeedleRoot() {
                         if (swipe.currentValue != androidx.compose.material3.SwipeToDismissBoxValue.Settled) data.dismiss()
                     }
                     androidx.compose.material3.SwipeToDismissBox(swipe, backgroundContent = {}) {
-                        androidx.compose.material3.Snackbar(
-                            data,
-                            modifier = Modifier.clickable(onClickLabel = "Dismiss") { data.dismiss() },
-                        )
+                        // On glass, over the page it blurs; over the player (not what the glass
+                        // blurs), its solid fill.
+                        CompositionLocalProvider(LocalHaze provides if (playerOpen && hasSong) null else haze) {
+                            GlassMessage(
+                                data.visuals.message,
+                                action = data.visuals.actionLabel?.let { label -> label to { data.performAction() } },
+                                modifier = Modifier.padding(horizontal = if (wide) 20.dp else 10.dp),
+                                onClick = { data.dismiss() },
+                            )
+                        }
                     }
                 }
                 // The visualizer full screen, over everything, while a song is there.
@@ -553,6 +562,55 @@ private fun Page(route: Route, open: (Route) -> Unit) {
             val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
             ThemeEditorScreen(route.id) { back?.onBackPressedDispatcher?.onBackPressed() }
         }
+    }
+}
+
+/**
+ * A short message on glass in the dock's shape (a snackbar, a page that could not load): its
+ * words, and a button at its right when there is something to do.
+ */
+@Composable
+fun GlassMessage(
+    text: String,
+    action: Pair<String, () -> Unit>?,
+    modifier: Modifier = Modifier,
+    error: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    Box(modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+    Row(
+        Modifier
+            .widthIn(max = 640.dp)
+            .fillMaxWidth()
+            .glass(DockShape, shadow = 12.dp)
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = "Dismiss", onClick = onClick) else Modifier)
+            .heightIn(min = 52.dp)
+            .padding(start = 20.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+        )
+        if (action != null) androidx.compose.material3.TextButton(onClick = action.second) { Text(action.first) }
+    }
+    }
+}
+
+/**
+ * The loads on the page that failed, told once, above the dock (inside the page, which it does not
+ * cover): the first one's words and Retry, which tries them all again. A remote reaches Retry by
+ * moving down from the page.
+ */
+@Composable
+private fun LoadErrorBar(modifier: Modifier = Modifier) {
+    val failure = LoadErrors.list.firstOrNull()
+    var last by remember { mutableStateOf("") }
+    if (failure != null) last = failure.message
+    AnimatedVisibility(failure != null, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
+        GlassMessage(last, action = "Retry" to { LoadErrors.retry() }, modifier = modifier, error = true)
     }
 }
 
