@@ -611,6 +611,43 @@ pub fn find_releases(album: &str, artist: &str, track_count: usize) -> Result<Ve
 /// For looking up many albums at once: the release to use without asking, or none. Only one
 /// titled as the album, with a strong search score, that has every song of the album on it.
 /// Sends the album title and artist only.
+/// What "Look up all" found for one album with gaps: a sure match on MusicBrainz, and the tag
+/// edits it brings (one for each song it changes), to check before anything is written.
+#[derive(Clone, Debug)]
+pub struct SureMatch {
+    pub release: Release,
+    /// The album's songs as they were looked up, for writing the edits.
+    pub tracks: Vec<Track>,
+    pub edits: Vec<(String, TagEdit)>,
+}
+
+/// "Look up all" for one album with gaps (see [`album_issues`]): a sure match on MusicBrainz
+/// that changes something, else `None`. An album of "Various artists" is looked up without an
+/// artist. `Err` when MusicBrainz could not be asked. MusicBrainz takes one request a second:
+/// a run over many albums goes one after another, and can stop between them.
+pub fn look_up_sure(
+    library: &Library,
+    album: &str,
+    artist: &str,
+    track_ids: &[String],
+) -> Result<Option<SureMatch>> {
+    let tracks = library.tracks_by_ids(track_ids)?;
+    let artist = if artist == "Various artists" {
+        ""
+    } else {
+        artist
+    };
+    let Some(release) = sure_release(album, artist, &tracks)? else {
+        return Ok(None);
+    };
+    let edits = release_edits(&tracks, &release);
+    Ok((!edits.is_empty()).then_some(SureMatch {
+        release,
+        tracks,
+        edits,
+    }))
+}
+
 pub fn sure_release(album: &str, artist: &str, tracks: &[Track]) -> Result<Option<Release>> {
     if tracks.is_empty() || album.trim().is_empty() {
         return Ok(None);
