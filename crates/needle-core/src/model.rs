@@ -156,6 +156,34 @@ pub struct ServerPlaylist {
     pub songs: Vec<String>,
     /// Its comment on the server at the last sync.
     pub comment: String,
+    /// The server lets this person only read it (another person's playlist, or a smart one):
+    /// changes made in Needle never go to it, and it is never deleted there.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
+    /// When the server last changed it, as the server writes it: a playlist whose time and
+    /// count of songs are as at the last sync is not read again.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub changed: String,
+    /// Entries of the server's list Needle cannot read (no title): their places in the list
+    /// and their ids, sent back in place so a push does not take them off the server.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unread: Vec<(usize, String)>,
+    /// After Needle's own push: the name and songs the push replaced, so a save read before
+    /// the push does not take Needle's own change for one made on the server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pushed_over: Option<(String, Vec<String>)>,
+}
+
+impl ServerPlaylist {
+    /// The same last-synced state (where it lives, its name, songs, and comment), whatever an
+    /// app kept of the rest.
+    pub fn same_state(&self, other: &Self) -> bool {
+        self.plugin == other.plugin
+            && self.id == other.id
+            && self.name == other.name
+            && self.songs == other.songs
+            && self.comment == other.comment
+    }
 }
 
 impl Playlist {

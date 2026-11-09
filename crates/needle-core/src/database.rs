@@ -13,6 +13,44 @@ use std::{
 pub struct Library {
     pub directory: PathBuf,
 }
+/// Where a playlist save went: saved as asked, or (with `note`) somewhere else too.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Saved {
+    /// The id the playlist is saved under: a new one when it had to become the person's own.
+    pub id: String,
+    /// The person's version, saved as a playlist of their own instead (its id and name): the
+    /// server's playlist changed meanwhile, or the server lets them only read it.
+    pub copy: Option<SavedCopy>,
+    /// What to tell the person when the save did not go just as asked, in words.
+    pub note: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SavedCopy {
+    pub id: String,
+    pub name: String,
+}
+
+impl Saved {
+    fn new(id: String, copy: Option<Playlist>, why: Option<String>) -> Self {
+        let note = match (&copy, why) {
+            (Some(copy), Some(why)) => {
+                Some(format!("{why}; your version is kept as “{}”", copy.name))
+            }
+            (None, why) => why,
+            (Some(copy), None) => Some(format!("Your version is kept as “{}”", copy.name)),
+        };
+        Self {
+            id,
+            copy: copy.map(|c| SavedCopy {
+                id: c.id,
+                name: c.name,
+            }),
+            note,
+        }
+    }
+}
+
 pub struct SearchPage {
     pub tracks: Vec<Track>,
     pub total: usize,
@@ -54,6 +92,7 @@ impl Library {
             CREATE INDEX IF NOT EXISTS tracks_search_order ON tracks(artist COLLATE NOCASE,album COLLATE NOCASE,disc,track_number,id);
             CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY, last_scan INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS playlists(id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS server_playlist_own(plugin TEXT NOT NULL, id TEXT NOT NULL, description TEXT NOT NULL, cover TEXT, PRIMARY KEY(plugin,id));
             CREATE TABLE IF NOT EXISTS listens(
                 id TEXT PRIMARY KEY, track_id TEXT NOT NULL, started_at INTEGER NOT NULL,
                 qualified INTEGER NOT NULL, data TEXT NOT NULL
@@ -339,8 +378,10 @@ impl Library {
             .collect()
     }
     pub fn playlist_by_id(&self, id: &str) -> Result<Option<Playlist>> {
-        let json: Option<String> = self
-            .connection()?
+        Self::playlist_on(&self.connection()?, id)
+    }
+    pub(crate) fn playlist_on(db: &Connection, id: &str) -> Result<Option<Playlist>> {
+        let json: Option<String> = db
             .query_row("SELECT data FROM playlists WHERE id=?", [id], |r| r.get(0))
             .optional()?;
         Ok(json.map(|s| serde_json::from_str(&s)).transpose()?)
@@ -405,6 +446,47 @@ impl Library {
             .query_map([], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?)
     }
+    /// Stop reading a music folder: it leaves the list of folders (however it was written
+    /// there), and its songs leave the library, in one transaction. Their playlists keep their
+    /// places, as for songs whose file is gone. Returns how many songs left. An app with a scan
+    /// running keeps that scan from bringing them back itself.
+    pub fn remove_root(&self, path: &str) -> Result<usize> {
+        let real = canonical_root(path);
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let roots: Vec<String> = tx
+            .prepare("SELECT path FROM roots")?
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        let bare = |p: &str| p.trim_end_matches(['/', '\\']).to_string();
+        let (typed, real_bare) = (bare(path), bare(&real));
+        for root in roots {
+            let this = bare(&root);
+            if this == typed || this == real_bare || bare(&canonical_root(&root)) == real_bare {
+                tx.execute("DELETE FROM roots WHERE path=?", [&root])?;
+            }
+        }
+        // The songs are kept by the folder's real path; the folder as typed too, to be sure.
+        // Either separator: Windows writes `\`.
+        let mut removed = 0;
+        let mut folders = vec![real.as_str(), path];
+        folders.dedup();
+        for folder in folders {
+            let base = folder.trim_end_matches(['/', '\\']);
+            for separator in ['/', '\\'] {
+                removed += tx.execute(
+                    "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
+                    [format!("{base}{separator}")],
+                )?;
+            }
+        }
+        tx.execute(
+            "DELETE FROM features WHERE track_id NOT IN (SELECT id FROM tracks)",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(removed)
+    }
     pub fn add_root(&self, path: &str) -> Result<()> {
         // By its real path, as the scan stores its songs: else one folder could be two.
         let path = canonical_root(path);
@@ -450,8 +532,13 @@ impl Library {
         Ok(settings)
     }
     pub fn get_json<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
-        let value: Option<String> = self
-            .connection()?
+        Self::get_json_on(&self.connection()?, key)
+    }
+    pub(crate) fn get_json_on<T: serde::de::DeserializeOwned>(
+        db: &Connection,
+        key: &str,
+    ) -> Result<Option<T>> {
+        let value: Option<String> = db
             .query_row("SELECT value FROM settings WHERE key=?", [key], |r| {
                 r.get(0)
             })
@@ -461,14 +548,23 @@ impl Library {
             .transpose()
     }
     pub fn set_json<T: serde::Serialize>(&self, key: &str, value: &T) -> Result<()> {
-        self.connection()?.execute(
+        Self::set_json_on(&self.connection()?, key, value)
+    }
+    pub(crate) fn set_json_on<T: serde::Serialize>(
+        db: &Connection,
+        key: &str,
+        value: &T,
+    ) -> Result<()> {
+        db.execute(
             "INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             params![key, serde_json::to_string(value)?],
         )?;
         Ok(())
     }
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
-        let db = self.connection()?;
+        Self::playlists_on(&self.connection()?)
+    }
+    pub(crate) fn playlists_on(db: &Connection) -> Result<Vec<Playlist>> {
         let mut stmt = db.prepare("SELECT data FROM playlists ORDER BY name COLLATE NOCASE")?;
         let json: Vec<String> = stmt
             .query_map([], |r| r.get(0))?
@@ -478,10 +574,14 @@ impl Library {
     pub fn save_playlist(&self, playlist: &Playlist) -> Result<()> {
         self.save_playlist_as(playlist).map(|_| ())
     }
-    /// [`Self::save_playlist`], giving the id it was saved under: a server playlist's editor
+    /// [`Self::save_playlist_saved`], giving only the id it was saved under.
+    pub fn save_playlist_as(&self, playlist: &Playlist) -> Result<String> {
+        self.save_playlist_saved(playlist).map(|saved| saved.id)
+    }
+    /// Save a playlist, and say where it went (see [`Saved`]). A server playlist's editor
     /// saving after the playlist left Needle (signed out, or deleted) saves it as the person's
     /// own, under an id of its own, so the server's copy coming back never writes over it.
-    pub fn save_playlist_as(&self, playlist: &Playlist) -> Result<String> {
+    pub fn save_playlist_saved(&self, playlist: &Playlist) -> Result<Saved> {
         if playlist.name.trim().is_empty() {
             bail!("Give the playlist a name")
         }
@@ -492,14 +592,20 @@ impl Library {
         // it, or with one read before a sync moved it on. A server playlist stays one, and
         // changes to it go to the server (see `server_playlists`).
         let write = crate::server_playlists::writing();
-        let stored = self.playlist_by_id(&playlist.id)?;
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let stored = Self::playlist_on(&tx, &playlist.id)?;
         let link = stored.as_ref().and_then(|p| p.server.clone());
         let mut playlist = std::borrow::Cow::Borrowed(playlist);
         let mut copy = None;
+        let mut why = None;
         match (&playlist.server, &stored) {
             // Read before a sync moved it on: what the sync changed meanwhile is not undone.
-            (Some(seen), Some(stored)) if link.as_ref().is_some_and(|l| l != seen) => {
+            (Some(seen), Some(stored)) if link.as_ref().is_some_and(|l| !l.same_state(seen)) => {
                 let (merged, clash) = crate::server_playlists::merge_save(&playlist, seen, stored);
+                if clash.is_some() {
+                    why = Some(format!("“{}” changed on the server meanwhile", stored.name));
+                }
                 *playlist.to_mut() = merged;
                 copy = clash;
             }
@@ -508,6 +614,10 @@ impl Library {
                 let own = playlist.to_mut();
                 own.id = uuid::Uuid::new_v4().to_string();
                 own.server = None;
+                why = Some(format!(
+                    "“{}” is no longer on the server; it is saved as your own playlist",
+                    own.name
+                ));
             }
             _ => {
                 if playlist.server != link {
@@ -515,32 +625,54 @@ impl Library {
                 }
             }
         }
+        // One the server lets this person only read keeps the server's name and songs; the
+        // person's version is saved as their own.
+        if let Some(stored) = &stored
+            && let Some((mine, kept)) = crate::server_playlists::keep_read_only(stored, &playlist)
+        {
+            copy = copy.or(Some(mine));
+            *playlist.to_mut() = kept;
+            why = Some(format!("“{}” is read-only on the server", stored.name));
+        }
         if playlist.server.is_some() && playlist.query.is_some() {
             bail!("A playlist on your music server holds songs you pick; it cannot follow rules")
         }
         if let Some(copy) = &copy {
-            self.store_playlist(copy)?;
+            Self::store_playlist_on(&tx, copy)?;
         }
-        self.store_playlist(&playlist)?;
+        Self::store_playlist_on(&tx, &playlist)?;
+        tx.commit()?;
         drop(write);
         if playlist.edited_here()
             && let Some(plugin) = playlist.server_plugin()
         {
             crate::server_playlists::edited(plugin);
         }
-        Ok(playlist.id.clone())
+        Ok(Saved::new(playlist.id.clone(), copy, why))
+    }
+    /// [`Self::save_playlist_changes_saved`], giving only the id it was saved under.
+    pub fn save_playlist_changes(&self, before: &Playlist, after: &Playlist) -> Result<String> {
+        self.save_playlist_changes_saved(before, after)
+            .map(|saved| saved.id)
     }
     /// Save what an editor changed: `before` is the playlist as the editor opened it, `after`
     /// as it saves it. Only the fields that differ are taken onto the playlist as it is now,
     /// so what changed meanwhile (a sync brought songs, took out songs not on the server, or
     /// changed the words) is not undone. When the songs of a server playlist changed both in
     /// the editor and meanwhile, the stored songs stay and the editor's version is kept as a
-    /// copy. Gives the id it was saved under (see [`Self::save_playlist_as`]).
-    pub fn save_playlist_changes(&self, before: &Playlist, after: &Playlist) -> Result<String> {
+    /// copy. Says where it went (see [`Self::save_playlist_saved`]).
+    pub fn save_playlist_changes_saved(
+        &self,
+        before: &Playlist,
+        after: &Playlist,
+    ) -> Result<Saved> {
         let write = crate::server_playlists::writing();
-        let Some(stored) = self.playlist_by_id(&after.id)? else {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let Some(stored) = Self::playlist_on(&tx, &after.id)? else {
+            drop(tx);
             drop(write);
-            return self.save_playlist_as(after);
+            return self.save_playlist_saved(after);
         };
         let mut merged = stored.clone();
         if after.name != before.name {
@@ -557,9 +689,11 @@ impl Library {
             merged.rules = after.rules.clone();
         }
         let mut copy = None;
+        let mut why = None;
         if after.track_ids != before.track_ids {
             if stored.server.is_some() && stored.track_ids != before.track_ids {
                 copy = Some(crate::server_playlists::copy_of(after));
+                why = Some(format!("“{}” changed on the server meanwhile", stored.name));
             } else {
                 merged.track_ids = after.track_ids.clone();
             }
@@ -571,43 +705,63 @@ impl Library {
         if let Some(q) = &merged.query {
             query::compile(q, chrono::Utc::now().timestamp())?;
         }
+        if let Some((mine, kept)) = crate::server_playlists::keep_read_only(&stored, &merged) {
+            copy = copy.or(Some(mine));
+            merged = kept;
+            why = Some(format!("“{}” is read-only on the server", stored.name));
+        }
         if merged.server.is_some() && merged.query.is_some() {
             bail!("A playlist on your music server holds songs you pick; it cannot follow rules")
         }
         if let Some(copy) = &copy {
-            self.store_playlist(copy)?;
+            Self::store_playlist_on(&tx, copy)?;
         }
-        self.store_playlist(&merged)?;
+        Self::store_playlist_on(&tx, &merged)?;
+        tx.commit()?;
         drop(write);
         if merged.edited_here()
             && let Some(plugin) = merged.server_plugin()
         {
             crate::server_playlists::edited(plugin);
         }
-        Ok(merged.id)
+        Ok(Saved::new(merged.id, copy, why))
     }
     /// Save a playlist as it is (the server playlists' sync).
     pub(crate) fn store_playlist(&self, playlist: &Playlist) -> Result<()> {
-        self.connection()?.execute("INSERT INTO playlists VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,data=excluded.data", params![playlist.id,playlist.name,serde_json::to_string(playlist)?])?;
+        Self::store_playlist_on(&self.connection()?, playlist)
+    }
+    pub(crate) fn store_playlist_on(db: &Connection, playlist: &Playlist) -> Result<()> {
+        db.execute("INSERT INTO playlists VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,data=excluded.data", params![playlist.id,playlist.name,serde_json::to_string(playlist)?])?;
         Ok(())
     }
     /// Delete a playlist. A server playlist is deleted on the server too, at the next sync
-    /// (see `server_playlists`).
+    /// (see `server_playlists`); one the server lets this person only read cannot be deleted.
     pub fn delete_playlist(&self, id: &str) -> Result<()> {
         let write = crate::server_playlists::writing();
-        if let Some(link) = self.playlist_by_id(id)?.and_then(|p| p.server) {
-            crate::server_playlists::remember_deleted(self, &link)?;
-            self.drop_playlist(id)?;
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(playlist) = Self::playlist_on(&tx, id)?
+            && let Some(link) = playlist.server
+        {
+            if link.read_only {
+                bail!(
+                    "“{}” is read-only on your music server, so it cannot be deleted",
+                    playlist.name
+                )
+            }
+            crate::server_playlists::remember_deleted(&tx, &link)?;
+            Self::drop_playlist_on(&tx, id)?;
+            tx.commit()?;
             drop(write);
             crate::server_playlists::edited(&link.plugin);
             return Ok(());
         }
-        self.drop_playlist(id)
+        Self::drop_playlist_on(&tx, id)?;
+        Ok(tx.commit()?)
     }
     /// Delete a playlist from Needle only.
-    pub(crate) fn drop_playlist(&self, id: &str) -> Result<()> {
-        self.connection()?
-            .execute("DELETE FROM playlists WHERE id=?", [id])?;
+    pub(crate) fn drop_playlist_on(db: &Connection, id: &str) -> Result<()> {
+        db.execute("DELETE FROM playlists WHERE id=?", [id])?;
         Ok(())
     }
     pub fn playlist_tracks(&self, playlist: &Playlist) -> Result<Vec<Track>> {
@@ -1000,6 +1154,40 @@ mod tests {
         std::fs::write(&nothing, "#EXTM3U\nmissing.wav\n").unwrap();
         assert!(db.import_playlist(&nothing).is_err());
         assert_eq!(db.playlists().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_removed_folder_takes_only_its_own_songs() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let song = |id: &str, path: &str| Track {
+            id: id.into(),
+            path: path.into(),
+            title: id.into(),
+            ..Default::default()
+        };
+        library.add_root("/music/rock").unwrap();
+        library.add_root("/music/rockabilly").unwrap();
+        for t in [
+            song("a", "/music/rock/a.flac"),
+            song("b", "/music/rock/deep/b.flac"),
+            song("c", "/music/rockabilly/c.flac"),
+            song("w", "/music/rock\\w.flac"),
+            song("s", "source://subsonic/1"),
+        ] {
+            library.upsert(&t).unwrap();
+        }
+        assert_eq!(library.remove_root("/music/rock/").unwrap(), 3);
+        assert_eq!(library.roots().unwrap(), ["/music/rockabilly"]);
+        let left: Vec<String> = library
+            .search("")
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        let mut left = left;
+        left.sort();
+        assert_eq!(left, ["c", "s"]);
     }
 
     #[test]

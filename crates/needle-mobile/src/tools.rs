@@ -143,6 +143,19 @@ pub struct Speakers {
 
 /// Releases found for an album, kept until one is chosen.
 static RELEASES: Mutex<Vec<(doctor::Release, Vec<Track>)>> = Mutex::new(Vec::new());
+/// "Look up all": the sure matches found so far, by release id, until they are written.
+static SURE: Mutex<Vec<doctor::SureMatch>> = Mutex::new(Vec::new());
+
+/// A sure match "Look up all" found for an album with gaps.
+#[derive(Clone, uniffi::Record)]
+pub struct SureMatch {
+    /// The album's songs it was looked up for.
+    pub song_ids: Vec<String>,
+    /// The release on MusicBrainz (its `id` is what [`Needle::apply_sure_matches`] takes).
+    pub release: ReleaseChoice,
+    /// How many of the songs it changes.
+    pub changes: u32,
+}
 /// The last tidy plan, carried out as it was shown.
 static PLAN: Mutex<Option<doctor::Plan>> = Mutex::new(None);
 
@@ -341,6 +354,79 @@ impl Needle {
             .collect();
         *RELEASES.lock().unwrap() = releases.into_iter().map(|r| (r, tracks.clone())).collect();
         Ok(choices)
+    }
+
+    /// "Look up all", one album with gaps at a time (`album`, `artist`, and `song_ids` as
+    /// `album_problems` gives them): a sure match on MusicBrainz that changes something, kept
+    /// to be written with [`Needle::apply_sure_matches`]; `None` when there is none. An app
+    /// goes through the albums one after another (MusicBrainz takes one request a second),
+    /// shows how far it is, and can stop between two. `start` with true forgets the matches
+    /// of an earlier run.
+    pub fn look_up_sure_match(
+        &self,
+        album: String,
+        artist: String,
+        song_ids: Vec<String>,
+        start: bool,
+    ) -> Result<Option<SureMatch>> {
+        if start {
+            SURE.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        }
+        let Some(found) = doctor::look_up_sure(&self.library, &album, &artist, &song_ids)? else {
+            return Ok(None);
+        };
+        let release = &found.release;
+        let record = SureMatch {
+            song_ids,
+            release: ReleaseChoice {
+                id: release.id.clone(),
+                title: release.title.clone(),
+                artist: release.artist.clone(),
+                year: release.year.unwrap_or(0),
+                country: release.country.clone(),
+                format: release.format.clone(),
+                tracks: release.tracks.len() as u32,
+                matched: doctor::match_tracks(&found.tracks, release)
+                    .iter()
+                    .filter(|m| m.is_some())
+                    .count() as u32,
+            },
+            changes: found.edits.len() as u32,
+        };
+        let mut sure = SURE.lock().unwrap_or_else(|e| e.into_inner());
+        sure.retain(|s| s.release.id != release.id);
+        sure.push(found);
+        Ok(Some(record))
+    }
+
+    /// Writes the sure matches the person kept (their release ids) into their albums' songs.
+    pub fn apply_sure_matches(&self, release_ids: Vec<String>) -> Result<TagReport> {
+        let chosen: Vec<doctor::SureMatch> = SURE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|s| release_ids.contains(&s.release.id))
+            .cloned()
+            .collect();
+        if chosen.len() < release_ids.len() {
+            return Err(failed("Look the albums up again"));
+        }
+        let mut report = TagReport {
+            saved: 0,
+            failed: vec![],
+        };
+        for found in chosen {
+            for (id, edit) in found.edits {
+                match scan::write_tags(&self.library, &id, &edit) {
+                    Ok(()) => report.saved += 1,
+                    Err(e) => report.failed.push(format!("{e:#}")),
+                }
+            }
+        }
+        SURE.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|s| !release_ids.contains(&s.release.id));
+        Ok(report)
     }
 
     /// Writes the chosen release's names, numbers, and year into the album's songs.
