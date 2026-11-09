@@ -811,21 +811,13 @@ impl AppView {
                         });
                         return;
                     }
-                    match this.library.delete_playlist(&delete.id) {
-                        Ok(()) => {
-                            this.playlists = this.library.playlists().unwrap_or_default();
-                            if this.page == Page::Playlist(delete.id.clone()) {
-                                this.back.clear();
-                                this.open(Page::Home, window, cx);
-                            }
-                            this.notify(if delete.server.is_some() {
-                                "Playlist deleted, here and on the server. The songs stay."
-                            } else {
-                                "Playlist deleted. Your music files are untouched."
-                            });
-                        }
-                        Err(e) => this.fail(e.to_string()),
-                    }
+                    this.delete_playlist_later(
+                        delete.id.clone(),
+                        delete.server.is_some(),
+                        Page::Home,
+                        window,
+                        cx,
+                    );
                 },
             ),
         ]

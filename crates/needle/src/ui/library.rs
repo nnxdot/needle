@@ -615,10 +615,9 @@ impl AppView {
                                     .text_color(p.ink_3),
                             )
                             .child(
-                                div()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child("On your music server: changes here are saved there too"),
+                                div().min_w_0().truncate().child(
+                                    "On your music server: changes here are saved there too",
+                                ),
                             ),
                     )
                 })
@@ -662,20 +661,13 @@ impl AppView {
                         })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if this.confirm_delete {
-                                match this.library.delete_playlist(&delete.id) {
-                                    Ok(()) => {
-                                        this.playlists =
-                                            this.library.playlists().unwrap_or_default();
-                                        this.back.clear();
-                                        this.open(Page::Songs, window, cx);
-                                        this.notify(if on_server {
-                                            "Playlist deleted, here and on the server. The songs stay."
-                                        } else {
-                                            "Playlist deleted. Your music files are untouched."
-                                        });
-                                    }
-                                    Err(e) => this.fail(e.to_string()),
-                                }
+                                this.delete_playlist_later(
+                                    delete.id.clone(),
+                                    on_server,
+                                    Page::Songs,
+                                    window,
+                                    cx,
+                                );
                             } else {
                                 this.confirm_delete = true;
                             }

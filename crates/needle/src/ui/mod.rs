@@ -38,6 +38,7 @@ mod player2;
 mod player_tools;
 mod playlist_art;
 mod playlist_editor;
+mod playlist_saves;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
@@ -487,6 +488,8 @@ enum Event {
 
 pub struct AppView {
     library: Library,
+    /// Playlist saves, made off this thread one at a time in order (see `playlist_saves`).
+    playlist_saves: playlist_saves::PlaylistSaves,
     player: Player,
     playback: PlaybackState,
     settings: Settings,
@@ -1255,6 +1258,7 @@ impl AppView {
             genre_view: 0,
             genre_by_plays: false,
             genre_art: None,
+            playlist_saves: playlist_saves::PlaylistSaves::new(library.clone()),
             library,
             player,
             playback,
@@ -1502,7 +1506,8 @@ impl AppView {
                     .await;
                 match view.update_in(cx, |view, window, cx| {
                     view.poll(window, cx);
-                    view.playback.playing && motion::enabled(cx)
+                    // Quick while playing (the seek bar glides) and while playlist saves wait.
+                    view.playback.playing && motion::enabled(cx) || view.playlist_saves.pending()
                 }) {
                     Ok(fast) => every = if fast { 40 } else { 150 },
                     Err(_) => break,
@@ -2062,6 +2067,9 @@ impl AppView {
             }
         }
         self.follow_playlist_art();
+        if self.drain_playlist_saves(window, cx) {
+            events = true;
+        }
         if self.leave_gone_playlist(window, cx) {
             events = true;
         }
@@ -2819,21 +2827,29 @@ impl AppView {
         let count = new.len();
         playlist.track_ids.extend(new);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist_changes(&opened, &playlist) {
-            Ok(_) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.notify(format!(
-                    "Added {} to “{}”.",
-                    if count == 1 {
-                        "1 track".to_string()
-                    } else {
-                        format!("{count} tracks")
-                    },
-                    playlist.name
-                ));
-            }
-            Err(e) => self.fail(e.to_string()),
-        }
+        let (old, name) = (playlist.id.clone(), playlist.name.clone());
+        self.save_playlist_later(
+            Some(opened),
+            playlist,
+            move |this, saved, window, cx| match saved {
+                Ok(id) => {
+                    this.notify(format!(
+                        "Added {} to “{name}”.",
+                        if count == 1 {
+                            "1 track".to_string()
+                        } else {
+                            format!("{count} tracks")
+                        },
+                    ));
+                    this.follow_saved_playlist(&old, &id, window, cx);
+                    this.refresh(cx);
+                }
+                Err(e) => {
+                    this.fail(e);
+                    this.refresh(cx);
+                }
+            },
+        );
     }
 
     /// The playlist of picked songs this page shows, when its own order is shown (no search,
@@ -2894,13 +2910,18 @@ impl AppView {
             .unwrap_or(playlist.track_ids.len());
         playlist.track_ids.splice(at..at, ids);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist_changes(opened, &playlist) {
-            Ok(_) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.refresh(cx);
-            }
-            Err(e) => self.fail(e.to_string()),
-        }
+        let old = playlist.id.clone();
+        self.save_playlist_later(
+            Some(opened.clone()),
+            playlist,
+            move |this, saved, window, cx| {
+                match saved {
+                    Ok(id) => this.follow_saved_playlist(&old, &id, window, cx),
+                    Err(e) => this.fail(e),
+                }
+                this.refresh(cx);
+            },
+        );
         cx.notify();
     }
 
@@ -2917,23 +2938,25 @@ impl AppView {
         playlist.track_ids.retain(|id| !ids.contains(id));
         let removed = before - playlist.track_ids.len();
         playlist.updated_at = chrono::Utc::now().timestamp();
-        match self.library.save_playlist_changes(&opened, &playlist) {
-            Ok(_) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.selection = Selection::default();
-                self.notify(format!(
-                    "Took {} out of “{}”.",
-                    if removed == 1 {
-                        "1 song".to_string()
-                    } else {
-                        format!("{removed} songs")
-                    },
-                    playlist.name
-                ));
-                self.refresh(cx);
+        let (old, name) = (playlist.id.clone(), playlist.name.clone());
+        self.selection = Selection::default();
+        self.save_playlist_later(Some(opened), playlist, move |this, saved, window, cx| {
+            match saved {
+                Ok(id) => {
+                    this.notify(format!(
+                        "Took {} out of “{name}”.",
+                        if removed == 1 {
+                            "1 song".to_string()
+                        } else {
+                            format!("{removed} songs")
+                        },
+                    ));
+                    this.follow_saved_playlist(&old, &id, window, cx);
+                }
+                Err(e) => this.fail(e),
             }
-            Err(e) => self.fail(e.to_string()),
-        }
+            this.refresh(cx);
+        });
         cx.notify();
     }
 
