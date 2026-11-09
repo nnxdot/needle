@@ -137,6 +137,9 @@ struct GenreMapPage: View {
     @State private var art: GenreArt?
     /// The view and order `art` was laid out for ("cloud|false").
     @State private var artFor = ""
+    /// The map, or the cloud and bubbles, could not be read: why, in words.
+    @State private var mapError: String?
+    @State private var artError: String?
 
     var body: some View {
         let colors = store.colors
@@ -148,7 +151,13 @@ struct GenreMapPage: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Genre map").font(store.display(28))
-                    Text(view == "map" ? summary(laid.bubbles.isEmpty) : artSummary).font(.needle(.callout)).foregroundStyle(colors.ink2)
+                    if let error = view == "map" ? mapError : artError {
+                        Label("Could not read your library: \(error)", systemImage: "exclamationmark.triangle")
+                            .font(.needle(.callout)).foregroundStyle(colors.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(view == "map" ? summary(laid.bubbles.isEmpty) : artSummary).font(.needle(.callout)).foregroundStyle(colors.ink2)
+                    }
                 }
                 HStack(spacing: 14) {
                     Picker("View", selection: $view) {
@@ -203,14 +212,28 @@ struct GenreMapPage: View {
         .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)|\(Int(side / 80))") {
             guard view != "map" else { return }
             let (kind, plays, aspect) = (view, byPlays, Float(side / height))
-            let json = await store.load { $0.genreArtJson(kind: kind, byPlays: plays, aspect: aspect) } ?? ""
+            let read = await store.read { try $0.genreArtJson(kind: kind, byPlays: plays, aspect: aspect) }
             // Switched to another view or order meanwhile: that one has its own load.
             guard !Task.isCancelled, kind == view, plays == byPlays else { return }
-            art = JSON.decode(GenreArt.self, json)
+            switch read {
+            case .success(let json):
+                art = JSON.decode(GenreArt.self, json)
+                artError = art == nil ? "its genres were not understood" : nil
+            case .failure(let failure):
+                art = nil
+                artError = failure.message
+            }
             artFor = "\(kind)|\(plays)"
         }
         .task(id: store.libraryVersion) {
-            spots = await store.load { try $0.genreMap() } ?? []
+            switch await store.read({ try $0.genreMap() }) {
+            case .success(let found):
+                spots = found
+                mapError = nil
+            case .failure(let failure):
+                spots = []
+                mapError = failure.message
+            }
             // For tests: `--play-genre <name>` plays that genre as a click does.
             let args = CommandLine.arguments
             if let i = args.firstIndex(of: "--play-genre"), args.indices.contains(i + 1) { play(args[i + 1]) }

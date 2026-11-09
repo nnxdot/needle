@@ -614,6 +614,15 @@ final class Store {
         return await Task.detached { try? work(core) }.value
     }
 
+    /// Reads a value away from the window, or what went wrong, in words: for a page that shows
+    /// a failure in its own place (never as an empty page).
+    nonisolated func read<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> Result<T, Failure> {
+        let core = core
+        return await Task.detached {
+            do { return .success(try work(core)) } catch { return .failure(Failure(message: error.message)) }
+        }.value
+    }
+
     // MARK: - Settings
 
     /// Changes the settings named in `patch` (the desktop's names; objects merge), saves them,

@@ -165,7 +165,7 @@ struct ServicesSettings: View {
                         HStack {
                             Button(busy ? "Checking…" : "Continue") { lastfmContinue() }.buttonStyle(.borderedProminent).disabled(busy)
                             Button("Open the page again") { openWebPage(pending) }
-                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil; connecting.remove("lastfm") }
+                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil; busy = false; connecting.remove("lastfm") }
                         }
                     }
                     .padding(10)
@@ -308,14 +308,30 @@ struct ServicesSettings: View {
 
     private func lastfmContinue() {
         busy = true
+        let asked = pending
         Task {
-            if let user = await store.ask({ try $0.lastfmContinue() }) {
+            let result = await store.read { try $0.lastfmContinue() }
+            // Cancel pressed meanwhile (or a new sign-in begun): that state is the one shown.
+            let same = pending == asked
+            switch result {
+            case .success(let user):
                 pending = nil
                 connecting.remove("lastfm")
                 store.notify("Signed in to Last.fm as \(user). Scrobbling is on.")
                 store.reloadSettings()
+            case .failure(let failure):
+                // This sign-in no longer waits (cancelled during the answer, none had begun,
+                // or a newer one began): no "signing in" is left behind. After Cancel here the
+                // person needs no word about their own click.
+                let over = ["Start signing in to Last.fm first", "Signing in to Last.fm was cancelled", "A newer sign-in to Last.fm has begun"]
+                    .contains { failure.message.hasPrefix($0) }
+                if over && same {
+                    pending = nil
+                    connecting.remove("lastfm")
+                }
+                if same { store.fail(failure.message) }
             }
-            busy = false
+            if same { busy = false }
             refresh()
         }
     }
@@ -785,6 +801,8 @@ private struct ScrobbleProblemsButton: View {
     let service: String
     @State private var shown = false
     @State private var problems: ScrobbleProblems?
+    /// They could not be read: why, in words.
+    @State private var error: String?
 
     var body: some View {
         Button("Details…") { shown = true }
@@ -796,14 +814,26 @@ private struct ScrobbleProblemsButton: View {
                     .frame(maxHeight: 460)
                     .task {
                         let service = service
-                        problems = JSON.decode(ScrobbleProblems.self, await store.load { $0.scrobbleProblemsJson(service: service) })
+                        switch await store.read({ try $0.scrobbleProblemsJson(service: service) }) {
+                        case .success(let json):
+                            problems = JSON.decode(ScrobbleProblems.self, json)
+                            error = problems == nil ? "the details were not understood" : nil
+                        case .failure(let failure):
+                            problems = nil
+                            error = failure.message
+                        }
                     }
             }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let p = problems {
+        if let error {
+            Label("Could not read your library: \(error)", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(store.plainColors.danger)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(20)
+        } else if let p = problems {
             if p.reasons.isEmpty {
                 Text("Nothing went wrong lately.").foregroundStyle(.secondary).padding(20)
             } else {

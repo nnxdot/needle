@@ -7,6 +7,8 @@ struct DoctorPage: View {
     private var store: Store { .shared }
     @State private var tab = "Duplicates"
     @State private var health: LibraryHealth?
+    /// The overview could not be read: why, in words (shown in its place, never an empty page).
+    @State private var healthError: String?
     @State private var confirmForget = false
 
     var body: some View {
@@ -18,9 +20,7 @@ struct DoctorPage: View {
                 page(toolHeight: max(380, geo.size.height - 130))
             }
         }
-        .task(id: store.libraryVersion) {
-            health = JSON.decode(LibraryHealth.self, await store.load { $0.libraryHealthJson() })
-        }
+        .task(id: store.libraryVersion) { await readHealth() }
         .confirmationDialog("Forget \(count(health?.gone ?? 0, "song")) whose file is gone?", isPresented: $confirmForget) {
             Button("Forget Them", role: .destructive) {
                 Task {
@@ -37,7 +37,16 @@ struct DoctorPage: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Fix my library").font(store.display(28))
-                Text(health.map(\.summary) ?? "Checking your library…").foregroundStyle(store.colors.ink2)
+                if let healthError {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Label("Could not read your library: \(healthError)", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(store.colors.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Try again") { Task { await readHealth() } }.buttonStyle(.link)
+                    }
+                } else {
+                    Text(health.map(\.summary) ?? "Checking your library…").foregroundStyle(store.colors.ink2)
+                }
             }
             if let h = health, h.songs > 0 {
                 ProgressView(value: Double(h.fine), total: Double(max(h.songs, 1)))
@@ -63,6 +72,23 @@ struct DoctorPage: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    /// The overview from the core, or why it could not be read.
+    private func readHealth() async {
+        switch await store.read({ try $0.libraryHealthJson() }) {
+        case .success(let json):
+            if let read = JSON.decode(LibraryHealth.self, json) {
+                health = read
+                healthError = nil
+            } else {
+                health = nil
+                healthError = "its overview was not understood"
+            }
+        case .failure(let failure):
+            health = nil
+            healthError = failure.message
+        }
     }
 
     /// The cards: what is wrong, how much, and what a click does.
