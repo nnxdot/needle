@@ -91,7 +91,7 @@ struct RecordCrateView: View {
         let behind = max(0, d)
         return Artwork(path: album.artwork, seed: album.title + album.artist, size: 600)
             .frame(width: side, height: side)
-            .clipShape(.rect(cornerRadius: 6))
+            .clipShape(.soft(Corner.cover))
             .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
             .brightness(-min(behind, 5) * 0.07)
             .scaleEffect(1 - min(behind, 6) * 0.045, anchor: .bottom)

@@ -24,7 +24,7 @@ struct MiniPlayer: View {
                 HStack(spacing: 10) {
                     Artwork(path: song?.artwork, seed: (song?.album ?? "") + (song?.artist ?? ""), size: 120)
                         .frame(width: 34, height: 34)
-                        .clipShape(.rect(cornerRadius: Corner.smallCover, style: .continuous))
+                        .clipShape(.soft(Corner.smallCover))
                         .overlay(alignment: .bottomTrailing) {
                             if store.onComputer {
                                 Image(systemName: "laptopcomputer").font(.system(size: 9, weight: .bold))

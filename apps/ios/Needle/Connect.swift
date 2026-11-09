@@ -96,7 +96,7 @@ struct ComputerView: View {
             Section(pc.playing ? "Playing on the computer" : "Paused on the computer") {
                 HStack(spacing: 14) {
                     Artwork(path: song.cover, seed: song.album + song.artist, size: 200)
-                        .frame(width: 64, height: 64).clipShape(.rect(cornerRadius: 10))
+                        .frame(width: 64, height: 64).clipShape(.soft(Corner.cover))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(song.title).font(.needle(.headline)).lineLimit(1)
                         Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
@@ -158,7 +158,7 @@ struct ComputerView: View {
     private func pcRow(_ song: PcSong) -> some View {
         HStack(spacing: 12) {
             Artwork(path: song.cover, seed: song.album + song.artist, size: 120)
-                .frame(width: 40, height: 40).clipShape(.rect(cornerRadius: 6))
+                .frame(width: 40, height: 40).clipShape(.soft(Corner.smallCover))
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title).foregroundStyle(.primary).lineLimit(1)
                 Text(song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)

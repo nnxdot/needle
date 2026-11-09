@@ -68,7 +68,7 @@ struct RecoveryView: View {
                             .foregroundStyle(.secondary)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.quaternary, in: .rect(cornerRadius: 8, style: .continuous))
+                            .background(.quaternary, in: .soft(Corner.small))
                             .textSelection(.enabled)
                     }
                     if let moved = launch.movedTo {

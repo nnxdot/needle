@@ -62,7 +62,7 @@ struct SettingsView: View {
                     .foregroundStyle(.white)
                     .frame(width: 60, height: 60)
                     .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: .rect(cornerRadius: 14))
+                                in: .soft(Corner.middle))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Needle").font(.needle(.title2).bold())
@@ -95,7 +95,7 @@ struct SettingsView: View {
             HStack(spacing: 14) {
                 Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 30, height: 30)
-                    .background(tint.gradient, in: .rect(cornerRadius: 8))
+                    .background(tint.gradient, in: .soft(Corner.small))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
@@ -119,7 +119,7 @@ struct SettingLabel: View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(tint.gradient, in: .rect(cornerRadius: 7))
+                .background(tint.gradient, in: .soft(Corner.small))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
@@ -1134,7 +1134,7 @@ struct WhatsNewView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 28, height: 28)
-                    .background(tint.gradient, in: .rect(cornerRadius: 7))
+                    .background(tint.gradient, in: .soft(Corner.small))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     if change.title.isEmpty {

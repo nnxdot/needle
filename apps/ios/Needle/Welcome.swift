@@ -86,7 +86,7 @@ struct WelcomeView: View {
             HStack(spacing: 14) {
                 Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 30, height: 30)
-                    .background(tint.gradient, in: .rect(cornerRadius: 8))
+                    .background(tint.gradient, in: .soft(Corner.small))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.needle(.body).weight(.semibold))
