@@ -127,7 +127,6 @@ import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -140,7 +139,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -580,7 +578,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
         }
     }
     removing?.let { folder ->
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { removing = null },
             title = { Text("Stop reading this folder?") },
             text = { Text("Its songs leave your library. The files stay on your phone.") },
@@ -807,7 +805,7 @@ private fun SoundSettingsPage() {
     }
     if (naming) {
         var name by remember { mutableStateOf("") }
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { naming = false },
             title = { Text("Save as a preset") },
             text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape()) },
@@ -1612,7 +1610,7 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
                     var open by remember { mutableStateOf(false) }
                     Box {
                         TextButton(onClick = { open = true }) { Text(BandKinds.firstOrNull { it.first == band.kind }?.second ?: band.kind) }
-                        DropdownMenu(open, { open = false }) {
+                        GlassMenu(open, { open = false }) {
                             BandKinds.forEach { (kind, label) ->
                                 DropdownMenuItem(text = { Text(label) }, onClick = { open = false; set(i, band.copy(kind = kind), true) })
                             }

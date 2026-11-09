@@ -43,7 +43,6 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Speaker
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,7 +52,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
@@ -143,7 +141,7 @@ fun rememberFileAccess(songIds: List<String> = emptyList()): (then: () -> Unit) 
         if (granted) action?.invoke() else showMessage("File changes were not allowed. You can grant storage access in app settings and try again.")
     }
     asking?.let { then ->
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { asking = null },
             title = { Text("Let Needle change your music files?") },
             text = {
@@ -235,13 +233,13 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
             onDone()
         }
     }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDone,
         title = { Text(if (ids.size == 1) "Edit tags" else "Edit ${ids.size} songs") },
         text = {
             if (!loaded) {
                 androidx.compose.material3.LoadingIndicator()
-                return@AlertDialog
+                return@GlassAlertDialog
             }
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val fields = buildList {
@@ -324,7 +322,7 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
             busy = false
         }
     }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { onDone(false) },
         title = { Text("Find it by its sound") },
         text = {
@@ -428,7 +426,7 @@ fun FixLibraryScreen() {
     }
     if (confirmForget) {
         val gone = health?.optInt("gone") ?: 0
-        androidx.compose.material3.AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { confirmForget = false },
             title = { Text("Forget ${count(gone, "song")} whose file is gone?") },
             text = { Text("They leave the library. Their plays stay in your history, and nothing on the phone changes.") },
@@ -573,7 +571,7 @@ private fun Duplicates() {
         }
     }
     if (trash.isNotEmpty()) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { trash = emptyList() },
             title = { Text("Move the other files to the trash?") },
             text = { Text("They left your library. In the trash they stay 30 days, then go.") },
@@ -661,7 +659,7 @@ private fun ReleaseDialog(album: AlbumProblem, onDone: (Boolean) -> Unit) {
             runCatching { core.findReleases(album.songIds) }.onFailure { showMessage(it.message ?: "MusicBrainz did not answer") }.getOrDefault(emptyList())
         }
     }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { onDone(false) },
         title = { Text(album.album) },
         text = {
@@ -779,7 +777,7 @@ fun ImportScreen() {
         var service by remember { mutableStateOf(first) }
         var user by remember { mutableStateOf("") }
         var key by remember { mutableStateOf("") }
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { history = null },
             title = { Text("Listening history") },
             text = {
@@ -935,7 +933,7 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
         exact = null
         typed = hexOf(Color.hsl(h, s, l))
     }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Colour") },
         text = {
@@ -1007,7 +1005,7 @@ fun SpeakersSheet(context: Context) {
         )
         Ui.sheet.value = null
     }
-    ModalBottomSheet(onDismissRequest = { Ui.sheet.value = null }) {
+    GlassSheet(onDismissRequest = { Ui.sheet.value = null }) {
         // Scrolled where it does not fit (many speakers, a short window), so Done stays in reach.
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Play on", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))

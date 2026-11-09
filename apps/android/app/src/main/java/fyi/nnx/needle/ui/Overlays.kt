@@ -22,13 +22,11 @@ import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Speaker
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -199,7 +197,7 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
         }
         return
     }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { core.answer(q.id, null, null); done() },
         title = { Text(q.title.ifBlank { q.plugin }) },
         text = {
@@ -246,7 +244,7 @@ fun <T> pickedFile(context: Context, uri: Uri?, action: (String) -> T, finished:
 private fun AddToPlaylistSheet(ids: List<String>) {
     val playlistsLoad = rememberLoaded { playlists() }
     val playlists by playlistsLoad
-    ModalBottomSheet(onDismissRequest = { Ui.sheet.value = null }) {
+    GlassSheet(onDismissRequest = { Ui.sheet.value = null }) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Add to a playlist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
             Row(
@@ -299,7 +297,7 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
         value = if (smart && rule.isNotBlank()) withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.checkRule(rule) }.getOrNull() } else null
     }
     val close = { Ui.sheet.value = null }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = close,
         title = { Text(if (editing == null) "New playlist" else "Edit playlist") },
         text = {

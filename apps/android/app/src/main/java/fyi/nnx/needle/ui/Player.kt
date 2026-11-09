@@ -808,16 +808,25 @@ fun SidePane(kind: SideKind, open: (Route) -> Unit, modifier: Modifier = Modifie
     val song = remember(current) { current } ?: return
     val position = { playbackState.value?.position ?: 0.0 }
     val shape = RoundedCornerShape(22.dp)
+    // Glass over the page where it can blur it (Glass.kt); elsewhere the player's backdrop, solid.
+    val glassy = LocalHaze.current != null && blurAllowed(large = true)
     CoverTheme(song.artwork) {
         Box(
             modifier
                 .width(320.dp)
                 .fillMaxHeight()
-                .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
-                .clip(shape)
-                .border(0.5.dp, Color.White.copy(alpha = 0.1f), shape),
+                .then(
+                    if (glassy) {
+                        Modifier.coverGlass(shape, coverColor(song.artwork))
+                    } else {
+                        Modifier
+                            .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
+                            .clip(shape)
+                            .edgeLight(shape, dark = true)
+                    },
+                ),
         ) {
-            PlayerBackdrop(song, reading = true)
+            if (!glassy) PlayerBackdrop(song, reading = true)
             CompositionLocalProvider(LocalContentColor provides Color.White) {
                 Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1055,7 +1064,7 @@ private fun PlayerSearch(computer: Boolean, onDismiss: () -> Unit) {
             }.onFailure { showMessage(it.message ?: "It did not work") }
         }
     }
-    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    GlassSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(horizontal = 16.dp)) {
             Text(
                 if (computer) "Add from your computer" else "Add songs",
@@ -1713,7 +1722,7 @@ private fun UpNextPanel(version: ULong, titled: Boolean = true) {
                         }
                         if (!onComputer) DragHandle(reorder, i, tint = Color.White.copy(alpha = 0.7f))
                     }
-                    androidx.compose.material3.DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(20.dp)) {
+                    GlassMenu(menu, { menu = false }) {
                         if (i > 0) androidx.compose.material3.DropdownMenuItem(text = { Text("Move up") }, onClick = { menu = false; moveTo(i - 1) })
                         if (i < list.size - 1) androidx.compose.material3.DropdownMenuItem(text = { Text("Move down") }, onClick = { menu = false; moveTo(i + 1) })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; remove(i) })

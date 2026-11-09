@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -171,7 +170,7 @@ fun AlarmScreen() {
         }
     }
     if (picking) {
-        AlertDialog(
+        GlassAlertDialog(
             onDismissRequest = { picking = false },
             confirmButton = { TextButton(onClick = { picking = false }) { Text("Done") } },
             title = { Text("What wakes you") },

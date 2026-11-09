@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -54,6 +55,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -356,22 +358,22 @@ fun NeedleRoot() {
                             CompositionLocalProvider(LocalBottomInset provides dockRoom) {
                                 Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
                                     Page(route, open)
-                                    // What scrolls up fades into the page below the status bar,
-                                    // rather than stopping at a hard edge.
-                                    if (!fullBleed) {
-                                        val page = MaterialTheme.colorScheme.background
-                                        Box(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .height(20.dp)
-                                                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(page, page.copy(alpha = 0f)))),
-                                        )
-                                    }
                                 }
                             }
                             }
                         }
                     }
+                }
+                // Glass over the pages blurs them (Glass.kt): the top edge, the side pane, the dock.
+                CompositionLocalProvider(LocalHaze provides haze) {
+                // What scrolls up blurs and fades into the page under the status bar (on a tablet,
+                // under the top of the sheet), rather than stopping at a hard edge. Not on the
+                // album, artist, and playlist pages, which run their cover up under it.
+                val bleeds = stack.last().let { it is Route.AlbumPage || it is Route.AlbumOf || it is Route.Artist || it is Route.Playlist }
+                val edge by androidx.compose.animation.core.animateFloatAsState(if (bleeds) 0f else 1f, tween(200), label = "top edge")
+                if (edge > 0f) {
+                    val status = if (wide) 0.dp else with(LocalDensity.current) { androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(this).toDp() }
+                    TopEdge(status, 20.dp, Modifier.align(androidx.compose.ui.Alignment.TopStart).then(Modifier.alpha(edge)))
                 }
                 // A tablet's side pane, floating over the page's right side above the player.
                 if (wide) {
@@ -394,7 +396,6 @@ fun NeedleRoot() {
                 // The bar of chosen songs, and under it the dock: the mini player and the tabs as
                 // one floating glass bar on a phone; on a tablet or TV, the player alone.
                 val typing = androidx.compose.foundation.layout.WindowInsets.isImeVisible
-                CompositionLocalProvider(LocalHaze provides haze) {
                     Column(
                         Modifier
                             .align(androidx.compose.ui.Alignment.BottomCenter)

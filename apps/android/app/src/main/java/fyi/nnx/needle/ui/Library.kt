@@ -43,7 +43,6 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Style
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -197,7 +196,7 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                         colors = pill,
                         border = null,
                     )
-                    DropdownMenu(expanded = more, onDismissRequest = { more = false }, shape = RoundedCornerShape(20.dp)) {
+                    GlassMenu(expanded = more, onDismissRequest = { more = false }) {
                         DropdownMenuItem(text = { Text("Genres") }, leadingIcon = { Icon(Icons.Rounded.Style, null) }, onClick = { more = false; open(Route.Genres) })
                         DropdownMenuItem(text = { Text("Folders") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { more = false; open(Route.Folder(null)) })
                         DropdownMenuItem(text = { Text("Record crate") }, leadingIcon = { Icon(Icons.Rounded.Album, null) }, onClick = { more = false; open(Route.Crate) })
@@ -215,7 +214,7 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
             val current = sort.forSongs(filter == Filter.Songs)
             Box {
                 IconButton(onClick = { sorting = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${current.label}") }
-                DropdownMenu(expanded = sorting, onDismissRequest = { sorting = false }, shape = RoundedCornerShape(20.dp)) {
+                GlassMenu(expanded = sorting, onDismissRequest = { sorting = false }) {
                     orders.forEach { s ->
                         DropdownMenuItem(
                             text = { Text(s.label) },
