@@ -294,6 +294,8 @@ pub fn apply_with(library: &Library, plugin: &str, songs: &[Song], full: bool) -
     synced.removed = removed.len();
     // Playlists let go of the songs that left (listening history keeps them by name).
     if !removed.is_empty() {
+        // Read and written with no app save between (see `server_playlists::writing`).
+        let _write = crate::server_playlists::writing();
         for mut playlist in library.playlists()? {
             if playlist.track_ids.iter().any(|id| removed.contains(id)) {
                 playlist.track_ids.retain(|id| !removed.contains(id));

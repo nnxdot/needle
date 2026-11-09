@@ -26,7 +26,7 @@ use crate::{
 use anyhow::Result;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
 /// A playlist as the server has it.
@@ -77,6 +77,15 @@ impl Report {
 /// One sync at a time: a sync after an edit and an "Update now" must not both write.
 static SYNCING: Mutex<()> = Mutex::new(());
 
+/// Playlist writes that read first (an app's save or delete, a sync's results) happen one at a
+/// time, so none writes over another with what it read before. Never held while the server is
+/// asked anything.
+static WRITING: Mutex<()> = Mutex::new(());
+
+pub(crate) fn writing() -> MutexGuard<'static, ()> {
+    WRITING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 type Hook = Arc<dyn Fn(&str) + Send + Sync>;
 static EDITED: RwLock<Option<Hook>> = RwLock::new(None);
 
@@ -105,6 +114,7 @@ fn deleted_key(plugin: &str) -> String {
 }
 
 /// Remember that a server playlist was deleted in Needle (see [`Library::delete_playlist`]).
+/// The caller holds [`writing`].
 pub(crate) fn remember_deleted(library: &Library, link: &ServerPlaylist) -> Result<()> {
     let key = deleted_key(&link.plugin);
     let mut deleted: Vec<ServerPlaylist> = library.get_json(&key)?.unwrap_or_default();
@@ -127,41 +137,58 @@ pub fn sync(
     let listed = server.playlist_ids().map_err(anyhow::Error::msg)?;
     let on_server: HashSet<&String> = listed.iter().collect();
 
-    // Deleted in Needle: deleted on the server too, when the server's copy is as it was.
+    // Deleted in Needle: deleted on the server too, when the server's copy is as it was (its
+    // name, songs, and comment). One that changed there, or that the server would not delete,
+    // comes back at once.
     let key = deleted_key(plugin);
-    let mut deleted: Vec<ServerPlaylist> = library.get_json(&key)?.unwrap_or_default();
-    let mut gone = HashSet::new();
-    deleted.retain(|link| {
+    let deleted: Vec<ServerPlaylist> = {
+        let _write = writing();
+        library.get_json(&key)?.unwrap_or_default()
+    };
+    let (mut settled, mut gone, mut back) = (HashSet::new(), HashSet::new(), HashSet::new());
+    for link in &deleted {
         if !on_server.contains(&link.id) {
-            return false;
+            settled.insert(link.id.clone());
+            continue;
         }
-        match server.playlist(&link.id) {
-            Ok(remote) => {
-                if remote.name == link.name && song_ids(plugin, &remote) == link.songs {
-                    match server.delete_playlist(&link.id) {
-                        Ok(()) => {
-                            report.sent += 1;
-                            gone.insert(link.id.clone());
-                        }
-                        Err(error) => report.notes.push(format!(
-                            "“{}” could not be deleted on the server ({error}), so it is back",
-                            link.name
-                        )),
-                    }
-                } else {
-                    report.notes.push(format!(
-                        "“{}” changed on the server after you deleted it, so it is back",
-                        link.name
-                    ));
-                }
-                false
+        // Not reached: tried again at the next sync.
+        let Ok(remote) = server.playlist(&link.id) else {
+            continue;
+        };
+        settled.insert(link.id.clone());
+        let unchanged = shown_name(&remote.name) == link.name
+            && song_ids(plugin, &remote) == link.songs
+            && remote.comment == link.comment;
+        if !unchanged {
+            report.notes.push(format!(
+                "“{}” changed on the server after you deleted it, so it is back",
+                link.name
+            ));
+            back.insert(link.id.clone());
+            continue;
+        }
+        match server.delete_playlist(&link.id) {
+            Ok(()) => {
+                report.sent += 1;
+                gone.insert(link.id.clone());
             }
-            // Not reached: tried again at the next sync.
-            Err(_) => true,
+            Err(error) => {
+                report.notes.push(format!(
+                    "“{}” could not be deleted on the server ({error}), so it is back",
+                    link.name
+                ));
+                back.insert(link.id.clone());
+            }
         }
-    });
-    let waiting: HashSet<String> = deleted.iter().map(|d| d.id.clone()).collect();
-    library.set_json(&key, &deleted)?;
+    }
+    // Only the ones handled leave the list: a playlist deleted meanwhile waits for the next.
+    let waiting: HashSet<String> = {
+        let _write = writing();
+        let mut now: Vec<ServerPlaylist> = library.get_json(&key)?.unwrap_or_default();
+        now.retain(|link| !(settled.contains(&link.id) && deleted.contains(link)));
+        library.set_json(&key, &now)?;
+        now.into_iter().map(|link| link.id).collect()
+    };
 
     let mut ours: HashMap<String, Playlist> = HashMap::new();
     for playlist in library.playlists()? {
@@ -177,7 +204,7 @@ pub fn sync(
             continue;
         }
         let local = ours.get(id);
-        if only_edited && !local.is_some_and(Playlist::edited_here) {
+        if only_edited && !back.contains(id) && !local.is_some_and(Playlist::edited_here) {
             continue;
         }
         let remote = match server.playlist(id) {
@@ -212,26 +239,37 @@ pub fn sync(
     }
 
     // Gone from the server.
-    for (id, mut playlist) in ours {
+    for (id, playlist) in ours {
         if on_server.contains(&id) || gone.contains(&id) {
-            if gone.contains(&id) {
-                library.drop_playlist(&playlist.id)?;
-            }
             continue;
         }
-        if playlist.edited_here() {
-            playlist.server = None;
-            library.store_playlist(&playlist)?;
+        let _write = writing();
+        // As it is now: the person may have changed it while the server was asked.
+        let Some(now) = library.playlist_by_id(&playlist.id)? else {
+            continue;
+        };
+        if now.edited_here() {
             report.notes.push(format!(
                 "“{}” was deleted on the server; your changes are kept as your own playlist",
-                playlist.name
+                now.name
             ));
+            detach(library, now)?;
         } else {
-            library.drop_playlist(&playlist.id)?;
+            library.drop_playlist(&now.id)?;
             report.removed += 1;
         }
     }
     Ok(report)
+}
+
+/// Make a server playlist the person's own: no link, and an id of its own. The server
+/// playlist's id is kept for the server's own copy, which a later sync (after signing in
+/// again) would write into, over the person's changes.
+fn detach(library: &Library, mut playlist: Playlist) -> Result<()> {
+    let old = std::mem::replace(&mut playlist.id, uuid::Uuid::new_v4().to_string());
+    playlist.server = None;
+    library.store_playlist(&playlist)?;
+    library.drop_playlist(&old)
 }
 
 /// One playlist that is both in Needle and on the server.
@@ -247,7 +285,6 @@ fn sync_one(
     let base = local.server.clone().unwrap_or_default();
     let here = local.edited_here();
     let there = shown_name(&remote.name) != base.name || theirs != base.songs;
-    let mut playlist = local.clone();
     if here && !there {
         // Songs from elsewhere (files on this computer, another server) cannot be on the
         // server's playlist: the whole list is kept as the person's own as well. Songs no
@@ -269,13 +306,14 @@ fn sync_one(
                 if others {
                     keep_copy(library, local, report, "songs that are not on the server")?;
                 }
-                playlist.track_ids = mine;
-                playlist.server = Some(ServerPlaylist {
-                    name: playlist.name.clone(),
-                    songs: playlist.track_ids.clone(),
+                let mut sent = local.clone();
+                sent.track_ids = mine;
+                sent.server = Some(ServerPlaylist {
+                    name: sent.name.clone(),
+                    songs: sent.track_ids.clone(),
                     ..base
                 });
-                library.store_playlist(&playlist)?;
+                commit(library, local, sent, true, report)?;
                 report.sent += 1;
             }
             Err(error) => {
@@ -285,7 +323,13 @@ fn sync_one(
                     report,
                     &format!("the server did not take the changes: {error}"),
                 )?;
-                take_server(library, plugin, &mut playlist, remote, theirs)?;
+                commit(
+                    library,
+                    local,
+                    server_version(plugin, local, remote, theirs),
+                    false,
+                    report,
+                )?;
                 report.updated += 1;
             }
         }
@@ -293,25 +337,37 @@ fn sync_one(
         if !(local.name == shown_name(&remote.name) && local.track_ids == theirs) {
             keep_copy(library, local, report, "it changed on the server too")?;
         }
-        take_server(library, plugin, &mut playlist, remote, theirs)?;
+        commit(
+            library,
+            local,
+            server_version(plugin, local, remote, theirs),
+            false,
+            report,
+        )?;
         report.updated += 1;
     } else if there || remote.comment != base.comment {
-        take_server(library, plugin, &mut playlist, remote, theirs)?;
+        commit(
+            library,
+            local,
+            server_version(plugin, local, remote, theirs),
+            false,
+            report,
+        )?;
         report.updated += 1;
     }
     Ok(())
 }
 
-/// The server's version, for a playlist in Needle. Its own description (when changed in
+/// The server's version of a playlist in Needle. Its own description (when changed in
 /// Needle) and picture stay.
-fn take_server(
-    library: &Library,
+fn server_version(
     plugin: &str,
-    playlist: &mut Playlist,
+    local: &Playlist,
     remote: &Remote,
     theirs: Vec<String>,
-) -> Result<()> {
-    let base = playlist.server.clone().unwrap_or_default();
+) -> Playlist {
+    let base = local.server.clone().unwrap_or_default();
+    let mut playlist = local.clone();
     if playlist.description == base.comment {
         playlist.description = remote.comment.clone();
     }
@@ -319,7 +375,71 @@ fn take_server(
     playlist.track_ids = theirs.clone();
     playlist.updated_at = chrono::Utc::now().timestamp();
     playlist.server = Some(link(plugin, remote, theirs));
-    library.store_playlist(playlist)
+    playlist
+}
+
+/// Write what a sync made of `local` (the playlist as read before the server was asked).
+///
+/// The person may have changed it meanwhile; their newer version is never written over:
+/// - after a push (`pushed`), it stays, on the new last-synced state, and goes to the server
+///   next;
+/// - after taking the server's version, it is kept as a copy of their own.
+///
+/// Deleted meanwhile: the deletion waits with the new last-synced state, so the server's
+/// copy (now as Needle sent or took it) is deleted.
+fn commit(
+    library: &Library,
+    local: &Playlist,
+    mut result: Playlist,
+    pushed: bool,
+    report: &mut Report,
+) -> Result<()> {
+    let link = result.server.clone().unwrap_or_default();
+    let again = {
+        let _write = writing();
+        match library.playlist_by_id(&local.id)? {
+            None => {
+                let key = deleted_key(&link.plugin);
+                let mut deleted: Vec<ServerPlaylist> = library.get_json(&key)?.unwrap_or_default();
+                for waiting in deleted.iter_mut().filter(|d| d.id == link.id) {
+                    *waiting = link.clone();
+                }
+                library.set_json(&key, &deleted)?;
+                false
+            }
+            Some(now) if now.name != local.name || now.track_ids != local.track_ids => {
+                if pushed {
+                    let mut newer = now;
+                    newer.server = Some(link.clone());
+                    library.store_playlist(&newer)?;
+                    true
+                } else {
+                    keep_copy(
+                        library,
+                        &now,
+                        report,
+                        "it changed on the server while you edited it",
+                    )?;
+                    result.cover = now.cover;
+                    library.store_playlist(&result)?;
+                    false
+                }
+            }
+            Some(now) => {
+                // Its description and picture may have changed meanwhile: those stay.
+                if now.description != local.description {
+                    result.description = now.description;
+                }
+                result.cover = now.cover;
+                library.store_playlist(&result)?;
+                false
+            }
+        }
+    };
+    if again {
+        edited(&link.plugin);
+    }
+    Ok(())
 }
 
 /// Keep Needle's version of a server playlist as a playlist of the person's own.
@@ -414,14 +534,14 @@ fn add_songs(
 /// changed in Needle and not sent yet stays, as the person's own. Returns how many left.
 pub fn forget(library: &Library, plugin: &str) -> Result<usize> {
     let _one = SYNCING.lock().unwrap_or_else(|e| e.into_inner());
+    let _write = writing();
     let mut count = 0;
-    for mut playlist in library.playlists()? {
+    for playlist in library.playlists()? {
         if playlist.server_plugin() != Some(plugin) {
             continue;
         }
         if playlist.edited_here() {
-            playlist.server = None;
-            library.store_playlist(&playlist)?;
+            detach(library, playlist)?;
         } else {
             library.drop_playlist(&playlist.id)?;
             count += 1;
@@ -436,6 +556,9 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
 
+    /// What happens in Needle while the server is asked (`"playlist"` or `"save"`, and the id).
+    type During = Box<dyn FnMut(&str, &str)>;
+
     /// A server in memory.
     #[derive(Default)]
     struct Fake {
@@ -443,6 +566,15 @@ mod tests {
         refuse: bool,
         down: bool,
         saved: RefCell<usize>,
+        during: RefCell<Option<During>>,
+    }
+
+    impl Fake {
+        fn meanwhile(&self, what: &str, id: &str) {
+            if let Some(during) = self.during.borrow_mut().as_mut() {
+                during(what, id);
+            }
+        }
     }
 
     fn song(id: &str) -> Song {
@@ -471,6 +603,7 @@ mod tests {
             Ok(self.lists.borrow().iter().map(|r| r.id.clone()).collect())
         }
         fn playlist(&self, id: &str) -> Result<Remote, String> {
+            self.meanwhile("playlist", id);
             self.lists
                 .borrow()
                 .iter()
@@ -479,6 +612,7 @@ mod tests {
                 .ok_or_else(|| "not found".into())
         }
         fn save_playlist(&self, id: &str, name: &str, songs: &[String]) -> Result<(), String> {
+            self.meanwhile("save", id);
             if self.refuse {
                 return Err("not yours".into());
             }
@@ -721,9 +855,127 @@ mod tests {
         assert_eq!(report.sent, 1);
         assert!(fake.playlist("1").is_err());
         assert!(fake.playlist("2").is_ok());
-        // "Busy" changed on the server: it comes back at the next full sync.
-        sync(&library, "subsonic", &fake, false).unwrap();
+        // "Busy" changed on the server: it is back at once, as the server has it.
         assert_eq!(names(&library), ["Busy"]);
+        assert_eq!(
+            server_list(&library, "subsonic", "2").unwrap().track_ids,
+            ids("subsonic", &["b", "c"])
+        );
+        assert!(
+            library
+                .get_json::<Vec<ServerPlaylist>>(&deleted_key("subsonic"))
+                .unwrap()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_comment_changed_on_the_server_keeps_a_deleted_playlist() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Notes", &["a"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        library
+            .delete_playlist(&playlist_id("subsonic", "1"))
+            .unwrap();
+        fake.lists.borrow_mut()[0].comment = "Written on the server".into();
+        sync(&library, "subsonic", &fake, true).unwrap();
+        assert!(fake.playlist("1").is_ok());
+        let back = server_list(&library, "subsonic", "1").unwrap();
+        assert_eq!(back.description, "Written on the server");
+    }
+
+    #[test]
+    fn a_deletion_made_during_a_sync_waits_for_the_next() {
+        let (dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "First", &["a"]));
+        fake.lists.borrow_mut().push(remote("2", "Second", &["b"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        library
+            .delete_playlist(&playlist_id("subsonic", "1"))
+            .unwrap();
+        // While the server is asked about the first deletion, the second playlist is deleted.
+        let path = dir.path().to_path_buf();
+        *fake.during.borrow_mut() = Some(Box::new(move |what, id| {
+            if what == "playlist" && id == "1" {
+                Library::open(&path)
+                    .unwrap()
+                    .delete_playlist(&playlist_id("subsonic", "2"))
+                    .unwrap();
+            }
+        }));
+        sync(&library, "subsonic", &fake, true).unwrap();
+        *fake.during.borrow_mut() = None;
+        assert!(fake.playlist("1").is_err());
+        // The second one waited, and goes at the next sync instead of coming back.
+        sync(&library, "subsonic", &fake, false).unwrap();
+        assert!(fake.playlist("2").is_err());
+        assert!(names(&library).is_empty());
+    }
+
+    #[test]
+    fn an_edit_made_during_a_push_is_not_lost() {
+        let (dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        // Brings songs b and c into the library.
+        fake.lists
+            .borrow_mut()
+            .push(remote("2", "All", &["a", "b", "c"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let mut mix = server_list(&library, "subsonic", "1").unwrap();
+        mix.track_ids = ids("subsonic", &["a", "b"]);
+        library.save_playlist(&mix).unwrap();
+        // While the first change goes to the server, another song is added.
+        let path = dir.path().to_path_buf();
+        *fake.during.borrow_mut() = Some(Box::new(move |what, _| {
+            if what == "save" {
+                let other = Library::open(&path).unwrap();
+                let mut now = other
+                    .playlist_by_id(&playlist_id("subsonic", "1"))
+                    .unwrap()
+                    .unwrap();
+                if now.track_ids.len() == 2 {
+                    now.track_ids.push(sources::track_id("subsonic", "c"));
+                    other.save_playlist(&now).unwrap();
+                }
+            }
+        }));
+        sync(&library, "subsonic", &fake, true).unwrap();
+        let now = server_list(&library, "subsonic", "1").unwrap();
+        assert_eq!(now.track_ids, ids("subsonic", &["a", "b", "c"]));
+        // The newer change waits, on top of what the server has now, and goes next.
+        assert!(now.edited_here());
+        assert_eq!(
+            now.server.as_ref().unwrap().songs,
+            ids("subsonic", &["a", "b"])
+        );
+        sync(&library, "subsonic", &fake, true).unwrap();
+        assert_eq!(
+            song_ids("subsonic", &fake.playlist("1").unwrap()),
+            ids("subsonic", &["a", "b", "c"])
+        );
+        assert_eq!(names(&library), ["All", "Mix"]);
+    }
+
+    #[test]
+    fn signing_in_again_does_not_write_over_a_kept_playlist() {
+        let (_dir, library) = library();
+        let fake = Fake::default();
+        fake.lists.borrow_mut().push(remote("1", "Mix", &["a"]));
+        sync(&library, "subsonic", &fake, false).unwrap();
+        let mut mix = server_list(&library, "subsonic", "1").unwrap();
+        mix.name = "My mix".into();
+        library.save_playlist(&mix).unwrap();
+        // Signed out before the change reached the server: it is kept as the person's own.
+        forget(&library, "subsonic").unwrap();
+        sync(&library, "subsonic", &fake, false).unwrap();
+        assert_eq!(server_list(&library, "subsonic", "1").unwrap().name, "Mix");
+        let mut all = names(&library);
+        all.sort();
+        assert_eq!(all, ["Mix", "My mix"]);
     }
 
     #[test]
@@ -737,9 +989,13 @@ mod tests {
         library.save_playlist(&mix).unwrap();
         fake.lists.borrow_mut().clear();
         sync(&library, "subsonic", &fake, false).unwrap();
-        let kept = library.playlist_by_id(&mix.id).unwrap().unwrap();
+        let all = library.playlists().unwrap();
+        assert_eq!(all.len(), 1);
+        let kept = &all[0];
         assert!(kept.server.is_none());
         assert_eq!(kept.name, "Edited");
+        // An id of its own, not the server playlist's.
+        assert_ne!(kept.id, mix.id);
     }
 
     #[test]

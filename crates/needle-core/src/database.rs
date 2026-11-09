@@ -482,18 +482,20 @@ impl Library {
         if let Some(q) = &playlist.query {
             query::compile(q, chrono::Utc::now().timestamp())?;
         }
-        // A server playlist stays one when an app saves it without the server part (see
-        // `server_playlists`); changes to it go to the server.
+        // The server part is the database's, never the app's: an app saves a playlist without
+        // it, or with one read before a sync moved it on. A server playlist stays one, and
+        // changes to it go to the server (see `server_playlists`).
+        let write = crate::server_playlists::writing();
+        let link = self.playlist_by_id(&playlist.id)?.and_then(|p| p.server);
         let mut playlist = std::borrow::Cow::Borrowed(playlist);
-        if playlist.server.is_none()
-            && let Some(link) = self.playlist_by_id(&playlist.id)?.and_then(|p| p.server)
-        {
-            playlist.to_mut().server = Some(link);
+        if playlist.server != link {
+            playlist.to_mut().server = link;
         }
         if playlist.server.is_some() && playlist.query.is_some() {
             bail!("A playlist on your music server holds songs you pick; it cannot follow rules")
         }
         self.store_playlist(&playlist)?;
+        drop(write);
         if playlist.edited_here()
             && let Some(plugin) = playlist.server_plugin()
         {
@@ -509,9 +511,11 @@ impl Library {
     /// Delete a playlist. A server playlist is deleted on the server too, at the next sync
     /// (see `server_playlists`).
     pub fn delete_playlist(&self, id: &str) -> Result<()> {
+        let write = crate::server_playlists::writing();
         if let Some(link) = self.playlist_by_id(id)?.and_then(|p| p.server) {
             crate::server_playlists::remember_deleted(self, &link)?;
             self.drop_playlist(id)?;
+            drop(write);
             crate::server_playlists::edited(&link.plugin);
             return Ok(());
         }
