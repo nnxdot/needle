@@ -157,16 +157,14 @@ struct NumbersView: View {
         ScrollView {
             if let n = numbers {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Glass tiles; the container's spacing is under the gap, so they stay apart.
-                    GlassEffectContainer(spacing: 4) {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                            tile(Int(n.songs).formatted(), "songs")
-                            tile(Int(n.albums).formatted(), "albums")
-                            tile(Int(n.artists).formatted(), "artists")
-                            tile(hours(n.duration), "of music")
-                            if n.size > 0 { tile(ByteCountFormatter.string(fromByteCount: n.size, countStyle: .file), "on this iPhone") }
-                            if n.serverSongs > 0 { tile(Int(n.serverSongs).formatted(), "from your server") }
-                        }
+                    // Plain tiles in the page's raised colour: numbers are content, not controls.
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                        tile(Int(n.songs).formatted(), "songs")
+                        tile(Int(n.albums).formatted(), "albums")
+                        tile(Int(n.artists).formatted(), "artists")
+                        tile(hours(n.duration), "of music")
+                        if n.size > 0 { tile(ByteCountFormatter.string(fromByteCount: n.size, countStyle: .file), "on this iPhone") }
+                        if n.serverSongs > 0 { tile(Int(n.serverSongs).formatted(), "from your server") }
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -214,7 +212,7 @@ struct NumbersView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 14))
+        .background(store.colors.card, in: .soft(Corner.middle))
         .accessibilityElement(children: .combine)
     }
 
@@ -264,7 +262,7 @@ struct NumbersView: View {
     private func shelf(_ title: String, _ total: UInt32, _ albums: [Album], detail: String? = nil) -> some View {
         if total > 0 {
             SectionTitle(title: "\(title) · \(Int(total).formatted())", detail: detail)
-            Shelf { ForEach(albums) { AlbumTile(album: $0) } }
+            Shelf { ForEach(albums) { AlbumTile(album: $0, shelf: title) } }
         }
     }
 

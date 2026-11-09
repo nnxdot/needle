@@ -222,7 +222,7 @@ struct GenreMapView: View {
     private func map(_ bubbles: [GenreBubble], width: Double, height: Double) -> some View {
         let colors = store.colors
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 18).fill(colors.card)
+            RoundedRectangle.soft(Corner.large).fill(colors.card)
             ForEach(bubbles) { bubble in
                 let tone = GenreLayout.tone(bubble.genre, dark: colors.dark)
                 let many = bubble.genre.contains(" ") || bubble.genre.contains("-")
@@ -260,7 +260,7 @@ struct GenreMapView: View {
             .allowsHitTesting(false)
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .clipShape(.soft(Corner.large))
     }
 
     private func play(_ item: GenreArt.Item) {

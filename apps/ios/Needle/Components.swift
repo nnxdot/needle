@@ -22,6 +22,8 @@ func isPlaceholderArtist(_ name: String) -> Bool {
 
 enum Route: Hashable {
     case album(Album)
+    /// An album opened from its tile: the page grows out of that tile's cover (its zoom id).
+    case albumFrom(Album, String)
     case albumOf(String)
     case artist(String)
     case playlist(Playlist)
@@ -41,8 +43,16 @@ extension View {
     /// Opens the screens of [`Route`] from any navigation stack.
     func routes() -> some View {
         navigationDestination(for: Route.self) { route in
+            Self.page(route).modifier(ZoomScope())
+        }
+    }
+
+    @ViewBuilder
+    private static func page(_ route: Route) -> some View {
             switch route {
-            case .album(let album): AlbumView(album: album).modifier(CoverZoom(id: "album:" + album.key))
+            // Opened another way (Search, a menu, a link): it simply comes in.
+            case .album(let album): AlbumView(album: album)
+            case .albumFrom(let album, let source): AlbumView(album: album).modifier(CoverZoom(id: source))
             case .albumOf(let id): AlbumOfView(songId: id)
             case .artist(let name): ArtistView(name: name)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
@@ -88,7 +98,6 @@ extension View {
             case .importing: ImportView()
             case .themeEditor(let id): ThemeEditorView(id: id)
             }
-        }
     }
 }
 
@@ -136,18 +145,22 @@ struct SectionTitle: View {
     }
 }
 
-/// An album as a square cover with its name under it.
+/// An album as a square cover with its name under it; its page grows out of this cover.
 struct AlbumTile: View {
+    @Environment(\.zoomScope) private var scope
     let album: Album
     var width: CGFloat? = 150
+    /// Which shelf or grid on the page holds it: an album can be on two shelves at once.
+    var shelf = "grid"
 
     var body: some View {
-        NavigationLink(value: Route.album(album)) {
+        let source = CoverSource.id(album, shelf: shelf, in: scope)
+        NavigationLink(value: Route.albumFrom(album, source)) {
             VStack(alignment: .leading, spacing: 3) {
                 Artwork(path: album.artwork, seed: album.title + album.artist, size: 400)
                     .aspectRatio(1, contentMode: .fit)
-                    .clipShape(.rect(cornerRadius: 14))
-                    .modifier(CoverSource(id: "album:" + album.key))
+                    .clipShape(.soft(Corner.cover))
+                    .modifier(CoverSource(id: source))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
                     .padding(.bottom, 5)
                 Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
@@ -198,6 +211,8 @@ struct SongRow: View {
 
     var body: some View {
         let playing = store.playingID == song.id
+        // Settings › Appearance › Song rows: Compact fits more on the screen.
+        let compact = store.app.density == "compact"
         // The app's accent, not the tint: on a page in its cover's colours the tint is the
         // text's own colour, and the playing song did not stand out.
         let lit = AnyShapeStyle(store.colors.accent)
@@ -212,10 +227,10 @@ struct SongRow: View {
                     .frame(width: 24)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
-                        .frame(width: 48, height: 48)
-                        .clipShape(.rect(cornerRadius: 8))
+                        .frame(width: compact ? 36 : 48, height: compact ? 36 : 48)
+                        .clipShape(.soft(compact ? Corner.smallCover : Corner.cover))
                 }
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: compact ? 0 : 2) {
                     Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
@@ -229,9 +244,10 @@ struct SongRow: View {
                 Menu {
                     SongMenu(song: song)
                 } label: {
-                    Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(.rect)
+                    Image(systemName: "ellipsis").frame(width: 44, height: compact ? 36 : 44).contentShape(.rect)
                 }
                 .foregroundStyle(.secondary)
+                .accessibilityLabel("More for \(song.title)")
             }
             .contentShape(.rect)
         }
@@ -390,7 +406,8 @@ struct PagedSongs: View {
     var body: some View {
         List(selection: selecting ? $selected : nil) {
             if !songs.isEmpty {
-                GlassEffectContainer(spacing: 12) {
+                // The container's spacing under the gap: Play and Shuffle never melt together.
+                GlassEffectContainer(spacing: 4) {
                     HStack(spacing: 12) {
                         Button { playAll(shuffled: false) } label: {
                             Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
@@ -457,7 +474,8 @@ struct PlayButtons: View {
     var look: PageColors?
 
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
+        // The container's spacing under the gap: Play and Shuffle never melt together.
+        GlassEffectContainer(spacing: 4) {
             HStack(spacing: 12) {
                 Button { store.play(songs) } label: {
                     Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
@@ -476,12 +494,15 @@ struct PlayButtons: View {
     }
 }
 
-/// Springs down a little while held, as Liquid Glass controls do.
+/// Springs down a little while held, as Liquid Glass controls do; with Reduce motion it only
+/// dims a little.
 struct Pressable: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
+        let reduced = Motion.reduced
+        return configuration.label
+            .scaleEffect(configuration.isPressed && !reduced ? 0.96 : 1)
+            .opacity(configuration.isPressed && reduced ? 0.7 : 1)
+            .animation(reduced ? .easeOut(duration: 0.1) : .spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -496,10 +517,10 @@ struct Toast: View {
                 .padding(.horizontal, 18).padding(.vertical, 12)
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
                 .task(id: store.messageCount) {
                     try? await Task.sleep(for: .seconds(2.5))
-                    withAnimation { store.message = nil }
+                    withFade { store.message = nil }
                 }
         }
     }
@@ -510,10 +531,37 @@ private struct CoverSpaceKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// Album covers zoom from their tile into the album's page in this namespace.
+    /// Album covers zoom from their tile into the album's page in this namespace: one for each
+    /// tab (see `TabStack`).
     var coverSpace: Namespace.ID? {
         get { self[CoverSpaceKey.self] }
         set { self[CoverSpaceKey.self] = newValue }
+    }
+
+    /// The page a tile is on, made up when the page opens: the same album on two pages of one
+    /// tab (an artist, its album, the artist again) are two sources, never one.
+    @Entry var zoomScope = "root"
+}
+
+/// Gives a page opened in a tab a place of its own in the tab's zoom namespace.
+struct ZoomScope: ViewModifier {
+    @State private var scope = UUID().uuidString
+
+    func body(content: Content) -> some View {
+        content.environment(\.zoomScope, scope)
+    }
+}
+
+/// A tab's navigation stack, with its own namespace for covers that zoom into their album's
+/// page (a namespace shared by the tabs zoomed from a tile of another tab).
+struct TabStack<Root: View>: View {
+    @Binding var path: NavigationPath
+    @ViewBuilder let root: () -> Root
+    @Namespace private var covers
+
+    var body: some View {
+        NavigationStack(path: $path) { root().routes() }
+            .environment(\.coverSpace, covers)
     }
 }
 
@@ -521,6 +569,11 @@ extension EnvironmentValues {
 struct CoverSource: ViewModifier {
     @Environment(\.coverSpace) private var space
     let id: String
+
+    /// The zoom id of an album's cover on a shelf (or grid) of a page.
+    static func id(_ album: Album, shelf: String, in scope: String = "root") -> String {
+        "\(scope)|\(shelf)|\(album.key)"
+    }
 
     func body(content: Content) -> some View {
         if let space { content.matchedTransitionSource(id: id, in: space) } else { content }

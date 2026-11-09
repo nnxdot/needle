@@ -17,15 +17,15 @@ struct SettingsView: View {
                 header
             }
             Section("Listening") {
-                row("Playback", "Crossfade and even loudness", "play.fill", .blue, .settingsPlayback)
+                row("Playback", "Crossfade and loudness", "play.fill", .blue, .settingsPlayback)
                 row("Sound", "Equalizer, balance, and headphones", "slider.vertical.3", .purple, .settingsSound)
-                row("Scrobbling", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
+                row("Online services", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
                 if discord {
                     row("Discord", "Show what you play on your profile", "bubble.left.and.text.bubble.right.fill", .indigo, .settingsDiscord)
                 }
             }
             Section("Look and feel") {
-                row("Appearance", "Themes, colours, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
+                row("Appearance", "Themes, colors, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
             }
             Section("Your music") {
                 row("Sources", "This iPhone, your server, and your computer", "globe", .teal, .sources)
@@ -62,7 +62,7 @@ struct SettingsView: View {
                     .foregroundStyle(.white)
                     .frame(width: 60, height: 60)
                     .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: .rect(cornerRadius: 14))
+                                in: .soft(Corner.middle))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Needle").font(.needle(.title2).bold())
@@ -95,7 +95,7 @@ struct SettingsView: View {
             HStack(spacing: 14) {
                 Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 30, height: 30)
-                    .background(tint.gradient, in: .rect(cornerRadius: 8))
+                    .background(tint.gradient, in: .soft(Corner.small))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
@@ -119,7 +119,7 @@ struct SettingLabel: View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(tint.gradient, in: .rect(cornerRadius: 7))
+                .background(tint.gradient, in: .soft(Corner.small))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
@@ -268,7 +268,7 @@ struct LibrarySettingsView: View {
                         Button("Measure now") { store.core.measureInBackground(); store.message = "Measuring in the background" }
                             .disabled(measured[0] >= measured[1])
                     }
-                    OpenRow(label: SettingLabel(title: "When nothing is up next", detail: "Keep playing songs that match.", icon: "sparkles", tint: .purple),
+                    OpenRow(label: SettingLabel(title: "When the queue runs out", detail: "Keep playing songs that match a rule.", icon: "sparkles", tint: .purple),
                             value: settings.autoplayQuery.isEmpty ? "Off" : settings.autoplayQuery) {
                         TextField("For example: rating is at least 4", text: Binding(get: { settings.autoplayQuery }, set: { var s = settings; s.autoplayQuery = $0; save(s) }))
                             .textInputAutocapitalization(.never)
@@ -337,8 +337,8 @@ struct PlaybackSettingsView: View {
                         SettingLabel(title: "Shuffle stays on", detail: "As in Spotify: the shuffle button turns shuffle on and off, and the song playing goes on.", icon: "shuffle", tint: .green)
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        SettingLabel(title: "Even loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
-                    Picker("Even loudness", selection: Binding(
+                        SettingLabel(title: "Even out loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
+                    Picker("Even out loudness", selection: Binding(
                         get: { !settings.replayGain ? 0 : (settings.albumGain ? 2 : 1) },
                         set: { var s = settings; s.replayGain = $0 > 0; s.albumGain = $0 == 2; save(s) })) {
                         Text("Off").tag(0)
@@ -691,7 +691,7 @@ struct ScrobblingView: View {
                 }
             }
         }
-        .navigationTitle("Scrobbling")
+        .navigationTitle("Online services")
         .themed()
         .task {
             #if DEBUG
@@ -1092,7 +1092,7 @@ struct WhatsNewView: View {
                         if let tagline = release.tagline { Text(tagline).font(.needle(.subheadline)) }
                         ForEach(release.changes) { change in row(change) }
                         if index > 0 {
-                            Button("Fold \(release.version)") { withAnimation { _ = unfolded.remove(release.version) } }
+                            Button("Fold \(release.version)") { withMotion(.default) { _ = unfolded.remove(release.version) } }
                                 .font(.needle(.subheadline))
                         }
                     } header: {
@@ -1101,7 +1101,7 @@ struct WhatsNewView: View {
                 } else {
                     Section {
                         Button {
-                            withAnimation { _ = unfolded.insert(release.version) }
+                            withMotion(.default) { _ = unfolded.insert(release.version) }
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -1129,12 +1129,12 @@ struct WhatsNewView: View {
         let open = opened.contains(change.id)
         let (symbol, tint) = Self.icon(change)
         return Button {
-            withAnimation(.snappy(duration: 0.2)) { if open { opened.remove(change.id) } else { opened.insert(change.id) } }
+            withMotion(.snappy(duration: 0.2)) { if open { opened.remove(change.id) } else { opened.insert(change.id) } }
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 28, height: 28)
-                    .background(tint.gradient, in: .rect(cornerRadius: 7))
+                    .background(tint.gradient, in: .soft(Corner.small))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     if change.title.isEmpty {
@@ -1220,6 +1220,14 @@ struct AboutView: View {
                     store.run { try $0.setCrashReports(on: on) }
                 })) {
                     SettingLabel(title: "Send crash reports", detail: "What went wrong. No music, names, or files.", icon: "exclamationmark.triangle.fill", tint: .orange)
+                }
+                // As on the Mac and Android: the first start's guide, again.
+                HStack {
+                    SettingLabel(title: "Welcome guide", detail: "The short guide from the first start.", icon: "house.fill", tint: .green)
+                    Spacer(minLength: 8)
+                    Button("Show it again") { store.welcomeAgain = true }
+                        .buttonStyle(.borderless)
+                        .fixedSize()
                 }
             }
             Section("Privacy") {

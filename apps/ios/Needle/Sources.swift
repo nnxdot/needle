@@ -73,19 +73,20 @@ struct SourcesView: View {
                         }
                     }
                 }
-                GlassEffectContainer {
-                    HStack(spacing: 10) {
-                        Button { importing = true } label: {
-                            Label("Import from Files", systemImage: "folder.badge.plus").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.glassProminent)
-                        .foregroundStyle(store.colors.onAccent)
-                        Button { store.rescan() } label: {
-                            Label("Read again", systemImage: "arrow.clockwise").labelStyle(.iconOnly).frame(width: 24)
-                        }
-                        .buttonStyle(.glass)
-                        .disabled(store.scan.running)
+                // Plain buttons: the card around them is the one glass here.
+                HStack(spacing: 10) {
+                    Button { importing = true } label: {
+                        Label("Import from Files", systemImage: "folder.badge.plus").frame(maxWidth: .infinity).padding(.vertical, 4)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .foregroundStyle(store.colors.onAccent)
+                    Button { store.rescan() } label: {
+                        Label("Read again", systemImage: "arrow.clockwise").labelStyle(.iconOnly).frame(width: 24).padding(.vertical, 4)
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .disabled(store.scan.running)
                 }
                 Text("You can also put music in Files › On My iPhone › Needle, or copy it from a computer in Finder.")
                     .font(.needle(.footnote)).foregroundStyle(.secondary)
@@ -124,7 +125,7 @@ struct SourcesView: View {
     }
 }
 
-/// A pane of glass around a source.
+/// A pane of glass around a source: the one glass layer; what is inside it is plain.
 struct Card<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
@@ -132,10 +133,11 @@ struct Card<Content: View>: View {
         content()
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .glassEffect(.regular, in: .soft(Corner.large))
     }
 }
 
+/// A source's sign on a soft tint of its colour (plain: it sits on a glass card).
 struct Icon: View {
     let symbol: String
     let tint: Color
@@ -143,7 +145,8 @@ struct Icon: View {
     var body: some View {
         Image(systemName: symbol).font(.needle(.title3)).foregroundStyle(tint)
             .frame(width: 46, height: 46)
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .background(tint.opacity(0.16), in: .soft(Corner.middle))
+            .accessibilityHidden(true)
     }
 }
 
@@ -473,7 +476,7 @@ struct ServerView: View {
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 58, height: 58)
-                .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: .rect(cornerRadius: 15))
+                .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: .soft(Corner.middle))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(name).font(.needle(.title2).bold()).lineLimit(2)
@@ -491,13 +494,15 @@ struct ServerView: View {
             Spacer(minLength: 0)
         }
         .padding(16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .glassEffect(.regular, in: .soft(Corner.large))
         .accessibilityElement(children: .combine)
     }
 }
 
-/// A number about the server, on glass: the number large, what it counts under it.
+/// A number about the server, on a plain tile in the page's raised colour (content, not glass):
+/// the number large, what it counts under it.
 private struct StatTile: View {
+    @Environment(Store.self) private var store
     let value: String
     let label: String
     let symbol: String
@@ -510,7 +515,7 @@ private struct StatTile: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .background(store.colors.card, in: .soft(Corner.middle))
         .accessibilityElement(children: .combine)
     }
 }

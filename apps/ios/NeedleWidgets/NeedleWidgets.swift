@@ -58,7 +58,11 @@ struct Cover: View {
     var body: some View {
         Group {
             if let url = Snapshot.coverURL(name), let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image).resizable().scaledToFill()
+                // On a tinted or clear Home Screen a picture would turn into a flat square of the
+                // tint: the cover stays a picture, in the tint's shades.
+                Image(uiImage: image).resizable()
+                    .widgetAccentedRenderingMode(.accentedDesaturated)
+                    .scaledToFill()
             } else {
                 LinearGradient(colors: [amber, amberDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
                     .overlay(Image(systemName: "music.note").font(.title2).foregroundStyle(.white.opacity(0.8)))

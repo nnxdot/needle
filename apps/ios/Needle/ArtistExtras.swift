@@ -147,7 +147,7 @@ struct FanartPickerView: View {
                             .frame(maxWidth: .infinity)
                             // Grey behind logos: fanart.tv has white ones and black ones.
                             .background(kind == .logo ? Color(white: 0.42) : .clear)
-                            .clipShape(.rect(cornerRadius: 8))
+                            .clipShape(.soft(Corner.small))
                             .overlay { if busy == choice.url { ProgressView() } }
                         }
                         .buttonStyle(Pressable())
