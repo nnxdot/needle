@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
@@ -226,8 +227,30 @@ fun NeedleRoot() {
     val holds = listOf(hasSong, playerOpen, choosing.isNotEmpty(), wide, book)
     // Not while the player covers the bar of chosen songs: Back closes the player first.
     BackHandler(enabled = choosing.isNotEmpty() && !playerOpen) { Selection.clear() }
-    BackHandler(enabled = playerOpen || (choosing.isEmpty() && stack.size > 1)) {
-        if (playerOpen) playerOpen = false else stacks[tab] = stack.dropLast(1)
+    BackHandler(enabled = playerOpen) { playerOpen = false }
+    // The pages: Android's predictive back. The back swipe shows the page behind sliding in as the
+    // finger moves (the same motion as Back, held at the swipe's place), and goes there on release;
+    // let go early, it slides back. Back pressed (a remote, a key) plays it whole.
+    val pageTarget = tab to stack
+    val pageMotion = remember { androidx.compose.animation.core.SeekableTransitionState(pageTarget) }
+    val backScope = androidx.compose.runtime.rememberCoroutineScope()
+    var swiping by remember { mutableStateOf(false) }
+    LaunchedEffect(pageTarget) { if (!swiping) pageMotion.animateTo(pageTarget) }
+    androidx.activity.compose.PredictiveBackHandler(enabled = !playerOpen && choosing.isEmpty() && stack.size > 1) { progress ->
+        val from = tab to stack
+        val behind = tab to stack.dropLast(1)
+        try {
+            swiping = true
+            progress.collect { event -> pageMotion.seekTo(event.progress, behind) }
+            swiping = false
+            stacks[tab] = behind.second
+            pageMotion.animateTo(behind)
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            // Let go before it went: the page slides back where it was.
+            swiping = false
+            backScope.launch { pageMotion.animateTo(from) }
+            throw e
+        }
     }
 
     val app by NeedleApp.instance.app.collectAsState()
@@ -333,13 +356,17 @@ fun NeedleRoot() {
                     ),
                     modifier = Modifier.then(aboveCrease).then(if (wide) Modifier.paneSheet() else Modifier).nestedScroll(pageScroll).hazeSource(haze),
                 ) { padding ->
-                    AnimatedContent(
-                        targetState = tab to stack,
+                    androidx.compose.animation.core.rememberTransition(pageMotion, label = "page").AnimatedContent(
                         transitionSpec = {
                             val (fromTab, from) = initialState
                             val (toTab, to) = targetState
                             when {
                                 reduce -> fadeIn(tween(120)) togetherWith fadeOut(tween(120))
+                                // A back swipe: the page slides off to the right, solid, over the
+                                // page behind, which comes in from a little to the left.
+                                swiping && fromTab == toTab && to.size < from.size ->
+                                    ((slideInHorizontally(tween(300)) { -it / 10 } + fadeIn(tween(300))) togetherWith
+                                        slideOutHorizontally(tween(300)) { it }).apply { targetContentZIndex = -1f }
                                 // Deeper pages slide in from the side, as Android's shared axis.
                                 fromTab == toTab && to.size > from.size ->
                                     (slideInHorizontally(tween(300)) { it / 5 } + fadeIn(tween(250))) togetherWith
@@ -351,7 +378,6 @@ fun NeedleRoot() {
                                 else -> fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120))
                             }
                         },
-                        label = "page",
                     ) { (pageTab, pages) ->
                         val opened = remember { android.os.SystemClock.uptimeMillis() }
                         CompositionLocalProvider(
@@ -366,8 +392,11 @@ fun NeedleRoot() {
                             val fullBleed = route is Route.AlbumPage || route is Route.AlbumOf || route is Route.Artist || route is Route.Playlist
                             // Every page runs on behind the dock; its list leaves room at the foot.
                             CompositionLocalProvider(LocalBottomInset provides dockRoom) {
-                                Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
-                                    Page(route, open)
+                                // On the page's colour, so a page sliding off over another hides it.
+                                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                                    Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
+                                        Page(route, open)
+                                    }
                                 }
                             }
                             }
