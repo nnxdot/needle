@@ -43,6 +43,7 @@ mod playlist_saves;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
+mod radio_page;
 mod remote_ui;
 mod search_page;
 mod server_search;
@@ -242,6 +243,8 @@ pub enum Page {
     Numbers,
     /// Every measured song by how it sounds.
     MoodMap,
+    /// Stations and quick mixes (`radio_page`).
+    Radio,
     /// What a search finds across the library (see `search_page`).
     Search,
     /// The songs of a music source (a server a plugin connects to).
@@ -280,6 +283,7 @@ impl Page {
             Self::Doctor => "Fix my library".into(),
             Self::Numbers => "Your library".into(),
             Self::MoodMap => "Genre map".into(),
+            Self::Radio => "Radio".into(),
             Self::Search => "Search".into(),
             Self::Source { name, .. } => name.clone(),
         }
@@ -315,6 +319,7 @@ impl Page {
                 | Self::Doctor
                 | Self::Numbers
                 | Self::MoodMap
+                | Self::Radio
                 | Self::Search
         )
     }
@@ -451,6 +456,8 @@ enum Event {
     Translated(String, Vec<String>),
     Numbers(Box<needle_core::numbers::LibraryNumbers>),
     GenreMap(Vec<needle_core::radio::GenreSpot>),
+    /// What the Radio page shows, or why it could not be read.
+    Radio(Result<Box<radio_page::RadioData>, String>),
     GenreArt(usize, bool, Box<needle_core::genre_art::GenreArt>),
     ArtFetched,
     MediaKey(media_keys::Key),
@@ -767,6 +774,8 @@ pub struct AppView {
     /// others), so the page's soft top edge knows when it is scrolled. Back to the top on
     /// each new page.
     page_scroll: ScrollHandle,
+    /// The Radio page's songs and covers; `None` while they are first read.
+    radio: Option<Result<Box<radio_page::RadioData>, String>>,
     /// The open playlist was seen in the library, and whether it is a server's: if it then
     /// goes, its page is left (`leave_gone_playlist`).
     playlist_seen: Option<bool>,
@@ -1445,6 +1454,7 @@ impl AppView {
             artist_view: Default::default(),
             artist_scroll: ScrollHandle::new(),
             page_scroll: ScrollHandle::new(),
+            radio: None,
             playlist_seen: None,
             // One for each of Home's rows (it has five at most).
             shelf_scrolls: (0..5).map(|_| ScrollHandle::new()).collect(),
@@ -1823,6 +1833,7 @@ impl AppView {
                     self.refresh(cx);
                 }
                 Event::Look(path, look) => self.set_look(path, look),
+                Event::Radio(data) => self.radio_read(data),
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
                 Event::HomeYear(year) => self.home_year = year,
@@ -2434,6 +2445,9 @@ impl AppView {
         }
         if matches!(self.page, Page::Numbers | Page::MoodMap) {
             self.load_insights();
+        }
+        if self.page == Page::Radio {
+            self.load_radio();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());

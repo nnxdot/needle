@@ -397,6 +397,7 @@ impl AppView {
                     .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
                     .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
                     .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
+                    .child(self.nav_item("nav-radio", "Radio", "radio", Page::Radio, cx))
                     .child(self.collections_section(cx))
                     .child(
                         self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)

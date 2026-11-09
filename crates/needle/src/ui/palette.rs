@@ -241,6 +241,14 @@ impl AppView {
             item(
                 "Go to",
                 "radio",
+                "Radio",
+                "Your station, quick mixes, and stations from your songs",
+                None,
+                |this, window, cx| this.navigate(Page::Radio, window, cx),
+            ),
+            item(
+                "Go to",
+                "radio",
                 "Genre map",
                 "Every genre where its songs sound; play one",
                 None,

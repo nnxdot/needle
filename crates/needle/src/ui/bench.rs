@@ -456,6 +456,7 @@ impl AppView {
                         open(v, Page::Albums, window, cx)
                     }
                     _ if page == "mood" => open(v, Page::MoodMap, window, cx),
+                    _ if page == "radio" => open(v, Page::Radio, window, cx),
                     _ if page == "server" => open(
                         v,
                         Page::Source {

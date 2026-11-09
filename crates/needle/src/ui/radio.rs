@@ -18,6 +18,28 @@ use std::{
 /// How many songs a station queues.
 const STATION: usize = 50;
 
+/// A station from one song: the song, then songs that sound like it, and its notice.
+pub fn song_station(
+    library: &needle_core::database::Library,
+    track: needle_core::model::Track,
+) -> anyhow::Result<(Vec<QueueItem>, String)> {
+    let station = library.radio(std::slice::from_ref(&track), STATION - 1)?;
+    let reason = format!("Radio: like “{}”", track.title);
+    let mut items = vec![QueueItem {
+        track: track.clone(),
+        reason: reason.clone(),
+    }];
+    items.extend(station.into_iter().map(|t| QueueItem {
+        track: t,
+        reason: reason.clone(),
+    }));
+    let count = items.len();
+    Ok((
+        items,
+        format!("Radio from “{}”: {count} songs.", track.title),
+    ))
+}
+
 pub struct BlendMenu {
     pub position: Point<Pixels>,
     pub artist: String,
@@ -87,7 +109,7 @@ impl AppView {
         found
     }
 
-    fn play_station(
+    pub(super) fn play_station(
         &mut self,
         work: impl FnOnce(&needle_core::database::Library) -> anyhow::Result<(Vec<QueueItem>, String)>
         + Send
@@ -109,23 +131,7 @@ impl AppView {
 
     /// Play this song, then songs that sound like it.
     pub(super) fn start_radio(&mut self, track: needle_core::model::Track) {
-        self.play_station(move |library| {
-            let station = library.radio(std::slice::from_ref(&track), STATION - 1)?;
-            let reason = format!("Radio: like “{}”", track.title);
-            let mut items = vec![QueueItem {
-                track: track.clone(),
-                reason: reason.clone(),
-            }];
-            items.extend(station.into_iter().map(|t| QueueItem {
-                track: t,
-                reason: reason.clone(),
-            }));
-            let count = items.len();
-            Ok((
-                items,
-                format!("Radio from “{}”: {count} songs.", track.title),
-            ))
-        });
+        self.play_station(move |library| song_station(library, track));
     }
 
     pub(super) fn start_artist_radio(&mut self, artist: String) {
