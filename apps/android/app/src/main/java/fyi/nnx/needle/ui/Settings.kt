@@ -1697,11 +1697,9 @@ private fun FanartKeyRow() {
  */
 @Composable
 private fun ScrobbleProblems(service: String, refresh: Int) {
-    var json by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    // A failure is told in the page's one message, not as a quiet nothing.
+    val json by rememberLoaded(service, refresh, cache = false) { org.json.JSONObject(scrobbleProblemsJson(service)) }
     var open by remember { mutableStateOf(false) }
-    LaunchedEffect(service, refresh) {
-        json = withContext(Dispatchers.IO) { runCatching { org.json.JSONObject(core.scrobbleProblemsJson(service)) }.getOrNull() }
-    }
     val reasons = json?.optJSONArray("reasons") ?: return
     if (reasons.length() == 0) return
     val recent = json?.optJSONArray("recent")

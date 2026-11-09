@@ -392,12 +392,9 @@ fun FixLibraryScreen() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // The overview: what is wrong, card by card; a card opens its tool, shows the songs, or
     // fixes them at once.
-    val version by NeedleApp.instance.libraryVersion.collectAsState()
-    var health by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    // Read again as the library changes; a failure is told in the page's one message.
+    val health by rememberLoaded { org.json.JSONObject(libraryHealthJson()) }
     var confirmForget by remember { mutableStateOf(false) }
-    LaunchedEffect(version) {
-        health = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { org.json.JSONObject(core.libraryHealthJson()) }.getOrNull() }
-    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Fix my library") }
         health?.let { h ->
