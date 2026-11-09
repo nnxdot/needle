@@ -647,8 +647,9 @@ private fun PlaybackSettingsPage() {
             MoreText("Album keeps an album's quiet and loud songs as the artist made them.")
         }
     }
-    // Android's own: the alarm, and the Quick Settings tile.
-    Group("Alarm and tile") {
+    // Android's own: the alarm, and the Quick Settings tile. Not on a TV: it has no Quick
+    // Settings, most have no place to allow exact alarms, and one asleep does not wake to play.
+    if (!isTv()) Group("Alarm and tile") {
         val context = androidx.compose.ui.platform.LocalContext.current
         val alarm = remember { fyi.nnx.needle.WakeAlarm.read(context) }
         LinkRow("Wake up to music", "A playlist or a smart mix as your alarm", Icons.Rounded.Alarm, if (alarm.on) fyi.nnx.needle.WakeAlarm.timeText(context, alarm) else "Off") {
