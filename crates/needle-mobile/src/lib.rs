@@ -97,6 +97,11 @@ pub struct Song {
     /// A picture file for the cover, if the song has one.
     pub artwork: Option<String>,
     pub rating: i64,
+    /// The short format text every app shows ("FLAC 24/48", "MP3 320", "DSD64"; see
+    /// `Track::quality`). `format` stays the bare format ("FLAC"); empty for a song built by
+    /// the app itself (one on the computer).
+    #[uniffi(default = "")]
+    pub quality: String,
 }
 
 impl From<&Track> for Song {
@@ -111,6 +116,7 @@ impl From<&Track> for Song {
             format: track.format.clone(),
             artwork: track.artwork.clone(),
             rating: track.rating,
+            quality: track.quality(),
         }
     }
 }

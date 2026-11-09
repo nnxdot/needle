@@ -2185,3 +2185,37 @@ impl Needle {
 pub fn default_data_directory() -> String {
     Library::default_directory().to_string_lossy().to_string()
 }
+
+/// The short format text for a song from its fields ("FLAC 24/48", "MP3 320", "DSD64"): what
+/// the desktop and the phones show for it (see `Track::quality`). For the Mac's `Track`,
+/// which comes as JSON.
+#[uniffi::export]
+pub fn track_quality(format: String, bit_depth: i64, sample_rate: i64, bitrate: i64) -> String {
+    Track {
+        format,
+        bit_depth,
+        sample_rate,
+        bitrate,
+        ..Track::default()
+    }
+    .quality()
+}
+
+#[cfg(test)]
+mod quality_tests {
+    #[test]
+    fn the_mac_reads_the_same_format_text_as_the_phones() {
+        let track = needle_core::model::Track {
+            format: "FLAC".into(),
+            bit_depth: 24,
+            sample_rate: 48_000,
+            bitrate: 2_100,
+            ..Default::default()
+        };
+        let text = super::track_quality(track.format.clone(), 24, 48_000, 2_100);
+        assert_eq!(text, "FLAC 24/48");
+        assert_eq!(text, crate::Song::from(&track).quality);
+        assert_eq!(super::track_quality("DSF".into(), 1, 2_822_400, 0), "DSD64");
+        assert_eq!(super::track_quality("MP3".into(), 0, 44_100, 320), "MP3 320");
+    }
+}
