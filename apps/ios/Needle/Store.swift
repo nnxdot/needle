@@ -147,6 +147,22 @@ final class Store {
     /// A plugin's question, answered with text.
     var question: Question?
     var showPlayer = false
+    /// Settings as a large sheet of two columns (an iPad's wide window; an iPhone opens the
+    /// page in its tab).
+    var showSettings = false
+    /// The new playlist's sheet, from the + of the sidebar's Playlists.
+    var newPlaylist = false
+    /// The player was asked to show "lyrics" or "queue" (the floating bar, the keyboard): it
+    /// shows it, then clears this.
+    var playerPane: String?
+
+    /// Opens the player with the lyrics or the queue showing (beside the cover in a wide
+    /// window, in its place in a narrow one).
+    func openPlayer(with pane: String) {
+        guard playback?.current != nil else { return }
+        playerPane = pane
+        showPlayer = true
+    }
     /// The welcome guide, asked for again (Settings › About).
     var welcomeAgain = false
     /// A page to open, from a widget or a link.

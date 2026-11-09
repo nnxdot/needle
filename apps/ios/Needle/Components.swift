@@ -48,7 +48,7 @@ extension View {
     }
 
     @ViewBuilder
-    private static func page(_ route: Route) -> some View {
+    fileprivate static func page(_ route: Route) -> some View {
             switch route {
             // Opened another way (Search, a menu, a link): it simply comes in.
             case .album(let album): AlbumView(album: album)
@@ -98,6 +98,16 @@ extension View {
             case .importing: ImportView()
             case .themeEditor(let id): ThemeEditorView(id: id)
             }
+    }
+}
+
+/// The page a route opens, as the root of a stack (an iPad sidebar's entry, a column of
+/// Settings).
+struct RoutePage: View {
+    let route: Route
+
+    var body: some View {
+        EmptyView.page(route)
     }
 }
 
