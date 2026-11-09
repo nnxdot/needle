@@ -445,14 +445,16 @@ fun PlaylistSheet(
     onDismiss: () -> Unit,
 ) {
     val ids = detail.songs.map { it.id }
-    ActionSheet(art, detail.name, if (detail.rule != null) "Smart playlist" else count(ids.size, "song"), onDismiss) { act ->
+    val kind = if (detail.rule != null) "Smart playlist" else count(ids.size, "song")
+    ActionSheet(art, detail.name, if (detail.readOnly) "Read-only on the server · $kind" else kind, onDismiss) { act ->
         if (ids.isNotEmpty()) {
             MenuGroup {
                 MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { ids } } }
                 MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { ids } } }
             }
         }
-        MenuGroup {
+        // One the server lets you only read keeps its name and songs: no Edit, order, or Delete.
+        if (!detail.readOnly) MenuGroup {
             MenuRow(Icons.Rounded.Edit, "Edit") { act { Ui.sheet.value = Sheet.EditPlaylist(detail.id) } }
             if (onArrange != null) MenuRow(Icons.Rounded.SwapVert, "Put in order") { act(onArrange) }
         }
@@ -461,7 +463,7 @@ fun PlaylistSheet(
             MenuRow(Icons.Rounded.GridView, "Use its songs' covers") { act(onCovers) }
             MenuRow(Icons.Rounded.IosShare, "Export as a playlist file") { act(onExport) }
         }
-        MenuGroup {
+        if (!detail.readOnly) MenuGroup {
             MenuRow(Icons.Rounded.Delete, "Delete playlist", tint = MaterialTheme.colorScheme.error) { act(onDelete) }
         }
     }

@@ -211,6 +211,21 @@ fun NeedleRoot() {
 
     LaunchedEffect(Unit) { Ui.showPlayer.collect { if (hasSong) playerOpen = true } }
     LaunchedEffect(Unit) { Ui.openRoute.collect { open(it) } }
+    // A change that went to a copy of a playlist: its page, where it shows, becomes the copy's.
+    LaunchedEffect(Unit) {
+        Ui.toCopy.collect { (from, copy) ->
+            val pages = stacks[tab] ?: return@collect
+            val top = pages.last()
+            if (top is Route.Playlist && top.id == from) stacks[tab] = pages.dropLast(1) + copy
+        }
+    }
+    LaunchedEffect(Unit) {
+        Ui.leavePlaylist.collect { id ->
+            val pages = stacks[tab] ?: return@collect
+            val top = pages.last()
+            if (top is Route.Playlist && top.id == id) stacks[tab] = pages.dropLast(1).ifEmpty { listOf(tab.root) }
+        }
+    }
     LaunchedEffect(Unit) {
         NeedleApp.instance.openPlayer.collect {
             if (NeedleApp.instance.app.value.openPlayerOnPlay) playerOpen = true

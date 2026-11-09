@@ -43,6 +43,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -591,9 +592,18 @@ fun AlbumOfScreen(route: Route.AlbumOf, open: (Route) -> Unit) {
 
 @Composable
 fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
-    val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
-    val detailLoad = rememberLoaded(route.id) { playlistDetail(route.id) }
+    // Null once it is gone (a sync removed it while the page was open): not a failure to tell.
+    val detailLoad = rememberLoaded(route.id) { playlistOrGone(route.id) }
     val detail by detailLoad
+    val gone = detail == null && !detailLoad.loading && !detailLoad.failed
+    // The page says so a moment, then goes back, never showing an empty or a wrong list.
+    LaunchedEffect(gone) {
+        if (gone) {
+            delay(1500)
+            Selection.clear()
+            Ui.leavePlaylist.tryEmit(route.id)
+        }
+    }
     val summaryLoad = rememberLoaded(route.id) { playlists().firstOrNull { it.id == route.id } }
     val summary by summaryLoad
     val playing = playingId()
@@ -601,6 +611,8 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     var deleting by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     val d = detail
+    // One the server lets you only read: its name and songs stay as the server has them.
+    val readOnly = d?.readOnly == true
     // A song dragged to a new place stays there until the list is read again, rather than
     // going back to its old place for a moment.
     var moved by remember(d) { mutableStateOf<List<Song>?>(null) }
@@ -635,7 +647,8 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             moved = null
         }
     }
-    val written: (Unit) -> Unit = {}
+    // Told when it did not go just as asked; a change that went to a copy opens the copy.
+    val written: (fyi.nnx.needle.core.PlaylistSaved) -> Unit = { tellSaved(route.id, it, null) }
     // Put in order: each row gets a handle to drag it by.
     var arranging by remember { mutableStateOf(false) }
     val reorder = rememberReorder(list.size) { from, to ->
@@ -653,14 +666,18 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     val wide = isWide()
     // No Play or Shuffle for a playlist with nothing in it (its menu still edits it).
     val buttons: (@Composable () -> Unit)? = if (d == null || list.isEmpty()) null else {
-        { PlayRow(list, inline = wide) { RoundAction(Icons.Rounded.Edit, "Edit") { Ui.sheet.value = Sheet.EditPlaylist(d.id) } } }
+        { PlayRow(list, inline = wide) { if (!readOnly) RoundAction(Icons.Rounded.Edit, "Edit") { Ui.sheet.value = Sheet.EditPlaylist(d.id) } } }
     }
     DetailFrame(art, name, { state.headerScroll() }, { menu = true }) {
         LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
             item {
                 DetailHeader(
                     art, name, d?.description?.ifBlank { null },
-                    listOfNotNull(if (d?.rule != null) "Smart playlist" else "Playlist", d?.let { count(list.size, "song") }, d?.takeIf { list.isNotEmpty() }?.let { length(list) }),
+                    listOfNotNull(
+                        if (d?.rule != null) "Smart playlist" else "Playlist",
+                        d?.let { count(list.size, "song") },
+                        d?.takeIf { list.isNotEmpty() }?.let { length(list) },
+                    ),
                     { state.headerScroll() },
                     mosaic = summary?.mosaic.orEmpty(),
                     buttons = buttons?.takeIf { wide },
@@ -675,13 +692,19 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                     }
                 }
             }
+            if (readOnly) item { ReadOnlyNote() }
             if (detailLoad.loading) items(6) { SongPlaceholder() }
+            if (gone) item { GoneNote("This playlist was removed.") }
             if (d != null && list.isEmpty()) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         ShapedIcon(Icons.AutoMirrored.Rounded.PlaylistAdd, 64)
                         Text(
-                            if (d.rule != null) "No songs match its rule yet." else "Add songs from any song's menu: Add to a playlist.",
+                            when {
+                                d.rule != null -> "No songs match its rule yet."
+                                readOnly -> "No songs in it on the server yet."
+                                else -> "Add songs from any song's menu: Add to a playlist."
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(top = 16.dp),
@@ -689,13 +712,13 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                     }
                 }
             }
-            songList(list, playing, open, numbered = false, remove = if (d?.rule == null) { i ->
+            songList(list, playing, open, numbered = false, remove = if (d?.rule == null && !readOnly) { i ->
                 if (!writing) d?.positions?.getOrNull(i)?.let { position ->
                     writing = true
                     val song = d.songs.getOrNull(i)?.id.orEmpty()
                     libraryWrite({ core.removeFromPlaylist(route.id, position, song) }, { writing = false; showMessage(it.message ?: "Could not remove it") }, written)
                 }
-            } else null, reorder = if (d?.rule == null && arranging) reorder else null)
+            } else null, reorder = if (d?.rule == null && !readOnly && arranging) reorder else null)
         }
         if (menu && d != null) PlaylistSheet(
             d, art,
@@ -703,10 +726,10 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             onPicture = { tryOpen("file picker") { picture.launch(arrayOf("image/*")) } },
             onCovers = { libraryWrite({ core.setPlaylistPicture(d.id, null) }) },
             onExport = { tryOpen("file picker") { export.launch("${d.name}.m3u8") } },
-            onArrange = if (d.rule == null && list.size > 1) ({ arranging = true }) else null,
+            onArrange = if (d.rule == null && !readOnly && list.size > 1) ({ arranging = true }) else null,
         ) { menu = false }
     }
-    if (deleting && d != null) {
+    if (deleting && d != null && !readOnly) {
         GlassAlertDialog(
             onDismissRequest = { deleting = false },
             title = { Text("Delete ${d.name}?") },
@@ -721,7 +744,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                                 // gone: a playlist that is gone has nothing to show, and would say so.
                                 // Songs chosen on the page would take the Back for themselves.
                                 Selection.clear()
-                                back?.onBackPressedDispatcher?.onBackPressed()
+                                Ui.leavePlaylist.tryEmit(d.id)
                                 delay(400)
                                 NeedleApp.instance.libraryChanged()
                                 showMessage("Deleted ${d.name}")
@@ -1322,7 +1345,27 @@ internal fun GenreTile(name: String, art: String?, modifier: Modifier, onClick: 
     }
 }
 
-/** A page whose album or artist has gone from the library (new tags, or taken out). */
+/** The server's mark and a short line, for a playlist the server lets you only read. */
+@Composable
+private fun ReadOnlyNote() {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(Icons.Rounded.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+        Text("Read-only on the server", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A playlist's songs, or null once it is gone (a sync removed it): not a failure to tell. */
+private fun fyi.nnx.needle.core.Needle.playlistOrGone(id: String): fyi.nnx.needle.core.PlaylistDetail? = try {
+    playlistDetail(id)
+} catch (error: Exception) {
+    if (playlists().any { it.id == id }) throw error else null
+}
+
+/** A page whose album, artist, or playlist has gone from the library (new tags, or taken out). */
 @Composable
 private fun GoneNote(text: String) {
     Text(

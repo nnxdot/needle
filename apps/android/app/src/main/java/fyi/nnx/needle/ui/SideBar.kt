@@ -187,8 +187,10 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
                 SideRow(
                     p.name, null, here, words,
                     lead = { PlaylistCover(p, Modifier.size(18.dp), RoundedCornerShape(4.dp)) },
-                    // A playlist on a music server, marked as its songs are.
-                    server = p.server && serverMark,
+                    // A playlist on a music server, marked as its songs are; always one the server
+                    // lets you only read.
+                    server = (p.server && serverMark) || p.readOnly,
+                    readOnly = p.readOnly,
                 ) {
                     if (!here) library(Route.Playlist(p.id, p.name))
                 }
@@ -316,6 +318,7 @@ private fun SideRow(
     words: Float,
     lead: (@Composable () -> Unit)? = null,
     server: Boolean = false,
+    readOnly: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -354,7 +357,7 @@ private fun SideRow(
             if (server) {
                 Icon(
                     Icons.Rounded.Dns,
-                    contentDescription = "On your music server",
+                    contentDescription = if (readOnly) "Read-only on the server" else "On your music server",
                     tint = colors.onSurfaceVariant,
                     modifier = Modifier.padding(start = 6.dp).size(14.dp).graphicsLayer { alpha = words },
                 )
