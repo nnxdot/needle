@@ -19,6 +19,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -59,10 +60,38 @@ fun Dock(
     }
 }
 
-/** The dock's tabs: an icon and a small name each, the open one in the accent. */
+/**
+ * The dock's tabs: an icon and a small name each, the open one in the accent on a soft light that
+ * slides from tab to tab (with Reduce motion, it moves at once).
+ */
 @Composable
 private fun DockTabs(tab: Tab, choose: (Tab) -> Unit) {
-    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    val reduce = reduceMotion()
+    // Read only where it is drawn: the slide does not compose the tabs again.
+    val at = androidx.compose.animation.core.animateFloatAsState(
+        Tab.entries.indexOf(tab).toFloat(),
+        if (reduce) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 500f),
+        label = "tab light",
+    )
+    val light = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = 6.dp)
+            .drawBehind {
+                val w = size.width / Tab.entries.size
+                val h = 48.dp.toPx()
+                val x = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl) size.width - (at.value + 1) * w else at.value * w
+                drawRoundRect(
+                    light,
+                    topLeft = androidx.compose.ui.geometry.Offset(x, (size.height - h) / 2),
+                    size = androidx.compose.ui.geometry.Size(w, h),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                )
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Tab.entries.forEach { t ->
             val chosen = t == tab
             val ink = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
