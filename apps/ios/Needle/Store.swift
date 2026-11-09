@@ -1211,12 +1211,15 @@ final class Store {
         let center = NotificationCenter.default
         // The system's sound server restarted (after a Bluetooth or CarPlay crash, say): every
         // app's audio session is gone. Needle's is made again, and taken again if music was
-        // playing; the core opens its output again when it finds the old one stopped.
+        // playing; then the core opens its output again.
         center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 Self.setUpAudio()
                 guard let self else { return }
                 if self.local?.playing == true { self.activateAudio() }
+                // The core opens its sound output again on the new session: playing, it plays
+                // on from the same place; paused, Play opens it.
+                self.core.reopenOutput()
             }
         }
         // A call or an alarm pauses the music; it goes on afterwards when the phone says so.
