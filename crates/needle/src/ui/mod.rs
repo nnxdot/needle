@@ -408,6 +408,8 @@ enum Event {
     /// The sound outputs, listed on another thread (`list_output_devices`).
     OutputDevices(Vec<String>),
     /// The online services' state (`refresh_services`).
+    /// Whether the fanart.tv key in use is the person's own, read with the services' state.
+    FanartOwn(bool),
     Services(
         Box<integrations::ServiceStatus>,
         Option<integrations::ScrobbleSummary>,
@@ -786,6 +788,9 @@ pub struct AppView {
     search_focused: bool,
     groups: Vec<library::Group>,
     service_status: Option<integrations::ServiceStatus>,
+    /// The fanart.tv key in use is the person's own (Settings › Artwork and lyrics).
+    fanart_own: bool,
+    fanart_key: Entity<InputState>,
     scrobble_summary: Option<integrations::ScrobbleSummary>,
     /// Settings › Scrobbling › Details: why listens did not reach that service.
     scrobble_problems: Option<(&'static str, integrations::ScrobbleProblems)>,
@@ -1431,6 +1436,8 @@ impl AppView {
             search_focused: false,
             groups: vec![],
             service_status: None,
+            fanart_own: false,
+            fanart_key: secret("fanart.tv key", window, cx),
             scrobble_summary: None,
             scrobble_problems: None,
             service_busy: false,
@@ -1562,6 +1569,7 @@ impl AppView {
             let status = integrations::secret_status();
             let summary = integrations::scrobble_summary(&library).ok();
             let _ = sender.send(Event::Services(Box::new(status), summary));
+            let _ = sender.send(Event::FanartOwn(integrations::fanart_key_is_own()));
         });
     }
 
@@ -1819,6 +1827,7 @@ impl AppView {
                 Event::Update(result, asked) => self.update_checked(result, asked),
                 Event::UpdateStarted(result) => self.update_started(result, cx),
                 Event::OutputDevices(devices) => self.output_devices = devices,
+                Event::FanartOwn(own) => self.fanart_own = own,
                 Event::Services(status, summary) => {
                     self.service_status = Some(*status);
                     self.scrobble_summary = summary;

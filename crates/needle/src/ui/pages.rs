@@ -508,6 +508,63 @@ impl AppView {
         })
     }
 
+    /// Artists' logos come from fanart.tv: Needle has a key, and a person may use their own,
+    /// as on the Mac.
+    fn fanart_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let control = if self.fanart_own {
+            small_button("fanart-remove", "Remove your key")
+                .ghost()
+                .disabled(self.service_busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    let library = this.library.clone();
+                    this.service_job(move || {
+                        integrations::clear_secret(SecretKind::FanartKey)?;
+                        // What the last key was given (or refused) is asked again.
+                        needle_core::media::forget_fanart(&library)?;
+                        Ok("Your fanart.tv key is removed. Needle uses its own.".into())
+                    });
+                    cx.notify();
+                }))
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .w(px(180.))
+                        .child(Input::new(&self.fanart_key).small()),
+                )
+                .child(
+                    small_button("fanart-save", "Save")
+                        .disabled(self.service_busy)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let key = this.fanart_key.read(cx).value().trim().to_string();
+                            if key.is_empty() {
+                                return this.fail("Paste your fanart.tv key first.");
+                            }
+                            this.fanart_key
+                                .update(cx, |field, cx| field.set_value("", window, cx));
+                            let library = this.library.clone();
+                            this.service_job(move || {
+                                integrations::save_secret(SecretKind::FanartKey, &key)?;
+                                needle_core::media::forget_fanart(&library)?;
+                                Ok("fanart.tv key saved.".into())
+                            });
+                            cx.notify();
+                        })),
+                )
+                .into_any_element()
+        };
+        setting_row(
+            "Artists' logos",
+            "From fanart.tv. Needle has a key; yours is optional.",
+            control,
+            cx,
+        )
+    }
+
     fn service_job(&mut self, job: impl FnOnce() -> Result<String> + Send + 'static) {
         self.service_busy = true;
         let sender = self.sender.clone();
@@ -1076,6 +1133,7 @@ impl AppView {
                             })),
                             cx,
                         ))
+                        .child(self.fanart_row(cx))
                     })
                     })
                     // Services
