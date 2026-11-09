@@ -85,6 +85,13 @@ impl GlowFade {
         self.current.clone()
     }
 
+    /// The new picture is fading in now. Once it is in, it is drawn still: a glow drawn
+    /// again later (after the big player) does not fade in again.
+    fn fading(&self) -> bool {
+        self.since
+            .is_some_and(|since| since.elapsed().as_secs_f32() * 1000. < FADE_MS)
+    }
+
     /// Move to `target` (a blurred cover and its strength) and say what to draw: the picture
     /// fading out, the one fading in, and the fade's serial, or `None` while the new picture
     /// loads (the old one then stays as it is).
@@ -628,6 +635,7 @@ impl AppView {
         };
         let gradient = target.is_none();
         let (old, new, serial) = self.glow_fade.step(target, window, cx);
+        let fading = self.glow_fade.fading();
         let picture = |path: PathBuf| {
             img(path)
                 .absolute()
@@ -654,13 +662,17 @@ impl AppView {
                 None => el.child(picture(path).opacity(alpha)),
             })
             .when_some(new.zip(serial), |el, ((path, alpha), serial)| {
-                el.child(motion::animate(
-                    picture(path),
-                    ("glow-in", serial),
-                    FADE_MS as u64,
-                    cx,
-                    move |el, t| el.opacity(alpha * t),
-                ))
+                if fading {
+                    el.child(motion::animate(
+                        picture(path),
+                        ("glow-in", serial),
+                        FADE_MS as u64,
+                        cx,
+                        move |el, t| el.opacity(alpha * t),
+                    ))
+                } else {
+                    el.child(picture(path).opacity(alpha))
+                }
             });
         Some(
             layer
