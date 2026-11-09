@@ -37,6 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -166,13 +168,19 @@ private fun startStation(id: String, title: String) {
 @Composable
 private fun YourStation(seed: Ranked?, loading: Boolean) {
     val interaction = remember { MutableInteractionSource() }
+    // As wide as the page: it shrinks a little when pressed, but does not grow with the focus
+    // (it would run past the page's edge on a TV); the ring alone shows the focus.
+    val pressed by interaction.collectIsPressedAsState()
+    val reduce = reduceMotion()
+    val press by androidx.compose.animation.core.animateFloatAsState(if (pressed && !reduce) 0.98f else 1f, label = "press")
     Box(
         Modifier
             .padding(horizontal = Edge, vertical = 8.dp)
             .fillMaxWidth()
             .height(220.dp)
             .firstFocus()
-            .pressScale(interaction)
+            .graphicsLayer { scaleX = press; scaleY = press }
+            .focusRing(interaction, 12.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClickLabel = "Start a radio station", enabled = !loading) {
                 showMessage("Tuning in…")
