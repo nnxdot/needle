@@ -414,7 +414,7 @@ pub fn tinted(p: &super::theme::Palette, alpha: f32) -> Hsla {
 /// cover's colour coming in from the left, the edge light, and a shadow.
 pub fn floating_pane<E: Styled>(el: E, radius: f32, cx: &App) -> E {
     let p = super::theme::pal(cx);
-    let fill = tinted(&p, if p.glass { 0.84 } else { 0.96 });
+    let fill = tinted(&p, if p.glass { 0.9 } else { 0.96 });
     let from = super::motion::mix(fill.opacity(1.), p.glow, if p.dark { 0.22 } else { 0.14 })
         .opacity(fill.a);
     edge(
@@ -441,13 +441,14 @@ pub fn sidebar_fill(p: &super::theme::Palette) -> Hsla {
 }
 
 /// A selected or hovered row on glass: a light capsule, as the Mac's sidebar has, not the
-/// accent fill.
+/// accent fill. On the light look a white capsule vanishes on the pale sidebar, so it is a
+/// soft grey there, as on the Mac.
 pub fn capsule(p: &super::theme::Palette, hover: bool) -> Hsla {
     match (p.dark, hover) {
         (true, false) => gpui::hsla(0., 0., 1., 0.13),
         (true, true) => gpui::hsla(0., 0., 1., 0.07),
-        (false, false) => gpui::hsla(0., 0., 1., 0.85),
-        (false, true) => gpui::hsla(0., 0., 1., 0.5),
+        (false, false) => gpui::hsla(0., 0., 0., 0.08),
+        (false, true) => gpui::hsla(0., 0., 0., 0.045),
     }
 }
 

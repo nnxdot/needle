@@ -575,7 +575,8 @@ pub fn apply(p: Palette, cx: &mut App) {
         }
     } else if p.glass {
         // Windows and Linux glass: tinted glass, solid enough to read over the page.
-        super::glass::tinted(&p, if dark { 0.88 } else { 0.92 })
+        // Busy text under a pane shows through as ghosts, so panes stay well above 80%.
+        super::glass::tinted(&p, 0.97)
     } else {
         super::glass::tinted(&p, 1.)
     };

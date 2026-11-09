@@ -456,6 +456,14 @@ impl AppView {
             })
             .detach();
         }
+        // For screenshots: the command palette, open over the page (NEEDLE_SHOW_PALETTE).
+        if std::env::var_os("NEEDLE_SHOW_PALETTE").is_some() {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(4)).await;
+                let _ = view.update_in(cx, |v, window, cx| v.open_palette(window, cx));
+            })
+            .detach();
+        }
         // For screenshots: the side panel's tab (NEEDLE_SHOW_PANEL: details, queue, lyrics).
         if let Ok(tab) = std::env::var("NEEDLE_SHOW_PANEL") {
             cx.spawn_in(window, async move |view, cx| {
