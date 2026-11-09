@@ -160,6 +160,9 @@ struct PlaylistModel: Codable, Identifiable, Hashable {
     var server: ServerLink? = nil
 
     var smart: Bool { query != nil }
+    /// On a music server that lets this person only read it (another person's playlist, a
+    /// smart one there): its name and songs cannot change here, and it cannot be deleted.
+    var readOnly: Bool { server?.readOnly == true }
 
     static func new() -> PlaylistModel {
         PlaylistModel(id: "", name: "", query: nil, trackIds: [], updatedAt: 0, description: "", cover: nil, rules: nil)
@@ -173,6 +176,8 @@ struct ServerLink: Codable, Hashable {
     var name: String
     var songs: [String]
     var comment: String
+    /// The server lets this person only read it.
+    var readOnly: Bool? = nil
 }
 
 struct RuleSet: Codable, Hashable {

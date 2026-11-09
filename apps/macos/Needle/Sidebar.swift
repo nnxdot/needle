@@ -213,8 +213,9 @@ struct PlaylistRow: View {
                 Text(playlist.name).lineLimit(1)
                 // A playlist on a music server, marked as its songs are.
                 if playlist.server && store.settings.serverMark {
+                    let words = playlist.readOnly ? "Read-only on the server" : "On your music server"
                     Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
-                        .help("On your music server").accessibilityLabel("On your music server")
+                        .help(words).accessibilityLabel(words)
                 }
                 if playlist.smart {
                     Spacer()
@@ -225,7 +226,8 @@ struct PlaylistRow: View {
         .frame(maxWidth: .infinity, alignment: rail ? .center : .leading)
         .help(playlist.name)
         .dropDestination(for: String.self) { ids, _ in
-            guard !playlist.smart else { return false }
+            // A read-only server playlist takes no songs: not a place to drop.
+            guard !playlist.smart, !playlist.readOnly else { return false }
             store.addToPlaylist(playlist, ids)
             return true
         }
@@ -234,12 +236,16 @@ struct PlaylistRow: View {
             Button("Shuffle") { playAll(shuffle: true) }
             Button("Add to Queue") { enqueue() }
             Divider()
-            Button(playlist.smart ? "Edit Playlist or Rules…" : "Edit Playlist…") {
-                store.editor = store.playlistModel(playlist.id)
+            if !playlist.readOnly {
+                Button(playlist.smart ? "Edit Playlist or Rules…" : "Edit Playlist…") {
+                    store.editor = store.playlistModel(playlist.id)
+                }
             }
             Button("Export as M3U8…") { export() }
-            Divider()
-            Button("Delete Playlist…", role: .destructive) { confirmDelete = true }
+            if !playlist.readOnly {
+                Divider()
+                Button("Delete Playlist…", role: .destructive) { confirmDelete = true }
+            }
         }
         .confirmationDialog("Delete “\(playlist.name)”?", isPresented: $confirmDelete) {
             Button("Delete Playlist", role: .destructive) { store.deletePlaylist(playlist.id) }
@@ -321,7 +327,7 @@ struct Rail: View {
                             .accessibilityLabel(playlist.name)
                             .accessibilityAddTraits(store.route == .playlist(playlist.id) ? .isSelected : [])
                             .dropDestination(for: String.self) { ids, _ in
-                                guard !playlist.smart else { return false }
+                                guard !playlist.smart, !playlist.readOnly else { return false }
                                 store.addToPlaylist(playlist, ids)
                                 return true
                             }
