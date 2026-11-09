@@ -850,10 +850,16 @@ impl<S: Source> Iterator for Marked<S> {
         if !self.started && self.gate.dropped(self.serial) {
             if !self.skipped {
                 self.skipped = true;
-                let _ = self
-                    .gate
-                    .waiting
-                    .fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
+                // One fewer waiting, never below 0. A plain compare-exchange loop: newer Rust
+                // deprecates `fetch_update` for `try_update`, which older toolchains lack.
+                let waiting = &self.gate.waiting;
+                let mut n = waiting.load(Relaxed);
+                while n > 0 {
+                    match waiting.compare_exchange_weak(n, n - 1, Relaxed, Relaxed) {
+                        Ok(_) => break,
+                        Err(now) => n = now,
+                    }
+                }
             }
             return None;
         }
