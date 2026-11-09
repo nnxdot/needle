@@ -142,6 +142,9 @@ pub struct Report {
     pub covers: Vec<(String, String, String)>,
     /// Changes made in Needle (edits or deletions) still wait for the server: try again later.
     pub waiting: bool,
+    /// What waits for the server, and why: for the person when they made the change, not at each
+    /// try again.
+    pub waits: Vec<String>,
 }
 
 impl Report {
@@ -304,7 +307,7 @@ pub fn sync(
     run.report.waiting = pending_on(&run.db, plugin)?;
     if run.misses >= STOP_AFTER && run.report.waiting {
         run.report
-            .notes
+            .waits
             .push("The server stopped answering; your playlist changes wait for it".into());
     }
     Ok(run.report)
@@ -517,7 +520,7 @@ impl Run<'_> {
                 Ok(remote) => remote,
                 Err(error) => {
                     if let Some(local) = local.as_ref().filter(|l| l.edited_here()) {
-                        self.report.notes.push(format!(
+                        self.report.waits.push(format!(
                             "Your changes to “{}” wait for the server: {error}",
                             local.name
                         ));
@@ -666,7 +669,7 @@ impl Run<'_> {
         self.answered(&back);
         let before = (shown_name(&remote.name), remote.entries());
         let waits = |run: &mut Self, error: String| {
-            run.report.notes.push(format!(
+            run.report.waits.push(format!(
                 "Your changes to “{}” wait for the server: {error}",
                 local.name
             ));
@@ -2066,7 +2069,7 @@ mod tests {
         let report = sync(&library, "subsonic", &fake, true).unwrap();
         assert!(report.waiting);
         assert!(
-            report.notes.iter().all(|n| n.contains("wait")),
+            report.notes.is_empty() && report.waits.len() == 1,
             "{report:?}"
         );
         let now = server_list(&library, "subsonic", "1").unwrap();
