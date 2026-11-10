@@ -73,6 +73,8 @@ struct PlaylistView: View {
             ForEach(Array(Store.rowIDs(songs).enumerated()), id: \.element.id) { i, row in
                 SongRow(song: row.song) { store.play(songs, from: i) }
                     .tag(row.song.id)
+                    // Beside the picture, the rows lie on the page and its glow.
+                    .listRowBackground(beside ? Color.clear : nil)
             }
             .onDelete(perform: fixed ? nil : { rows in
                 guard let detail else { return }

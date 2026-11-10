@@ -112,6 +112,7 @@ struct RootView: View {
                         .tabPlacement(.sidebarOnly)
                     }
                 }
+                .defaultVisibility(.hidden, for: .tabBar)
                 TabSection("Playlists") {
                     ForEach(playlists) { playlist in
                         // Songs and albums dragged onto a playlist go into it; never onto a
@@ -127,6 +128,7 @@ struct RootView: View {
                 .sectionActions {
                     Button("New Playlist", systemImage: "plus") { store.newPlaylist = true }
                 }
+                .defaultVisibility(.hidden, for: .tabBar)
                 Tab("Settings", systemImage: "gearshape", value: Place.settings) {
                     SettingsSplit()
                 }
@@ -314,7 +316,31 @@ struct RootView: View {
             Task {
                 try? await Task.sleep(for: .seconds(1))
                 let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-                scene?.requestGeometryUpdate(.iOS(interfaceOrientations: orient == "portrait" ? .portrait : .landscapeRight))
+                scene?.requestGeometryUpdate(.iOS(interfaceOrientations: orient == "portrait" ? .portrait : .landscapeRight)) { error in
+                    try? "\(error)".write(toFile: NSTemporaryDirectory() + "needle-orient.log", atomically: true, encoding: .utf8)
+                }
+            }
+        }
+        // -fake-landscape: the simulator's windowed mode refuses a turn, so the window itself
+        // is turned inside the upright screen and laid out at the screen's landscape size (the
+        // system's status bar stays where it was). -window-width <points>: the window asks for
+        // that width at most, to see a narrow window.
+        if args.contains("-fake-landscape") || value("-window-width") != nil {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
+                if let width = value("-window-width").flatMap(Double.init) {
+                    scene.sizeRestrictions?.minimumSize = CGSize(width: width, height: 400)
+                    scene.sizeRestrictions?.maximumSize = CGSize(width: width, height: 4000)
+                }
+                if args.contains("-fake-landscape") {
+                    let screen = scene.screen.bounds
+                    for window in scene.windows {
+                        window.transform = CGAffineTransform(rotationAngle: .pi / 2)
+                        window.bounds = CGRect(x: 0, y: 0, width: screen.height, height: screen.width)
+                        window.center = CGPoint(x: screen.midX, y: screen.midY)
+                    }
+                }
             }
         }
         if let i = args.firstIndex(of: "-route"), args.indices.contains(i + 1),
@@ -459,7 +485,25 @@ struct RootView: View {
 /// the tab bar in a narrow one; an iPhone keeps its tab bar.
 private struct SidebarStyle: ViewModifier {
     func body(content: Content) -> some View {
-        if WideReader.isPad { content.tabViewStyle(.sidebarAdaptable) } else { content }
+        if WideReader.isPad {
+            // The sidebar shows at first, as the Mac's; its button hides it (and the tabs then
+            // float at the top).
+            content.tabViewStyle(.sidebarAdaptable).defaultAdaptableTabBarPlacement(Self.start)
+        } else {
+            content
+        }
+    }
+
+    /// The sidebar at the start on an iPad on its side, where it sits beside the page; held
+    /// upright it would cover the page, so the tabs start at the top there.
+    private static var start: AdaptableTabBarPlacement {
+        #if DEBUG
+        // Test builds: -sidebar-hidden starts with the tabs at the top.
+        if CommandLine.arguments.contains("-sidebar-hidden") { return .tabBar }
+        if CommandLine.arguments.contains("-fake-landscape") { return .sidebar }
+        #endif
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        return scene?.effectiveGeometry.interfaceOrientation.isLandscape == true ? .sidebar : .tabBar
     }
 }
 

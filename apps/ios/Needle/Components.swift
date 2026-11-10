@@ -282,7 +282,6 @@ struct SongRow: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
                 // The artist: always in a list, on an album only where it is not the album's.
                 if !onAlbum || albumArtist != nil {
                     Text(onAlbum && song.artist == albumArtist ? "" : song.artist)
@@ -309,6 +308,8 @@ struct SongRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        // One line under each row, from the row's own edge, whatever its first column holds.
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .hoverEffect(.highlight)
         .contextMenu { SongMenu(song: song) }
         .draggableSongs([song])

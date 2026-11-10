@@ -387,7 +387,7 @@ struct AlbumGrid: View {
     var body: some View {
         // Two to a row on a phone held upright, more on its side; on an iPad as many as fit
         // tiles of a good size.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: Tiles.least(wide)), spacing: Tiles.gap(wide))], spacing: wide ? 26 : 18) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Tiles.least(wide)), spacing: Tiles.gap(wide), alignment: .top)], spacing: wide ? 26 : 18) {
             ForEach(albums) { AlbumTile(album: $0, width: nil, shelf: shelf) }
         }
         .padding(.horizontal, Tiles.margin(wide))

@@ -4,6 +4,7 @@ import SwiftUI
 /// the songs played most, and quick mixes of the whole library.
 struct RadioView: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     @State private var seeds: [Ranked]?
     @State private var songs: UInt32 = 0
     @State private var favorites = 0
@@ -20,7 +21,7 @@ struct RadioView: View {
                     SectionTitle(title: "Stations from your favorites")
                     Text("Each starts with the song, then plays songs that flow from it.")
                         .font(.needle(.footnote)).foregroundStyle(.secondary)
-                        .padding(.horizontal).padding(.top, 2)
+                        .padding(.horizontal, Tiles.margin(wide)).padding(.top, 2)
                     Shelf {
                         ForEach(Array(seeds.prefix(12).enumerated()), id: \.offset) { _, seed in
                             StationCard(seed: seed)
@@ -70,7 +71,7 @@ struct RadioView: View {
         return Button { yourStation() } label: {
             ZStack(alignment: .bottomLeading) {
                 Artwork(path: seed?.artwork, seed: (seed?.album ?? "") + (seed?.artist ?? "Needle"), size: 800)
-                    .frame(height: 220)
+                    .frame(height: wide ? 280 : 220)
                     .frame(maxWidth: .infinity)
                     .clipped()
                     .overlay {
@@ -93,10 +94,11 @@ struct RadioView: View {
             }
             .clipShape(.soft(Corner.large))
             .shadow(color: .black.opacity(0.3), radius: 14, y: 8)
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
             .padding(.top, 8)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
         .accessibilityLabel(seed.map { "Your station, from \($0.title) by \($0.artist)" } ?? "Your station")
         .accessibilityHint("Starts a radio station")
     }
@@ -105,7 +107,7 @@ struct RadioView: View {
     private var mixes: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle(title: "Quick mixes")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 180 : 150), spacing: wide ? 16 : 12)], spacing: wide ? 16 : 12) {
                 MixTile(title: "Shuffle all", detail: count(Int(songs), "song"), symbol: "shuffle", cover: covers["shuffle"]) {
                     store.playIDs({ try $0.songs().map(\.id) }, shuffled: true)
                 }
@@ -120,12 +122,14 @@ struct RadioView: View {
                     MixTileLabel(title: "Your listening", detail: "Top songs and artists", symbol: "chart.bar.fill", cover: covers["listening"])
                 }
                 .buttonStyle(Pressable())
+                .hoverEffect(.lift)
                 NavigationLink(value: Route.genreMap) {
                     MixTileLabel(title: "Genre map", detail: "Tap a genre to play it", symbol: "circle.hexagongrid.fill", cover: covers["genres"])
                 }
                 .buttonStyle(Pressable())
+                .hoverEffect(.lift)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
             .padding(.top, 10)
         }
     }
@@ -145,6 +149,7 @@ struct RadioView: View {
 /// A station from one song: its cover, and a tap starts it.
 private struct StationCard: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let seed: Ranked
 
     var body: some View {
@@ -155,7 +160,7 @@ private struct StationCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 Artwork(path: seed.artwork, seed: seed.album + seed.artist, size: 400)
-                    .frame(width: 150, height: 150)
+                    .frame(width: Tiles.shelf(wide), height: Tiles.shelf(wide))
                     .clipShape(.soft(Corner.cover))
                     .overlay(alignment: .bottomLeading) {
                         // A plain label in the page's raised colour: it is part of the cover.
@@ -171,10 +176,11 @@ private struct StationCard: View {
                 Text(seed.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
                 Text(seed.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(width: 150)
+            .frame(width: Tiles.shelf(wide))
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
         .accessibilityLabel("\(seed.title) Radio, by \(seed.artist)")
     }
 }
@@ -199,6 +205,7 @@ private struct MixTile: View {
             MixTileLabel(title: title, detail: detail, symbol: symbol, cover: cover)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
     }
 }
 

@@ -88,6 +88,7 @@ struct SettingsView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
             .font(.needle(.subheadline).weight(.medium))
+            .lineLimit(1)
         }
         .padding(.vertical, 6)
     }
