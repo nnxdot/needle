@@ -191,9 +191,12 @@ struct NowPlayingView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if fills {
-                // Always there, blurred behind the lyrics and the queue, so moving between them
-                // never shows black while it fades.
+                // There while the lyrics or the queue open, so the change never shows black, but
+                // gone under their backdrop: left showing, its shapes came through the blurred
+                // cover (a large faint circle behind the lyrics' buttons).
                 ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion && pane == .cover)
+                    .opacity(immersive ? 1 : 0)
+                    .animation(Motion.fade(.easeInOut(duration: 0.45)), value: immersive)
                 if !immersive {
                     Group {
                         if app.coverBackdrop {
