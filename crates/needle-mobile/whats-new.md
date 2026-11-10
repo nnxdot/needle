@@ -8,7 +8,7 @@ Glass all over, your Navidrome playlists, and a Radio page.
 - **See where Back goes.** The back swipe shows the page behind before you let go. Songs slide into place when you move or remove them, and the light under the open tab slides from tab to tab.
 - **Three new widgets.** Playlists, My radio, and Listening.
 - Pages fade softly under the status bar as they scroll.
-- The player shows the song's format, such as FLAC 24/48.
+- The player shows the song's format, such as FLAC 24/48. Settings › Appearance › Player › Song format turns it off.
 - New themes and added theme files save again.
 - Themes have Export…, Sound has Save EQ file…, artist pages have Blend with another artist, and Play on has Speaker timing for a group.
 - Settings › About: Copy error report, and share the log file.
