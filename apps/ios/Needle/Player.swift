@@ -457,8 +457,13 @@ struct NowPlayingView: View {
         .sensoryFeedback(.selection, trigger: lookPresses) { _, _ in store.app.haptics }
     }
 
-    /// The song's menu, a plain sign beside its name.
+    /// The song's menu, a plain sign beside its name; in a wide window Speed and Pitch and Play
+    /// on open as popovers from it.
     private func moreMenu(_ song: Song?) -> some View {
+        moreMenuButton(song).toolPopover(["speed", "speakers"])
+    }
+
+    private func moreMenuButton(_ song: Song?) -> some View {
         Menu {
             if let song, !song.onComputer {
                 SongMenu(song: song, inPlayer: true)

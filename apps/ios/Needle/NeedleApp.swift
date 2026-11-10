@@ -148,7 +148,8 @@ struct RootView: View {
         .fullScreenCover(isPresented: $store.showPlayer) {
             NowPlayingView()
                 .modifier(PlayerZoom(space: player))
-                .sheet(item: $store.sheet) { SheetView(sheet: $0) }
+                // In a wide window the player's tools are popovers from their buttons.
+                .sheet(item: Binding(get: { wide && store.sheet?.isTool == true ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
                 .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
                 .modifier(QuestionAlert(shown: true))
         }
@@ -156,19 +157,24 @@ struct RootView: View {
                                               set: { if !$0 { welcomeTest = false; store.welcomeAgain = false } })) {
             WelcomeView { where_, route in welcomeTest = false; store.welcomeAgain = false; go(where_, route) }
         }
-        .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
-        // Settings, in a wide window: a large sheet of two columns, as the Mac's window.
+        .sheet(item: Binding(get: { store.showPlayer || store.showSettings ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
+        // Settings, in a wide window: a large sheet of two columns, as the Mac's window. Its
+        // own sheets, messages, and questions show over it.
         .sheet(isPresented: $store.showSettings) {
             SettingsSplit()
                 .presentationSizing(.page)
+                .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
+                .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
+                .modifier(QuestionAlert(shown: !store.showPlayer))
         }
         .sheet(isPresented: $store.newPlaylist) { NavigationStack { PlaylistEditor {} }.presentationSizing(.form) }
         .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
-        .modifier(QuestionAlert(shown: !store.showPlayer))
+        .modifier(QuestionAlert(shown: !store.showPlayer && !store.showSettings))
         .onChange(of: store.opening) { _, route in
             guard let route else { return }
             store.opening = nil
             store.showPlayer = false
+            store.showSettings = false
             go(place, route)
         }
         // Narrowed (Split View, Slide Over): the sidebar's own entries fold back into the
@@ -531,6 +537,63 @@ struct SheetView: View {
         }
         // As on the pages: a soft fade under the sheet's own bar.
         .scrollEdgeEffectStyle(.soft, for: .all)
+        // Laid out by the sheet's own width (a form on an iPad is narrow).
+        .readsWide()
+        // A wide window shows it as a form in the middle, not stretched across the screen.
+        .formSized()
+    }
+}
+
+extension Store.Sheet {
+    /// The player's small tools: in a wide window popovers from their buttons.
+    var isTool: Bool {
+        switch self {
+        case .sleep, .speed, .speakers: true
+        default: false
+        }
+    }
+}
+
+extension View {
+    /// In a wide window, a sheet of the form's size in the middle of the screen; on an iPhone
+    /// and in a narrow window, the sheet as it was.
+    func formSized() -> some View {
+        modifier(FormSized())
+    }
+
+    /// In a wide window, the player's tools named here (by their sheet's id) open as popovers
+    /// from this button, not as sheets.
+    func toolPopover(_ ids: Set<String>) -> some View {
+        modifier(ToolPopover(ids: ids))
+    }
+}
+
+private struct FormSized: ViewModifier {
+    @Environment(\.wide) private var wide
+
+    func body(content: Content) -> some View {
+        if wide { content.presentationSizing(.form) } else { content }
+    }
+}
+
+private struct ToolPopover: ViewModifier {
+    @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
+    let ids: Set<String>
+
+    func body(content: Content) -> some View {
+        content.popover(item: Binding(get: { wide ? store.sheet.flatMap { ids.contains($0.id) ? $0 : nil } : nil },
+                                      set: { store.sheet = $0 })) { sheet in
+            Group {
+                switch sheet {
+                case .sleep: SleepSheet().frame(width: 380).fixedSize(horizontal: false, vertical: true)
+                case .speed: SpeedSheet().frame(width: 400, height: 540)
+                default: NavigationStack { SpeakersView() }.frame(width: 420, height: 520)
+                }
+            }
+            .presentationCompactAdaptation(.popover)
+            .background { EscapeKey { store.sheet = nil } }
+        }
     }
 }
 
