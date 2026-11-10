@@ -169,7 +169,7 @@ struct HomeView: View {
             ContentUnavailableView {
                 Label("No music yet", systemImage: "music.note.house")
             } description: {
-                Text("Import songs from the Files app, or put them in Files › On My iPhone › Needle. Music servers and your computer are in Settings.")
+                Text("Import songs from the Files app, or put them in Files › On My \(Device.name) › Needle. Music servers and your computer are in Settings.")
             }
             Button { importing = true } label: {
                 Label("Import from Files", systemImage: "folder").padding(.horizontal, 8).padding(.vertical, 4)
@@ -733,7 +733,7 @@ struct AlbumView: View {
     /// What the page lists (songs whose files are gone are left out).
     private var summary: String {
         guard let songs else { return "\(count(Int(album.songs), "song")), \(clock(album.duration))" }
-        if songs.isEmpty { return "These songs are not on this iPhone." }
+        if songs.isEmpty { return "These songs are not on this \(Device.name)." }
         return "\(count(songs.count, "song")), \(clock(songs.reduce(0) { $0 + $1.duration }))"
     }
 }

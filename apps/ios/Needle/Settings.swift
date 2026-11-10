@@ -30,7 +30,7 @@ struct SettingsView: View {
                 row("Appearance", "Themes, colors, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
             }
             Section("Your music") {
-                row("Sources", "This iPhone, your server, and your computer", "globe", .teal, .sources)
+                row("Sources", "This \(Device.name), your server, and your computer", "globe", .teal, .sources)
                 row("Library", "Music folders and online lookups", "music.note.house.fill", .orange, .settingsLibrary)
                 row("Music server", "Navidrome and other Subsonic servers", "server.rack", .cyan, .server("subsonic"))
                 row("Your computer", "Control Needle there, play its music here", "laptopcomputer", .indigo, .computer)
@@ -89,6 +89,7 @@ struct SettingsView: View {
             .buttonBorderShape(.capsule)
             .font(.needle(.subheadline).weight(.medium))
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
         .padding(.vertical, 6)
     }
@@ -131,7 +132,7 @@ struct SettingsSplit: View {
                 NavigationSplitView {
                     SettingsView(selection: $page)
                         .toolbar { done }
-                        .navigationSplitViewColumnWidth(min: 300, ideal: 330, max: 380)
+                        .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 400)
                 } detail: {
                     NavigationStack(path: $path) {
                         RoutePage(route: page ?? .settingsPlayback).routes()
@@ -237,7 +238,7 @@ struct LibrarySettingsView: View {
                 ForEach(folders, id: \.self) { folder in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : (folder as NSString).lastPathComponent)
-                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My iPhone › Needle" : folder)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My \(Device.name) › Needle" : folder)
                             .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .deleteDisabled(Store.realPath(folder) == Store.realPath(store.musicFolder.path))
@@ -320,7 +321,7 @@ struct LibrarySettingsView: View {
                 }
                 Section("Radio") {
                     Toggle(isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) })) {
-                        SettingLabel(title: "Measure songs for radio", detail: "Tempo, key, and energy, on this iPhone.", icon: "dot.radiowaves.left.and.right", tint: .orange)
+                        SettingLabel(title: "Measure songs for radio", detail: "Tempo, key, and energy, on this \(Device.name).", icon: "dot.radiowaves.left.and.right", tint: .orange)
                     }
                     if measured.count == 2 {
                         LabeledContent("Measured", value: "\(measured[0].formatted()) of \(measured[1].formatted())")
@@ -768,7 +769,7 @@ struct ScrobblingView: View {
                         }
                     }
                 } footer: {
-                    Text("Your passwords and keys stay in the iPhone Keychain.")
+                    Text("Your passwords and keys stay in the \(Device.name) Keychain.")
                 }
             }
         }
@@ -1057,11 +1058,11 @@ struct SyncView: View {
                 }
                 .disabled(passphrase.count < 4)
             } header: {
-                Text("From this iPhone")
+                Text("From this \(Device.name)")
             } footer: {
                 Text("History, ratings, and playlists, locked with the passphrase. No music and no passwords go in it.")
             }
-            Section("Into this iPhone") {
+            Section("Into this \(Device.name)") {
                 Button("Open a sync file…") { choosing = true }
             }
             if let report {
@@ -1069,7 +1070,7 @@ struct SyncView: View {
                     LabeledContent("Songs matched", value: report.songsMatched.formatted())
                     LabeledContent("Listens added", value: report.listensAdded.formatted())
                     LabeledContent("Playlists added", value: report.playlistsAdded.formatted())
-                    if report.songsNotFound > 0 { LabeledContent("Songs not on this iPhone", value: report.songsNotFound.formatted()) }
+                    if report.songsNotFound > 0 { LabeledContent("Songs not on this \(Device.name)", value: report.songsNotFound.formatted()) }
                 }
             }
         }
@@ -1315,7 +1316,7 @@ struct AboutView: View {
                 // As on the Mac (Settings › Your data): the log to send, and an error report to
                 // paste in an email.
                 HStack {
-                    SettingLabel(title: "Log file", detail: "What Needle does and any errors, kept on this iPhone.", icon: "doc.text.fill", tint: .gray)
+                    SettingLabel(title: "Log file", detail: "What Needle does and any errors, kept on this \(Device.name).", icon: "doc.text.fill", tint: .gray)
                     Spacer(minLength: 8)
                     if let log {
                         ShareLink(item: log) { Text("Share…") }
@@ -1331,7 +1332,7 @@ struct AboutView: View {
                 }
             }
             Section("Privacy") {
-                Text("Needle has no account and no tracking. Your library stays on this iPhone. It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
+                Text("Needle has no account and no tracking. Your library stays on this \(Device.name). It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
                     .font(.needle(.subheadline)).foregroundStyle(.secondary)
             }
             Section {

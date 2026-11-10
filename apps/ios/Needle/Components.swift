@@ -438,7 +438,7 @@ struct SongMenu: View {
             Divider()
             if song.fromServer {
                 Button("Keep Offline", systemImage: "arrow.down.circle") { store.keepOffline([song], keep: true) }
-                Button("Save to This iPhone", systemImage: "square.and.arrow.down") { store.saveToPhone([song]) }
+                Button("Save to This \(Device.name)", systemImage: "square.and.arrow.down") { store.saveToPhone([song]) }
             } else {
                 Button("Edit Tags", systemImage: "tag") { store.sheet = .tags([song.id]) }
                 Button("Identify by Sound", systemImage: "waveform.badge.magnifyingglass") { store.sheet = .identify(song.id) }

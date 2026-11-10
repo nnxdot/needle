@@ -1431,7 +1431,7 @@ struct LyricsPane: View {
                 translations = found
                 if found.isEmpty { store.message = "These lyrics are already in your language" }
             } catch {
-                store.message = "These lyrics can't be translated on this iPhone"
+                store.message = "These lyrics can't be translated on this \(Device.name)"
             }
         }
         .sheet(item: $card) { chosen in
@@ -1721,7 +1721,7 @@ struct SpeakersView: View {
     var body: some View {
         Form {
             Section {
-                Toggle(isOn: $phone) { Label("This iPhone", systemImage: "iphone") }
+                Toggle(isOn: $phone) { Label("This \(Device.name)", systemImage: Device.symbol) }
                 if let all {
                     ForEach(all, id: \.id) { o in
                         Toggle(isOn: Binding(get: { chosen.contains(o.id) }, set: { if $0 { chosen.insert(o.id) } else { chosen.remove(o.id) } })) {
@@ -1745,12 +1745,12 @@ struct SpeakersView: View {
                 Section {
                     ForEach(members, id: \.key) { member in
                         VStack(alignment: .leading) {
-                            LabeledContent(member.key.isEmpty ? "This iPhone" : member.name) {
+                            LabeledContent(member.key.isEmpty ? "This \(Device.name)" : member.name) {
                                 Text("\(member.delay > 0 ? "+" : "")\(member.delay) ms").monospacedDigit()
                             }
                             Slider(value: Binding(get: { Double(member.delay) }, set: { setDelay(member.key, Int32(($0 / 10).rounded() * 10)) }),
                                    in: -1000...1000, step: 10)
-                                .accessibilityLabel(member.key.isEmpty ? "This iPhone" : member.name)
+                                .accessibilityLabel(member.key.isEmpty ? "This \(Device.name)" : member.name)
                                 .accessibilityValue("\(member.delay) ms")
                         }
                     }
@@ -1766,7 +1766,7 @@ struct SpeakersView: View {
                 Section {
                     ForEach(playing, id: \.self) { id in
                         VStack(alignment: .leading) {
-                            LabeledContent(id.isEmpty ? "This iPhone" : all?.first { $0.id == id }?.name ?? "Speaker", value: "\(delays[id] ?? 0) ms")
+                            LabeledContent(id.isEmpty ? "This \(Device.name)" : all?.first { $0.id == id }?.name ?? "Speaker", value: "\(delays[id] ?? 0) ms")
                             Slider(value: Binding(get: { Double(delays[id] ?? 0) }, set: { delays[id] = Int32(($0 / 10).rounded() * 10) }), in: 0...1000)
                         }
                     }
@@ -1814,7 +1814,7 @@ struct SpeakersView: View {
             let wait = group ? (timed ? core.speakers().delays : lined) : [:]
             try core.setSpeakers(ids: ids, thisPhone: here, delays: wait)
         }
-        store.message = ids.isEmpty ? "Playing on this iPhone" : group ? "Playing on \(ids.count + (phone ? 1 : 0)) at once" : "Playing on \(all?.first { $0.id == ids[0] }?.name ?? "the speaker")"
+        store.message = ids.isEmpty ? "Playing on this \(Device.name)" : group ? "Playing on \(ids.count + (phone ? 1 : 0)) at once" : "Playing on \(all?.first { $0.id == ids[0] }?.name ?? "the speaker")"
         dismiss()
     }
 }

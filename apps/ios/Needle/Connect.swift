@@ -20,7 +20,7 @@ struct ComputerView: View {
             } else {
                 player
                 Section {
-                    Button("Play here", systemImage: "iphone") {
+                    Button("Play here", systemImage: Device.symbol) {
                         Task {
                             if let moved = await store.ask({ try $0.moveFromPc() }) {
                                 store.message = moved ? "Playing here now" : "Nothing plays on the computer"
@@ -128,7 +128,7 @@ struct ComputerView: View {
                 Button("Show it in the player", systemImage: "play.rectangle") { store.showPlayer = true }
                     .disabled(!store.onComputer)
             } footer: {
-                Text("While nothing plays on this iPhone, its player works the computer's.")
+                Text("While nothing plays on this \(Device.name), its player works the computer's.")
             }
         } else {
             Section { Text("Nothing plays on the computer.").foregroundStyle(.secondary) }
@@ -145,7 +145,7 @@ struct ComputerView: View {
                     Button("Play next there", systemImage: "text.line.first.and.arrowtriangle.forward") { let id = song.id; store.run { try $0.pcPlayNext(ids: [id]) } }
                     Button("Add to the queue there", systemImage: "text.line.last.and.arrowtriangle.forward") { let id = song.id; store.run { try $0.pcEnqueue(ids: [id]) } }
                     Divider()
-                    Button("Play here", systemImage: "iphone") {
+                    Button("Play here", systemImage: Device.symbol) {
                         let songs = Array(found.prefix(50))
                         store.core.playFromPc(songs: songs, start: UInt32(i), at: 0)
                         store.played()

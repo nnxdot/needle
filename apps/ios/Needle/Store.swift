@@ -477,10 +477,10 @@ final class Store {
     /// Saves songs from a music server as files in Needle's folder, as the phone's own.
     func saveToPhone(_ songs: [Song]) {
         let (ids, folder) = (songs.map(\.id), musicFolder.path)
-        message = "Saving to this iPhone…"
+        message = "Saving to this \(Device.name)…"
         Task {
             if let saved = await ask({ try $0.saveToMusic(ids: ids, folder: folder) }) {
-                message = "Saved \(count(Int(saved), "song")) to this iPhone"
+                message = "Saved \(count(Int(saved), "song")) to this \(Device.name)"
                 rescan()
             }
         }
@@ -626,7 +626,7 @@ final class Store {
     // MARK: - Playback
 
     func play(_ songs: [Song], from start: Int = 0) {
-        guard !songs.isEmpty else { message = "These songs are not on this iPhone"; return }
+        guard !songs.isEmpty else { message = "These songs are not on this \(Device.name)"; return }
         activateAudio()
         let ids = songs.map(\.id)
         run { try $0.play(ids: ids, start: UInt32(start)) }
@@ -652,7 +652,7 @@ final class Store {
     func playIDs(_ find: @escaping @Sendable (Needle) throws -> [String], shuffled: Bool = false, from start: Int = 0) {
         Task {
             guard var ids = await ask(find) else { return }
-            guard !ids.isEmpty else { message = "These songs are not on this iPhone"; return }
+            guard !ids.isEmpty else { message = "These songs are not on this \(Device.name)"; return }
             activateAudio()
             if shuffled { ids.shuffle() }
             let (chosen, at) = (ids, UInt32(min(start, ids.count - 1)))

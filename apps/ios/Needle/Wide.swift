@@ -117,3 +117,12 @@ private struct WideDrag: ViewModifier {
         if wide { content.draggable(payload()) } else { content }
     }
 }
+
+/// This device, in the words that name it: "iPad" on an iPad ("Save to This iPad", "On My
+/// iPad › Needle"), "iPhone" on an iPhone.
+@MainActor
+enum Device {
+    static let name = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+    /// Its symbol, for "This iPhone" among speakers.
+    static let symbol = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+}

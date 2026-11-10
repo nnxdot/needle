@@ -480,7 +480,7 @@ struct SelectionActions: ToolbarContent {
                 }
                 if songs.contains(where: \.fromServer) {
                     Button("Keep offline", systemImage: "arrow.down.circle") { store.keepOffline(songs.filter(\.fromServer), keep: true) }
-                    Button("Save to this iPhone", systemImage: "square.and.arrow.down") { store.saveToPhone(songs.filter(\.fromServer)) }
+                    Button("Save to this \(Device.name)", systemImage: "square.and.arrow.down") { store.saveToPhone(songs.filter(\.fromServer)) }
                 }
                 if !songs.contains(where: \.fromServer) {
                     Button("Edit Tags", systemImage: "tag") { store.sheet = .tags(songs.map(\.id)) }

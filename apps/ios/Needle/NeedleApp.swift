@@ -15,6 +15,11 @@ struct NeedleApp: App {
             if let store = launch.store {
                 RootView()
                     .readsWide()
+                    #if DEBUG
+                    // Test builds: -compact lays the window out as a narrow one (Split View,
+                    // Slide Over), which the simulator cannot make from a shell.
+                    .modifier(CompactTest())
+                    #endif
                     // The text font chosen (Settings › Appearance › Text). Every `Font.needle`
                     // follows a change by itself, so the pages and their places stay.
                     .font(.needle(.body))
@@ -48,6 +53,18 @@ struct NeedleApp: App {
         }
     }
 }
+
+#if DEBUG
+private struct CompactTest: ViewModifier {
+    func body(content: Content) -> some View {
+        if CommandLine.arguments.contains("-compact") {
+            content.environment(\.horizontalSizeClass, .compact).environment(\.wide, false)
+        } else {
+            content
+        }
+    }
+}
+#endif
 
 /// A tab, or, in an iPad's wide window, an entry of the sidebar.
 enum Place: Hashable {
@@ -101,9 +118,9 @@ struct RootView: View {
                 stack(.search) { SearchView() }
             }
             // An iPad's sidebar, as the Mac's: the Library's parts, the playlists, and
-            // Settings. In a narrow window they leave with the sidebar, and the tab bar is the
-            // iPhone's.
-            if WideReader.isPad {
+            // Settings. In a narrow window they leave with the sidebar (the page open folds
+            // back into the Library's tab), and the tab bar is the iPhone's four.
+            if WideReader.isPad && wide {
                 TabSection("Library") {
                     ForEach(LibraryView.parts, id: \.2) { name, symbol, route in
                         Tab(name, systemImage: symbol, value: Place.part(route)) {
@@ -429,6 +446,8 @@ struct RootView: View {
                 store.updateChoices { $0.displayFont = font; $0.textFont = font == "system" ? "system" : "inter" }
             }
         }
+        // -theme night|midnight|day: that look (kept, as Settings keeps it).
+        if let theme = value("-theme") { store.updateApp { $0.theme = theme } }
         // -artist <name>, -album <title>: open that page.
         if let name = value("-artist") { store.opening = .artist(name) }
         // -sleep <minutes> starts the sleep timer, -speed <times> plays at that speed, and
@@ -631,7 +650,7 @@ private struct ToolPopover: ViewModifier {
             Group {
                 switch sheet {
                 case .sleep: SleepSheet().frame(width: 380).fixedSize(horizontal: false, vertical: true)
-                case .speed: SpeedSheet().frame(width: 400, height: 540)
+                case .speed: SpeedSheet().frame(width: 400, height: 430)
                 default: NavigationStack { SpeakersView() }.frame(width: 420, height: 520)
                 }
             }

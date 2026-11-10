@@ -149,7 +149,7 @@ struct AppearanceView: View {
             }
             Section("Motion and touch") {
                 toggle("Haptics", "A little tap on play, pause, and long presses.", "hand.tap.fill", .green, \.haptics)
-                toggle("Reduce motion", "Needle's own switch, besides the iPhone's.", "figure.walk.motion", .blue, \.reduceMotion)
+                toggle("Reduce motion", "Needle's own switch, besides the \(Device.name)'s.", "figure.walk.motion", .blue, \.reduceMotion)
             }
         }
         #if DEBUG

@@ -61,7 +61,7 @@ struct RecoveryView: View {
                         .foregroundStyle(ThemeColors.amber)
                     Text("Needle can't open your library")
                         .font(.title.bold())
-                    Text("Your music files are safe. Only Needle's list of them, your plays, stars, and playlists could not be read. This can happen when the iPhone is full, or when the library file is damaged.")
+                    Text("Your music files are safe. Only Needle's list of them, your plays, stars, and playlists could not be read. This can happen when the \(Device.name) is full, or when the library file is damaged.")
                     if let problem = launch.problem {
                         Text(problem)
                             .font(.footnote.monospaced())
@@ -72,10 +72,10 @@ struct RecoveryView: View {
                             .textSelection(.enabled)
                     }
                     if let moved = launch.movedTo {
-                        Text("The old library was kept as \(moved), in Needle's own folder. Needle still can't start an empty one: make room on the iPhone, then try again.")
+                        Text("The old library was kept as \(moved), in Needle's own folder. Needle still can't start an empty one: make room on the \(Device.name), then try again.")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("If the iPhone is full, make room in Settings › General › iPhone Storage, then try again.")
+                        Text("If the \(Device.name) is full, make room in Settings › General › \(Device.name) Storage, then try again.")
                             .foregroundStyle(.secondary)
                     }
                     Button { launch.open() } label: {
