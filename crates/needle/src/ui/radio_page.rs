@@ -251,7 +251,12 @@ impl AppView {
             .flex_col()
             .gap(px(28.))
             .child(tile(560., 200.))
-            .child(div().flex().gap_3().children((0..4).map(|_| tile(180., 92.))))
+            .child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .children((0..4).map(|_| tile(180., 92.))),
+            )
             .child(
                 div()
                     .flex()
@@ -277,7 +282,12 @@ impl AppView {
     }
 
     /// Your station: the song it starts from, on a fill in its cover's colour.
-    fn your_station_tile(&self, seed: Option<&Track>, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn your_station_tile(
+        &self,
+        seed: Option<&Track>,
+        width: f32,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let p = pal(cx);
         let art = seed.and_then(|t| t.artwork.clone());
         let color = self.cover_color(art.as_deref()).unwrap_or(p.accent);
@@ -362,7 +372,13 @@ impl AppView {
     fn quick_mixes(&self, data: &RadioData, width: f32, cx: &mut Context<Self>) -> Div {
         let favorites = data.favorites;
         let tiles: Vec<(&'static str, String, &'static str, Option<String>, bool)> = vec![
-            ("Shuffle all", songs(data.songs), "shuffle", data.art[0].clone(), data.songs > 0),
+            (
+                "Shuffle all",
+                songs(data.songs),
+                "shuffle",
+                data.art[0].clone(),
+                data.songs > 0,
+            ),
             (
                 "Favorites",
                 if favorites > 0 {
@@ -374,9 +390,27 @@ impl AppView {
                 data.art[1].clone(),
                 favorites > 0,
             ),
-            ("New to you", "Added lately, shuffled".into(), "recent", data.art[2].clone(), data.songs > 0),
-            ("Your listening", "Top songs and artists".into(), "history", data.art[3].clone(), true),
-            ("Genre map", "Click a genre to play it".into(), "radio", data.art[4].clone(), true),
+            (
+                "New to you",
+                "Added lately, shuffled".into(),
+                "recent",
+                data.art[2].clone(),
+                data.songs > 0,
+            ),
+            (
+                "Your listening",
+                "Top songs and artists".into(),
+                "history",
+                data.art[3].clone(),
+                true,
+            ),
+            (
+                "Genre map",
+                "Click a genre to play it".into(),
+                "radio",
+                data.art[4].clone(),
+                true,
+            ),
         ];
         // As many in a row as fit, at least 180 px each; rows of their own (no wrapping, see
         // gpui-gotchas).
@@ -385,7 +419,10 @@ impl AppView {
         let mut rows = vec![];
         let mut row = vec![];
         for (i, (title, detail, icon, art, on)) in tiles.into_iter().enumerate() {
-            row.push(self.mix_tile(i, title, detail, icon, art, on, tile_w, cx).into_any_element());
+            row.push(
+                self.mix_tile(i, title, detail, icon, art, on, tile_w, cx)
+                    .into_any_element(),
+            );
             if row.len() == per_row {
                 rows.push(std::mem::take(&mut row));
             }
@@ -398,7 +435,10 @@ impl AppView {
             .flex_col()
             .gap_3()
             .child(display("Quick mixes", 20.))
-            .children(rows.into_iter().map(|row| div().flex().gap_3().children(row)))
+            .children(
+                rows.into_iter()
+                    .map(|row| div().flex().gap_3().children(row)),
+            )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -417,7 +457,9 @@ impl AppView {
         let color = self.cover_color(art.as_deref());
         let mix = super::motion::mix;
         // A plain fill in the cover's colour; the page's raised colour until it is known.
-        let fill = color.map_or(p.raised, |c| mix(p.raised, c, if p.dark { 0.24 } else { 0.14 }));
+        let fill = color.map_or(p.raised, |c| {
+            mix(p.raised, c, if p.dark { 0.24 } else { 0.14 })
+        });
         // No cover: a quiet grey square (amber is only for what plays and the main button).
         let chip = color.map_or(mix(p.raised, p.ink, 0.3), |c| {
             // The icon's square: the cover's colour, deep enough for white on it.
@@ -440,7 +482,8 @@ impl AppView {
             .when(on, |el| {
                 el.cursor_pointer()
                     .when(super::motion::enabled(cx), |el| {
-                        el.relative().hover(move |s| s.top(px(-2.)).shadow(glow.clone()))
+                        el.relative()
+                            .hover(move |s| s.top(px(-2.)).shadow(glow.clone()))
                     })
                     .on_click(cx.listener(move |this, _, window, cx| match index {
                         0 => this.play_shuffled("", "Shuffle all"),

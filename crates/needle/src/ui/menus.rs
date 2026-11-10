@@ -767,23 +767,28 @@ impl AppView {
         // Read-only on its server: it is not renamed, changed, or deleted here.
         if read_only {
             entries.push(Entry::Separator);
-            entries.push(Entry::item("external", "Export as M3U8…", None, move |this, _, cx| {
-                if !this.can_pick(cx) {
-                    return;
-                }
-                let library = this.library.clone();
-                let playlist = export.clone();
-                this.background(move || {
-                    let Some(path) = rfd::FileDialog::new()
-                        .set_file_name(format!("{}.m3u8", playlist.name))
-                        .save_file()
-                    else {
-                        return Ok(String::new());
-                    };
-                    library.export_playlist(&playlist, &path)?;
-                    Ok("Playlist exported.".into())
-                });
-            }));
+            entries.push(Entry::item(
+                "external",
+                "Export as M3U8…",
+                None,
+                move |this, _, cx| {
+                    if !this.can_pick(cx) {
+                        return;
+                    }
+                    let library = this.library.clone();
+                    let playlist = export.clone();
+                    this.background(move || {
+                        let Some(path) = rfd::FileDialog::new()
+                            .set_file_name(format!("{}.m3u8", playlist.name))
+                            .save_file()
+                        else {
+                            return Ok(String::new());
+                        };
+                        library.export_playlist(&playlist, &path)?;
+                        Ok("Playlist exported.".into())
+                    });
+                },
+            ));
             return entries;
         }
         entries.extend([

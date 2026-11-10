@@ -395,9 +395,7 @@ impl AppView {
                     },
                 )
                 .when_some(
-                    playlist
-                        .clone()
-                        .filter(super::playlist_saves::takes_songs),
+                    playlist.clone().filter(super::playlist_saves::takes_songs),
                     |el, list| {
                         el.child(
                             Button::new("add-songs")
@@ -415,21 +413,22 @@ impl AppView {
                         .clone()
                         .filter(|l| !super::playlist_saves::read_only(l)),
                     |el, list| {
-                    el.child(
-                        Button::new("edit-playlist")
-                            .icon(icon("edit"))
-                            .when(!tight, |b| b.label("Edit"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_playlist_editor(
-                                    Some(list.clone()),
-                                    vec![],
-                                    None,
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    )
-                })
+                        el.child(
+                            Button::new("edit-playlist")
+                                .icon(icon("edit"))
+                                .when(!tight, |b| b.label("Edit"))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_playlist_editor(
+                                        Some(list.clone()),
+                                        vec![],
+                                        None,
+                                        window,
+                                        cx,
+                                    )
+                                })),
+                        )
+                    },
+                )
                 .when(playlist.is_none(), |el| {
                     el.child(
                         icon_button("save-view", "plus", "Save as a playlist").on_click(
@@ -656,34 +655,36 @@ impl AppView {
                         })),
                 )
                 .child(div().flex_1())
-                .when(!read_only, |el| el.child(
-                    Button::new("delete-playlist")
-                        .flex_shrink_0()
-                        .small()
-                        .ghost()
-                        .when(self.confirm_delete, |b| b.danger())
-                        .label(if self.confirm_delete && on_server {
-                            "Delete here and on the server"
-                        } else if self.confirm_delete {
-                            "Click again to delete"
-                        } else {
-                            "Delete playlist"
-                        })
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            if this.confirm_delete {
-                                this.delete_playlist_later(
-                                    delete.id.clone(),
-                                    on_server,
-                                    Page::Songs,
-                                    window,
-                                    cx,
-                                );
+                .when(!read_only, |el| {
+                    el.child(
+                        Button::new("delete-playlist")
+                            .flex_shrink_0()
+                            .small()
+                            .ghost()
+                            .when(self.confirm_delete, |b| b.danger())
+                            .label(if self.confirm_delete && on_server {
+                                "Delete here and on the server"
+                            } else if self.confirm_delete {
+                                "Click again to delete"
                             } else {
-                                this.confirm_delete = true;
-                            }
-                            cx.notify();
-                        })),
-                )),
+                                "Delete playlist"
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if this.confirm_delete {
+                                    this.delete_playlist_later(
+                                        delete.id.clone(),
+                                        on_server,
+                                        Page::Songs,
+                                        window,
+                                        cx,
+                                    );
+                                } else {
+                                    this.confirm_delete = true;
+                                }
+                                cx.notify();
+                            })),
+                    )
+                }),
         )
     }
 

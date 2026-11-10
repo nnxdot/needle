@@ -175,7 +175,8 @@ impl AppView {
         self.folder_asked = None;
         self.folder_removing = Some(root.clone());
         if self.scan.is_some() {
-            self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.cancel
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             self.folder_after_scan = true;
         } else {
             self.start_removing_folder(root);

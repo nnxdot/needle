@@ -493,8 +493,11 @@ impl AppView {
                     let at = point(px(460.), px(300.));
                     match which.split_once(':') {
                         Some(("playlist", name)) => {
-                            if let Some(id) =
-                                v.playlists.iter().find(|p| p.name == name).map(|p| p.id.clone())
+                            if let Some(id) = v
+                                .playlists
+                                .iter()
+                                .find(|p| p.name == name)
+                                .map(|p| p.id.clone())
                             {
                                 v.open_playlist_menu(id, point(px(150.), px(420.)), cx);
                             }
