@@ -1,8 +1,21 @@
 # 2.0.6
-Your Navidrome playlists, and more glass.
-- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways, and if a playlist changed on both sides, yours is kept as a copy.
-- **More glass.** The player's buttons and Shuffle and Repeat in Up Next are glass now, in the colour of the song playing. The sleep and speed choices and Search's chips are glass too, the chosen one lit in the accent.
-- The lit circle under Lyrics or Up Next glides from one to the other.
+Needle for iPad, your Navidrome playlists, and more glass.
+! **Needle for iPad.** A real iPad app: a sidebar with your library and playlists, a player that floats over the page, a big player with the lyrics or Up Next beside the cover, song tables on album and playlist pages, Settings in two columns, and small tools that open beside their buttons. A keyboard, a pointer, and dragging songs onto a playlist all work.
+- **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy: Needle tells you, and opens the copy. A weak connection does not undo a change; Needle keeps it and sends it later. Playlists you can only read on the server say so.
+- **More glass, in the right places.** The player's buttons and Shuffle and Repeat in Up Next are glass, in the colour of the song playing. Sleep, Speed, and Speakers open on glass sheets, and the chosen chip's glass glides to the next one. Lists and tiles are calmer: glass is for what floats.
+- **Look up all.** Fix my library looks up every album with tag gaps, keeps only sure matches, and you tick which to write.
+- **Things move.** Covers fade in and cross from one song to the next, the heart, Shuffle, and Repeat bounce, and rows slide into place in Up Next and in playlists. Reduce Motion stills all of it.
+- If the library cannot open, Needle shows a way out instead of closing at every start.
+- The player shows the song's format, such as FLAC 24/48.
+- Word-by-word lyrics light up on time, and Translate sits beside the song over the lyrics.
+- New settings: Film grain, Roomy or Compact song rows, the Welcome guide again, and Keep the screen on with the player.
+- Themes have Export…, Sound has Save EQ file…, Play On has Speaker timing for a group, and holding Radio on an artist's page blends two artists.
+- Settings › About: Copy error report, and share the log file.
+- Album and artist pages fit a phone on its side, and titles and lyrics follow your text size.
+- The phone buzzes only when you press, and changing a font keeps you on your page.
+- Sound comes back after a Bluetooth or CarPlay fault, and the lock screen keeps time at other speeds.
+- Apple Watch: the crown sets the iPhone's volume, and the watch stays up to date.
+- Favorite is a heart, and some settings have the same names as in the other apps now: Colors, Online services, Even out loudness.
 - Every page and sheet fades softly under its bar as it scrolls.
 
 # 2.0.4
