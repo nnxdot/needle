@@ -16,7 +16,7 @@ struct AppearanceView: View {
         Form {
             Section {
                 LazyVGrid(columns: two, spacing: 14) {
-                    ForEach([("night", "Night", "Charcoal grey"), ("midnight", "Midnight", "True black"), ("day", "Day", "Light and airy")], id: \.0) { id, name, about in
+                    ForEach([("night", "Night", "Charcoal gray"), ("midnight", "Midnight", "True black"), ("day", "Day", "Light and airy")], id: \.0) { id, name, about in
                         LookCard(name: name, note: about, chosen: app.theme == id, colors: ThemeColors.base(id)) {
                             store.updateApp { $0.theme = id }
                         }

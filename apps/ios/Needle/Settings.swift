@@ -588,7 +588,7 @@ struct SoundView: View {
     }
 
     private func balance(_ value: Float) -> String {
-        abs(value) < 0.03 ? "Centre" : value < 0 ? "\(Int(-value * 100))% left" : "\(Int(value * 100))% right"
+        abs(value) < 0.03 ? "Center" : value < 0 ? "\(Int(-value * 100))% left" : "\(Int(value * 100))% right"
     }
 
     private func dB(_ label: String, value: Float, set: @escaping (Float) -> Void) -> some View {
