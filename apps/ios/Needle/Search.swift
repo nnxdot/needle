@@ -5,6 +5,7 @@ import SwiftUI
 /// the words, songs from your server, and rules to try. Genres to browse while it is empty.
 struct SearchView: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     @State private var query = ""
     @State private var kind = Kind.all
     @State private var found: SearchFound?
@@ -138,7 +139,7 @@ struct SearchView: View {
                     }
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
         }
         .scrollIndicators(.hidden)
         .padding(.top, 8)
@@ -166,7 +167,7 @@ struct SearchView: View {
                     }
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
             // Room for the glass's edge and its spring when pressed.
             .padding(.vertical, 2)
         }
@@ -179,10 +180,33 @@ struct SearchView: View {
     private func results(_ found: SearchFound, words: String) -> some View {
         switch kind {
         case .all:
-            if let best = found.best { bestMatch(best).padding(.horizontal).padding(.top, 14) }
-            if !found.songs.isEmpty {
-                SectionTitle(title: "Songs")
-                songRows(Array(found.songs.prefix(5)))
+            if wide, let best = found.best, !found.songs.isEmpty {
+                // In a wide window, as Apple Music's: the best match at the left, the songs
+                // beside it.
+                HStack(alignment: .top, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Top Result").font(.needleTitle(size: 22)).accessibilityAddTraits(.isHeader)
+                        bestMatch(best)
+                    }
+                    .frame(width: 380)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Songs").font(.needleTitle(size: 22)).accessibilityAddTraits(.isHeader)
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(found.songs.prefix(5).enumerated()), id: \.element.id) { i, song in
+                                SongRow(song: song) { store.play(Array(found.songs.prefix(5)), from: i) }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, Tiles.margin(wide))
+                .padding(.top, 18)
+            } else {
+                if let best = found.best { bestMatch(best).padding(.horizontal, Tiles.margin(wide)).padding(.top, 14) }
+                if !found.songs.isEmpty {
+                    SectionTitle(title: "Songs")
+                    songRows(Array(found.songs.prefix(5)))
+                }
             }
             albumShelf(found.albums)
             artistShelf(found.artists)
@@ -197,7 +221,7 @@ struct SearchView: View {
                         SongRow(song: song) { let g = generation; store.core.playServerSongs(generation: g, start: UInt32(i)); store.played() }
                     }
                 }
-                .padding(.horizontal).padding(.top, 8)
+                .padding(.horizontal, Tiles.margin(wide)).padding(.top, 8)
             }
             rules
         case .songs: songRows(songs.isEmpty ? found.songs : Array(songs.prefix(200)))
@@ -220,7 +244,7 @@ struct SearchView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal).padding(.top, 12)
+            .padding(.horizontal, Tiles.margin(wide)).padding(.top, 12)
         case .lyrics:
             lyricRows(found.lyrics, words: words).padding(.top, 8)
         }
@@ -268,7 +292,7 @@ struct SearchView: View {
                 SongRow(song: song) { store.play(list, from: i) }
             }
         }
-        .padding(.horizontal).padding(.top, 8)
+        .padding(.horizontal, Tiles.margin(wide)).padding(.top, 8)
     }
 
     @ViewBuilder
@@ -304,7 +328,7 @@ struct SearchView: View {
                 .accessibilityLabel("\(hit.line), from \(hit.song.title) by \(hit.song.artist)")
             }
         }
-        .padding(.horizontal).padding(.top, 6)
+        .padding(.horizontal, Tiles.margin(wide)).padding(.top, 6)
     }
 
     /// The line, with each place it holds the words lit in the accent.
@@ -340,7 +364,7 @@ struct SearchView: View {
                         }
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, Tiles.margin(wide))
             }
             .scrollIndicators(.hidden)
             .padding(.top, 10)

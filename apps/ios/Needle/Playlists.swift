@@ -8,6 +8,8 @@ import SwiftUI
 struct PlaylistView: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.wide) private var wide
+    @State private var pageWidth: CGFloat = 0
     let playlist: Playlist
     @State private var detail: PlaylistDetail?
     @State private var editing = false
@@ -57,25 +59,10 @@ struct PlaylistView: View {
         let songs = detail?.songs ?? []
         // Songs picked by a rule, or kept as the server has them: none taken out or moved here.
         let fixed = detail?.rule != nil || readOnly
+        let beside = wide && pageWidth >= 600
         return List(selection: selecting ? $selected : nil) {
-            VStack(spacing: 6) {
-                PlaylistCover(playlist: current ?? playlist)
-                    .frame(width: 230, height: 230)
-                    .clipShape(.soft(Corner.cover))
-                    .shadow(color: .black.opacity(0.4), radius: 20, y: 12)
-                    .padding(.bottom, 10)
-                Text(name).font(.needle(.title2).bold()).multilineTextAlignment(.center)
-                if let words = detail?.description, !words.isEmpty {
-                    Text(words).font(.needle(.subheadline)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                }
-                if let rule = detail?.rule {
-                    Label(rule, systemImage: "gearshape.2").font(.needle(.caption)).foregroundStyle(.secondary)
-                }
-                if readOnly {
-                    Label("Read-only on the server", systemImage: "server.rack").font(.needle(.caption)).foregroundStyle(.secondary)
-                }
-                Text(count(songs.count, "song") + " · " + clock(songs.reduce(0) { $0 + $1.duration })).font(.needle(.footnote)).foregroundStyle(.secondary)
-                if !songs.isEmpty { PlayButtons(songs: songs).padding(.top, 8) }
+            Group {
+                if beside { besideHeader(songs) } else { header(songs) }
             }
             .frame(maxWidth: .infinity)
             .listRowSeparator(.hidden)
@@ -86,6 +73,8 @@ struct PlaylistView: View {
             ForEach(Array(Store.rowIDs(songs).enumerated()), id: \.element.id) { i, row in
                 SongRow(song: row.song) { store.play(songs, from: i) }
                     .tag(row.song.id)
+                    // Beside the picture, the rows lie on the page and its glow.
+                    .listRowBackground(beside ? Color.clear : nil)
             }
             .onDelete(perform: fixed ? nil : { rows in
                 guard let detail else { return }
@@ -128,7 +117,14 @@ struct PlaylistView: View {
             })
         }
         .listStyle(.plain)
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 300 } action: { _, past in
+        .readableWidth(1180)
+        .background(alignment: .top) {
+            if beside, let shown = current ?? Optional(playlist) {
+                HeaderGlow(path: shown.picture ?? shown.artwork, seed: shown.name, look: .plain(store.colors))
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
+        .onScrollGeometryChange(for: Bool.self) { [beside] in $0.contentOffset.y > (beside ? 220 : 300) } action: { _, past in
             withFade(.easeOut(duration: 0.2)) { pastHeader = past }
         }
         .toolbar {
@@ -201,6 +197,55 @@ struct PlaylistView: View {
 
     /// The playlist's places of the rows left when `rows` are taken out: those after a row taken
     /// out move up one.
+    /// The picture, the name, its words and rule, and Play and Shuffle, one under another.
+    private func header(_ songs: [Song]) -> some View {
+        VStack(spacing: 6) {
+            PlaylistCover(playlist: current ?? playlist)
+                .frame(width: 230, height: 230)
+                .clipShape(.soft(Corner.cover))
+                .shadow(color: .black.opacity(0.4), radius: 20, y: 12)
+                .padding(.bottom, 10)
+            Text(name).font(.needle(.title2).bold()).multilineTextAlignment(.center)
+            about(songs, center: true)
+            if !songs.isEmpty { PlayButtons(songs: songs).padding(.top, 8) }
+        }
+    }
+
+    /// A wide window's header, as the Mac's: the picture at the left, the rest beside it.
+    private func besideHeader(_ songs: [Song]) -> some View {
+        HStack(alignment: .bottom, spacing: 28) {
+            PlaylistCover(playlist: current ?? playlist)
+                .frame(width: 220, height: 220)
+                .clipShape(.soft(Corner.cover))
+                .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(detail?.rule != nil ? "Smart playlist" : "Playlist").font(.needle(.subheadline).weight(.semibold)).foregroundStyle(.secondary)
+                Text(name).font(.needleTitle(size: 38, relativeTo: .largeTitle)).lineLimit(2).minimumScaleFactor(0.7)
+                about(songs, center: false)
+                if !songs.isEmpty { PlayButtons(songs: songs).padding(.top, 10) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 20)
+        .padding(.bottom, 14)
+    }
+
+    /// Its words, its rule, the server's mark when it is read-only, and what it holds.
+    @ViewBuilder
+    private func about(_ songs: [Song], center: Bool) -> some View {
+        if let words = detail?.description, !words.isEmpty {
+            Text(words).font(.needle(.subheadline)).foregroundStyle(.secondary).multilineTextAlignment(center ? .center : .leading)
+        }
+        if let rule = detail?.rule {
+            Label(rule, systemImage: "gearshape.2").font(.needle(.caption)).foregroundStyle(.secondary)
+        }
+        if readOnly {
+            Label("Read-only on the server", systemImage: "server.rack").font(.needle(.caption)).foregroundStyle(.secondary)
+        }
+        Text(count(songs.count, "song") + " · " + clock(songs.reduce(0) { $0 + $1.duration })).font(.needle(.footnote)).foregroundStyle(.secondary)
+    }
+
     private static func positions(_ positions: [UInt32], without rows: IndexSet) -> [UInt32] {
         let removed = rows.map { positions[$0] }
         return positions.enumerated().filter { !rows.contains($0.offset) }.map { _, at in
@@ -435,7 +480,7 @@ struct SelectionActions: ToolbarContent {
                 }
                 if songs.contains(where: \.fromServer) {
                     Button("Keep offline", systemImage: "arrow.down.circle") { store.keepOffline(songs.filter(\.fromServer), keep: true) }
-                    Button("Save to this iPhone", systemImage: "square.and.arrow.down") { store.saveToPhone(songs.filter(\.fromServer)) }
+                    Button("Save to this \(Device.name)", systemImage: "square.and.arrow.down") { store.saveToPhone(songs.filter(\.fromServer)) }
                 }
                 if !songs.contains(where: \.fromServer) {
                     Button("Edit Tags", systemImage: "tag") { store.sheet = .tags(songs.map(\.id)) }

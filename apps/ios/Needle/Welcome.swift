@@ -30,7 +30,7 @@ struct WelcomeView: View {
                         .frame(width: 72, height: 72).clipShape(.rect(cornerRadius: 17))
                         .accessibilityHidden(true)
                         Text("Welcome to Needle").font(.needle(.largeTitle).bold())
-                        Text("Your music, from this iPhone, your server, and your computer.")
+                        Text("Your music, from this \(Device.name), your server, and your computer.")
                             .font(.needle(.title3))
                         Text("No account. Nothing leaves your phone unless you ask.")
                             .font(.needle(.subheadline)).foregroundStyle(.secondary)
@@ -41,7 +41,7 @@ struct WelcomeView: View {
                         Text("Where is your music?").font(.needle(.footnote).weight(.semibold)).foregroundStyle(.secondary)
                             .textCase(.uppercase).padding(.leading, 16)
                         VStack(spacing: 0) {
-                            choice("folder.fill", .orange, "Import from Files", "Songs on this iPhone or in iCloud Drive.") { importing = true }
+                            choice("folder.fill", .orange, "Import from Files", "Songs on this \(Device.name) or in iCloud Drive.") { importing = true }
                             Divider().padding(.leading, 58)
                             choice("server.rack", .cyan, "Connect a music server", "Navidrome or another Subsonic server.") { finish(.home, .server("subsonic")) }
                             Divider().padding(.leading, 58)

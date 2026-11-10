@@ -3,17 +3,18 @@ import UniformTypeIdentifiers
 
 /// A row of cards that scrolls sideways and stops at each one.
 struct Shelf<Content: View>: View {
+    @Environment(\.wide) private var wide
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: 12) { content() }
+            LazyHStack(alignment: .top, spacing: wide ? 18 : 12) { content() }
                 .scrollTargetLayout()
                 .padding(.vertical, 6)
         }
         .scrollTargetBehavior(.viewAligned)
         .scrollIndicators(.hidden)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
+        .contentMargins(.horizontal, Tiles.margin(wide), for: .scrollContent)
         // The cards' shadows go past the row; cut off there, they made a band across the page.
         .scrollClipDisabled()
     }
@@ -60,6 +61,7 @@ struct ScanPill: View {
 /// and artists, each with a line saying what it holds.
 struct HomeView: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     @State private var home: Home?
     @State private var favorites: [Album] = []
     /// What played on this day one and five years ago.
@@ -79,7 +81,12 @@ struct HomeView: View {
                         empty
                     } else {
                         NowCard()
-                        if let reviewYear { YearHomeCard(year: reviewYear).padding(.horizontal).padding(.top, 14) }
+                        if let reviewYear {
+                            YearHomeCard(year: reviewYear)
+                                .frame(maxWidth: wide ? 620 : .infinity)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, Tiles.margin(wide)).padding(.top, 14)
+                        }
                         shelf("Jump back in", "Albums you played last", home.recent, route: .history)
                         shelf("New in your library", "Added most recently", home.added, route: .albums)
                         // The arrows open the lists the shelves come from: the most played (in
@@ -109,8 +116,14 @@ struct HomeView: View {
         .themed()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: Route.settings) { Image(systemName: "gearshape") }
-                    .accessibilityLabel("Settings")
+                // In a wide window Settings is a large sheet of its own, as on the Mac.
+                if wide {
+                    Button { store.showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                } else {
+                    NavigationLink(value: Route.settings) { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
+                }
             }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .folder], allowsMultipleSelection: true) { result in
@@ -156,7 +169,7 @@ struct HomeView: View {
             ContentUnavailableView {
                 Label("No music yet", systemImage: "music.note.house")
             } description: {
-                Text("Import songs from the Files app, or put them in Files › On My iPhone › Needle. Music servers and your computer are in Settings.")
+                Text("Import songs from the Files app, or put them in Files › On My \(Device.name) › Needle. Music servers and your computer are in Settings.")
             }
             Button { importing = true } label: {
                 Label("Import from Files", systemImage: "folder").padding(.horizontal, 8).padding(.vertical, 4)
@@ -173,12 +186,16 @@ struct HomeView: View {
 /// and goes softly when music starts or ends.
 struct NowCard: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
 
     var body: some View {
         ZStack {
             if let song = store.playback?.current {
                 NowCardBody(song: song)
-                    .padding(.horizontal).padding(.top, 6)
+                    // A card, not a band across a wide window.
+                    .frame(maxWidth: wide ? 620 : .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Tiles.margin(wide)).padding(.top, 6)
                     .transition(Motion.transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity)))
             }
         }
@@ -242,22 +259,25 @@ struct TopArtist: Identifiable, Hashable, Sendable {
 
 /// An artist as a round picture with their name under it.
 struct ArtistBubble: View {
+    @Environment(\.wide) private var wide
     let name: String
     let artwork: String?
 
     var body: some View {
+        let side = Tiles.bubble(wide)
         NavigationLink(value: Route.artist(name)) {
             VStack(spacing: 7) {
                 Artwork(path: artwork, seed: name, size: 300)
-                    .frame(width: 104, height: 104)
+                    .frame(width: side, height: side)
                     .clipShape(.circle)
                     .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
                 Text(name).font(.needle(.footnote).weight(.medium)).lineLimit(1)
             }
-            .frame(width: 110)
+            .frame(width: side + 6)
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
     }
 }
 
@@ -294,9 +314,13 @@ struct PlaylistCover: View {
 
 struct LibraryView: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     @State private var added: [Album] = []
 
-    private let rows: [(String, String, Route)] = [
+    private var rows: [(String, String, Route)] { Self.parts }
+
+    /// The Library's parts: its page's rows, and their own entries in an iPad's sidebar.
+    static let parts: [(String, String, Route)] = [
         ("Playlists", "music.note.list", .playlists),
         ("Artists", "music.microphone", .artists),
         ("Albums", "square.stack", .albums),
@@ -325,13 +349,17 @@ struct LibraryView: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
+                        .hoverEffect(.highlight)
                         if i < rows.count - 1 { Divider().padding(.leading, 58) }
                     }
                 }
                 // A plain group in the page's raised colour: rows are content, and glass is kept
                 // for the controls over it.
                 .background(store.colors.card, in: .soft(Corner.large))
-                .padding(.horizontal)
+                // A group of a readable width in a wide window, not a band across it.
+                .frame(maxWidth: wide ? 640 : .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Tiles.margin(wide))
                 .padding(.top, 8)
                 if !added.isEmpty {
                     SectionTitle(title: "Recently added")
@@ -351,16 +379,18 @@ struct LibraryView: View {
 }
 
 struct AlbumGrid: View {
+    @Environment(\.wide) private var wide
     let albums: [Album]
     /// Which grid on the page, for the cover the album's page grows from.
     var shelf = "grid"
 
     var body: some View {
-        // Two to a row on a phone held upright, more on its side.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 18) {
+        // Two to a row on a phone held upright, more on its side; on an iPad as many as fit
+        // tiles of a good size.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Tiles.least(wide)), spacing: Tiles.gap(wide), alignment: .top)], spacing: wide ? 26 : 18) {
             ForEach(albums) { AlbumTile(album: $0, width: nil, shelf: shelf) }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, Tiles.margin(wide))
     }
 }
 
@@ -418,8 +448,10 @@ struct PlaylistsView: View {
                     }
                 }
             }
+            .pageRow()
         }
         .listStyle(.plain)
+        .readableWidth()
         .overlay {
             if playlists == nil { ProgressView() }
             else if playlists?.isEmpty == true {
@@ -457,15 +489,16 @@ struct GenresView: View {
 /// colour (content, not glass).
 struct GenreTiles: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let genres: [Genre]
 
     var body: some View {
         let colors = store.colors
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 200 : 150), spacing: wide ? 16 : 12)], spacing: wide ? 16 : 12) {
             ForEach(genres) { genre in
                 NavigationLink(value: Route.genre(genre.name)) {
                     Artwork(path: genre.artwork, seed: genre.name, size: 300)
-                        .frame(height: 104)
+                        .frame(height: wide ? 124 : 104)
                         .frame(maxWidth: .infinity)
                         .overlay(alignment: .bottomLeading) {
                             Text(genre.name).font(.needle(.subheadline).bold()).lineLimit(1)
@@ -477,9 +510,10 @@ struct GenreTiles: View {
                         .clipShape(.soft(Corner.middle))
                 }
                 .buttonStyle(Pressable())
+                .hoverEffect(.lift)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, Tiles.margin(wide))
     }
 }
 
@@ -511,6 +545,7 @@ struct GenreView: View {
 struct AlbumView: View {
     @Environment(Store.self) private var store
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.wide) private var wide
     let album: Album
     @State private var songs: [Song]?
     @State private var more: [Album] = []
@@ -524,6 +559,14 @@ struct AlbumView: View {
 
     /// The cover's side at the top of the page.
     private var headerSide: CGFloat { pageHeight > 0 ? pageHeight * 0.6 : .infinity }
+    @State private var pageWidth: CGFloat = 0
+
+    /// A wide window with room: the Mac's album page, the cover beside the name and buttons,
+    /// the songs as a table under them.
+    private var beside: Bool { wide && pageWidth >= 600 }
+
+    /// The songs' own artists, where some are not the album's (a wide window's table shows them).
+    private var mixedArtists: Bool { songs?.contains { $0.artist != album.artist } ?? false }
 
     init(album: Album) {
         self.album = album
@@ -533,13 +576,16 @@ struct AlbumView: View {
     var body: some View {
         let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         List(selection: selecting ? $selected : nil) {
-            header(look)
+            Group {
+                if beside { besideHeader(look) } else { header(look) }
+            }
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
                 .selectionDisabled()
             ForEach(Array((songs ?? []).enumerated()), id: \.element.id) { i, song in
-                SongRow(song: song, number: Int(song.trackNumber > 0 ? song.trackNumber : Int64(i + 1))) {
+                SongRow(song: song, number: Int(song.trackNumber > 0 ? song.trackNumber : Int64(i + 1)),
+                        albumArtist: mixedArtists ? album.artist : nil) {
                     store.play(songs ?? [], from: i)
                 }
                 .tag(song.id)
@@ -553,10 +599,13 @@ struct AlbumView: View {
                 .selectionDisabled()
         }
         .listStyle(.plain)
-        .ignoresSafeArea(edges: .top)
+        // The cover runs up under the bar on a phone; beside the name it starts under it.
+        .ignoresSafeArea(edges: beside ? [] : .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > min($0.containerSize.width, headerSide) * 0.8 } action: { _, past in
+        .readableWidth(1180)
+        .background(alignment: .top) { if beside { HeaderGlow(path: album.artwork, seed: album.title + album.artist, look: look) } }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { pageHeight = $0.height; pageWidth = $0.width }
+        .onScrollGeometryChange(for: Bool.self) { [beside] in $0.contentOffset.y > (beside ? 240 : min($0.containerSize.width, headerSide) * 0.8) } action: { _, past in
             withFade(.easeOut(duration: 0.2)) { pastHeader = past }
         }
         .paged(look)
@@ -614,16 +663,54 @@ struct AlbumView: View {
         }
     }
 
+    /// A wide window's header, as the Mac's: the cover at the left, and beside it "Album", the
+    /// name, the artist, what it holds, and Play, Shuffle, and the album's menu.
+    private func besideHeader(_ look: PageColors) -> some View {
+        let side = min(260, max(180, pageHeight * 0.36))
+        return HStack(alignment: .bottom, spacing: 28) {
+            Artwork(path: album.artwork, seed: album.title + album.artist, size: 800)
+                .aspectRatio(1, contentMode: .fill)
+                .frame(width: side, height: side)
+                .overlay {
+                    MovingCoverLayer(song: songs?.first, on: store.app.animatedCovers && !systemReduceMotion && !store.app.reduceMotion)
+                        .clipped()
+                }
+                .clipShape(.soft(Corner.cover))
+                .shadow(color: .black.opacity(look.dark ? 0.45 : 0.25), radius: 26, y: 14)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Album").font(.needle(.subheadline).weight(.semibold)).foregroundStyle(look.muted)
+                Text(album.title).font(.needleTitle(size: 38, relativeTo: .largeTitle)).lineLimit(2).minimumScaleFactor(0.7)
+                Button { store.opening = .artist(album.artist) } label: {
+                    Text(album.artist).font(.needle(.title3).weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).lineLimit(1)
+                }
+                .buttonStyle(.borderless)
+                .hoverEffect(.highlight)
+                .disabled(isPlaceholderArtist(album.artist))
+                Text(([details] + [summary]).filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.needle(.footnote).weight(.medium)).foregroundStyle(look.muted)
+                if let songs, !songs.isEmpty {
+                    PlayButtons(songs: songs, look: look).padding(.top, 10)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 20)
+        .padding(.bottom, 18)
+    }
+
     @ViewBuilder
     private func footer(_ look: PageColors) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(summary).font(.needle(.footnote)).foregroundStyle(look.muted)
-                .padding(.horizontal).padding(.top, 14)
+            if !beside {
+                Text(summary).font(.needle(.footnote)).foregroundStyle(look.muted)
+                    .padding(.horizontal).padding(.top, 14)
+            }
             if !more.isEmpty, !isPlaceholderArtist(album.artist) {
                 SectionTitle(title: "More by \(album.artist)", route: .artist(album.artist))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(more) { AlbumTile(album: $0, width: 150, shelf: "more by") }
+                    LazyHStack(alignment: .top, spacing: Tiles.gap(wide)) {
+                        ForEach(more) { AlbumTile(album: $0, width: Tiles.shelf(wide), shelf: "more by") }
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 10)
@@ -636,9 +723,10 @@ struct AlbumView: View {
     private var details: String {
         var parts: [String] = []
         if album.year > 0 { parts.append(String(album.year)) }
-        // The format, when every song has the same one.
-        if let songs, let format = songs.first?.format, !format.isEmpty, songs.allSatisfy({ $0.format == format }) {
-            parts.append(format.uppercased())
+        // The format (the core's text, "FLAC 24/48"), when every song has the same one.
+        let text = { (song: Song) in song.quality.isEmpty ? song.format.uppercased() : song.quality }
+        if let songs, let format = songs.first.map(text), !format.isEmpty, songs.allSatisfy({ text($0) == format }) {
+            parts.append(format)
         }
         return parts.joined(separator: " · ")
     }
@@ -646,8 +734,30 @@ struct AlbumView: View {
     /// What the page lists (songs whose files are gone are left out).
     private var summary: String {
         guard let songs else { return "\(count(Int(album.songs), "song")), \(clock(album.duration))" }
-        if songs.isEmpty { return "These songs are not on this iPhone." }
+        if songs.isEmpty { return "These songs are not on this \(Device.name)." }
         return "\(count(songs.count, "song")), \(clock(songs.reduce(0) { $0 + $1.duration }))"
+    }
+}
+
+/// The cover, softly blurred, glowing at the top of a wide window's album or playlist page and
+/// fading into the page, as the Mac's.
+struct HeaderGlow: View {
+    let path: String?
+    let seed: String
+    let look: PageColors
+
+    var body: some View {
+        Artwork(path: path, seed: seed, size: 200)
+            .aspectRatio(contentMode: .fill)
+            .frame(height: 460)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .blur(radius: 60, opaque: true)
+            .opacity(look.dark ? 0.45 : 0.35)
+            .mask(LinearGradient(colors: [.black, .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
@@ -672,6 +782,7 @@ struct Fade: View {
 struct ArtistView: View {
     @Environment(Store.self) private var store
     @Environment(\.zoomScope) private var scope
+    @Environment(\.wide) private var wide
     let name: String
     @State private var top: [Song] = []
     @State private var albums: [Album]?
@@ -704,12 +815,12 @@ struct ArtistView: View {
                 if let latest { featured(latest, look) }
                 if !top.isEmpty {
                     SectionTitle(title: "Top Songs")
-                    VStack(spacing: 10) {
+                    VStack(spacing: wide ? 2 : 10) {
                         ForEach(Array(top.prefix(5).enumerated()), id: \.element.id) { i, song in
                             SongRow(song: song) { store.play(top, from: i) }
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, Tiles.margin(wide))
                     .padding(.top, 8)
                 }
                 if let albums, !albums.isEmpty {
@@ -781,7 +892,10 @@ struct ArtistView: View {
     /// The picture's height: 590 points, or about 60% of the page when that is less (a phone on
     /// its side), with room left for the name and the buttons over its foot.
     private var headerHeight: CGFloat {
-        pageHeight > 0 ? max(300, min(590, pageHeight * 0.6)) : 590
+        // A band in a wide window (an iPad's), never most of the screen.
+        let most: CGFloat = wide ? 440 : 590
+        let part: CGFloat = wide ? 0.5 : 0.6
+        return pageHeight > 0 ? max(300, min(most, pageHeight * part)) : most
     }
 
     /// As Apple Music's: the picture tall across the top, the logo (or name) in the middle
@@ -904,7 +1018,9 @@ struct ArtistView: View {
         }
         .buttonStyle(Pressable())
         .contextMenu { AlbumMenu(album: album) }
-        .padding(.horizontal)
+        .frame(maxWidth: wide ? 620 : .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Tiles.margin(wide))
         .padding(.top, 22)
     }
 }

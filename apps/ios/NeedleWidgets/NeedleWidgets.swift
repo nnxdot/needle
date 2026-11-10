@@ -186,7 +186,8 @@ struct RecentWidget: Widget {
         }
         .configurationDisplayName("Recently Played")
         .description("Tap an album to play it.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        // Extra large: an iPad's Home Screen.
+        .supportedFamilies([.systemMedium, .systemLarge, .systemExtraLarge])
     }
 }
 
@@ -197,7 +198,7 @@ struct PlaylistsWidget: Widget {
         }
         .configurationDisplayName("Playlists")
         .description("Your playlists, a tap away.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .supportedFamilies([.systemMedium, .systemLarge, .systemExtraLarge])
     }
 }
 
@@ -230,12 +231,17 @@ struct Shelf<I: AudioPlaybackIntent>: View {
                     }
                 }
             } else {
-                HStack(spacing: 10) {
+                // A row of covers; on an iPad's extra large widget, larger, with what each is.
+                let roomy = family == .systemExtraLarge
+                HStack(alignment: .top, spacing: roomy ? 18 : 10) {
                     ForEach(items.prefix(4)) { item in
                         Button(intent: intent(item)) {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: roomy ? 3 : 4) {
                                 Cover(name: item.cover, corner: 10).aspectRatio(1, contentMode: .fit)
-                                Text(item.title).font(.caption2.bold()).lineLimit(1)
+                                Text(item.title).font(roomy ? .subheadline.bold() : .caption2.bold()).lineLimit(1)
+                                if roomy {
+                                    Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
                             }
                         }
                         .buttonStyle(.plain)

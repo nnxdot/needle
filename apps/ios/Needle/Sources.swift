@@ -62,7 +62,7 @@ struct SourcesView: View {
                 HStack(spacing: 14) {
                     Icon(symbol: "iphone", tint: .white)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("This iPhone").font(.needle(.headline))
+                        Text("This \(Device.name)").font(.needle(.headline))
                         Text(count(Int(songs), "song")).font(.needle(.subheadline)).foregroundStyle(.secondary)
                         if store.scan.running {
                             Text("Reading… \(count(Int(store.scan.imported), "song")) so far").font(.needle(.caption)).foregroundStyle(Color.accentColor)
@@ -88,7 +88,7 @@ struct SourcesView: View {
                     .buttonBorderShape(.capsule)
                     .disabled(store.scan.running)
                 }
-                Text("You can also put music in Files › On My iPhone › Needle, or copy it from a computer in Finder.")
+                Text("You can also put music in Files › On My \(Device.name) › Needle, or copy it from a computer in Finder.")
                     .font(.needle(.footnote)).foregroundStyle(.secondary)
             }
         }
@@ -346,7 +346,7 @@ struct ServerView: View {
                             }
                         }
                     } message: {
-                        Text("They stay on this iPhone until the space is needed, then they stream again.")
+                        Text("They stay on this \(Device.name) until the space is needed, then they stream again.")
                     }
             }
             usage("Played lately", "They play again without the network.", "clock.arrow.circlepath", .blue, cached)
@@ -367,7 +367,7 @@ struct ServerView: View {
                     }
             }
         } header: {
-            Text("On this iPhone")
+            Text("On this \(Device.name)")
         } footer: {
             Text("Keep a song, album, or playlist from its menu: Keep Offline.")
         }
@@ -423,7 +423,7 @@ struct ServerView: View {
         } header: {
             Text("Your server")
         } footer: {
-            Text("The whole address, with http:// or https://. Your password stays in the iPhone Keychain.")
+            Text("The whole address, with http:// or https://. Your password stays in the \(Device.name) Keychain.")
         }
         Section {
             if signingIn {

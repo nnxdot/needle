@@ -137,15 +137,17 @@ struct GenreMapView: View {
     @State private var artFor = ""
     /// Why the cloud or bubbles could not be laid out, and for which view and order.
     @State private var artProblem: (String, String)?
+    @Environment(\.wide) private var wide
     /// Goes up with Try Again.
     @State private var tries = 0
 
     var body: some View {
         GeometryReader { geo in
             // Upright on a phone: as wide as the screen and taller than wide; the bubbles smaller
-            // by the map's area against the widest computer map (980 by 600).
-            let side = min(geo.size.width - 40, 640)
-            let height = min(max(side * 1.6, 300), 760)
+            // by the map's area against the widest computer map (980 by 600). In a wide window
+            // (an iPad) wider than tall, as on the computer.
+            let side = wide ? min(geo.size.width - 64, 980) : min(geo.size.width - 40, 640)
+            let height = wide ? min(max(side * 0.66, 420), 660) : min(max(side * 1.6, 300), 760)
             let laid = GenreLayout.lay(spots ?? [], width: side, height: height,
                                        scale: min(1, max(0.6, (side * height / (980 * 600)).squareRoot())))
             ScrollView {
@@ -184,6 +186,7 @@ struct GenreMapView: View {
                             .font(.needle(.subheadline)).foregroundStyle(store.colors.muted)
                         if !laid.bubbles.isEmpty {
                             map(laid.bubbles, width: side, height: height)
+                                .frame(maxWidth: .infinity)
                         }
                         if !laid.chips.isEmpty {
                             Text("More genres").font(.needle(.title3).weight(.semibold))
@@ -206,6 +209,8 @@ struct GenreMapView: View {
                 .padding(20)
             }
         }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(1060)
         .navigationTitle("Genre map")
         .themed()
         .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)|\(tries)") {

@@ -54,6 +54,8 @@ struct SleepMoon: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .toolPopover(["sleep"])
         .accessibilityLabel("Sleep timer")
         .accessibilityValue(running.map { "\(sleepClock($0.remaining)) left" } ?? "Off")
     }

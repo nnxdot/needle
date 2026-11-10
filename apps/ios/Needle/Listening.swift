@@ -48,6 +48,8 @@ struct HistoryView: View {
             }
         }
         .overlay { if done && items.isEmpty { ContentUnavailableView("Nothing played yet", systemImage: "clock") } }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle("Listening history")
         .themed()
         .task(id: store.libraryVersion) { generation += 1; loading = false; items = []; done = false; await more() }
@@ -116,6 +118,8 @@ struct StatsView: View {
             .padding()
         }
         .overlay { if stats == nil { ProgressView() } }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle("Listening")
         .themed()
         .task(id: days) {
@@ -188,6 +192,7 @@ struct FoldersView: View {
                         }
                     }
                 }
+                .pageRow()
             }
             if !songs.isEmpty {
                 Section {
@@ -200,6 +205,8 @@ struct FoldersView: View {
         }
         .listStyle(.plain)
         .overlay { if folders == nil { ProgressView() } }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle(path.map { ($0 as NSString).lastPathComponent } ?? "Folders")
         .themed()
         .task(id: store.libraryVersion) {

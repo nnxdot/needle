@@ -147,6 +147,22 @@ final class Store {
     /// A plugin's question, answered with text.
     var question: Question?
     var showPlayer = false
+    /// Settings as a large sheet of two columns (an iPad's wide window; an iPhone opens the
+    /// page in its tab).
+    var showSettings = false
+    /// The new playlist's sheet, from the + of the sidebar's Playlists.
+    var newPlaylist = false
+    /// The player was asked to show "lyrics" or "queue" (the floating bar, the keyboard): it
+    /// shows it, then clears this.
+    var playerPane: String?
+
+    /// Opens the player with the lyrics or the queue showing (beside the cover in a wide
+    /// window, in its place in a narrow one).
+    func openPlayer(with pane: String) {
+        guard playback?.current != nil else { return }
+        playerPane = pane
+        showPlayer = true
+    }
     /// The welcome guide, asked for again (Settings › About).
     var welcomeAgain = false
     /// A page to open, from a widget or a link.
@@ -461,10 +477,10 @@ final class Store {
     /// Saves songs from a music server as files in Needle's folder, as the phone's own.
     func saveToPhone(_ songs: [Song]) {
         let (ids, folder) = (songs.map(\.id), musicFolder.path)
-        message = "Saving to this iPhone…"
+        message = "Saving to this \(Device.name)…"
         Task {
             if let saved = await ask({ try $0.saveToMusic(ids: ids, folder: folder) }) {
-                message = "Saved \(count(Int(saved), "song")) to this iPhone"
+                message = "Saved \(count(Int(saved), "song")) to this \(Device.name)"
                 rescan()
             }
         }
@@ -610,7 +626,7 @@ final class Store {
     // MARK: - Playback
 
     func play(_ songs: [Song], from start: Int = 0) {
-        guard !songs.isEmpty else { message = "These songs are not on this iPhone"; return }
+        guard !songs.isEmpty else { message = "These songs are not on this \(Device.name)"; return }
         activateAudio()
         let ids = songs.map(\.id)
         run { try $0.play(ids: ids, start: UInt32(start)) }
@@ -636,7 +652,7 @@ final class Store {
     func playIDs(_ find: @escaping @Sendable (Needle) throws -> [String], shuffled: Bool = false, from start: Int = 0) {
         Task {
             guard var ids = await ask(find) else { return }
-            guard !ids.isEmpty else { message = "These songs are not on this iPhone"; return }
+            guard !ids.isEmpty else { message = "These songs are not on this \(Device.name)"; return }
             activateAudio()
             if shuffled { ids.shuffle() }
             let (chosen, at) = (ids, UInt32(min(start, ids.count - 1)))
@@ -1211,12 +1227,15 @@ final class Store {
         let center = NotificationCenter.default
         // The system's sound server restarted (after a Bluetooth or CarPlay crash, say): every
         // app's audio session is gone. Needle's is made again, and taken again if music was
-        // playing; the core opens its output again when it finds the old one stopped.
+        // playing; then the core opens its output again.
         center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
                 Self.setUpAudio()
                 guard let self else { return }
                 if self.local?.playing == true { self.activateAudio() }
+                // The core opens its sound output again on the new session: playing, it plays
+                // on from the same place; paused, Play opens it.
+                self.core.reopenOutput()
             }
         }
         // A call or an alarm pauses the music; it goes on afterwards when the phone says so.
