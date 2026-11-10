@@ -126,3 +126,19 @@ enum Device {
     /// Its symbol, for "This iPhone" among speakers.
     static let symbol = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
 }
+
+extension View {
+    /// A row of a plain list that lies on the page in a wide window (its own fill showed as a
+    /// band across the page's colour); on an iPhone the row is as it was.
+    func pageRow() -> some View {
+        modifier(PageRow())
+    }
+}
+
+private struct PageRow: ViewModifier {
+    @Environment(\.wide) private var wide
+
+    func body(content: Content) -> some View {
+        content.listRowBackground(wide ? Color.clear : nil)
+    }
+}

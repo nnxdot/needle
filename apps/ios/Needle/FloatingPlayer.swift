@@ -104,7 +104,7 @@ struct FloatingPlayer: View {
             HStack(spacing: 2) {
                 sign("quote.bubble", "Lyrics") { open("lyrics") }
                 sign("list.bullet", "Up Next") { open("queue") }
-                RoutePicker().frame(width: 44, height: 44).opacity(0.8)
+                RoutePicker(tint: UIColor(colors.text)).frame(width: 44, height: 44).opacity(0.8)
             }
         }
         .buttonStyle(.plain)

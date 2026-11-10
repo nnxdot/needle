@@ -448,6 +448,7 @@ struct PlaylistsView: View {
                     }
                 }
             }
+            .pageRow()
         }
         .listStyle(.plain)
         .readableWidth()

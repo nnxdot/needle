@@ -129,6 +129,8 @@ struct RootView: View {
                         .tabPlacement(.sidebarOnly)
                     }
                 }
+                // Only in the sidebar: the tabs at the top keep the four.
+                .tabPlacement(.sidebarOnly)
                 .defaultVisibility(.hidden, for: .tabBar)
                 TabSection("Playlists") {
                     ForEach(playlists) { playlist in
@@ -145,6 +147,8 @@ struct RootView: View {
                 .sectionActions {
                     Button("New Playlist", systemImage: "plus") { store.newPlaylist = true }
                 }
+                // Only in the sidebar: the tabs at the top keep the four.
+                .tabPlacement(.sidebarOnly)
                 .defaultVisibility(.hidden, for: .tabBar)
                 Tab("Settings", systemImage: "gearshape", value: Place.settings) {
                     SettingsSplit()

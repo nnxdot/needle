@@ -1333,15 +1333,20 @@ struct LoopingVideo: UIViewRepresentable {
 
 /// AirPlay and Bluetooth speakers.
 struct RoutePicker: UIViewRepresentable {
+    /// White on the player; the page's ink on the floating bar.
+    var tint: UIColor = .white
+
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
-        view.tintColor = .white
+        view.tintColor = tint
         view.activeTintColor = UIColor(named: "AccentColor")
         view.prioritizesVideoDevices = false
         return view
     }
 
-    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {
+        view.tintColor = tint
+    }
 }
 
 /// Timed lyrics that follow the song (tap a line to go there), with each word lit as it is

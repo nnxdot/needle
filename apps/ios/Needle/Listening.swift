@@ -192,6 +192,7 @@ struct FoldersView: View {
                         }
                     }
                 }
+                .pageRow()
             }
             if !songs.isEmpty {
                 Section {

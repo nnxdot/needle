@@ -241,18 +241,19 @@ struct ArtistsView: View {
             if byName {
                 ForEach(sections, id: \.0) { letter, group in
                     Section {
-                        ForEach(group, id: \.name) { row($0) }
+                        ForEach(group, id: \.name) { row($0).pageRow() }
                     } header: {
                         Text(letter)
                     }
                     .sectionIndexLabel(letter)
                 }
             } else {
-                ForEach(shown, id: \.name) { row($0) }
+                ForEach(shown, id: \.name) { row($0).pageRow() }
             }
         }
         .listStyle(.plain)
         .listSectionIndexVisibility(byName ? .visible : .hidden)
+        .readableWidth()
         .overlay { if artists == nil { ProgressView() } else if artists?.isEmpty == true { ContentUnavailableView("No artists", systemImage: "music.microphone") } }
         .navigationTitle("Artists")
         .themed()

@@ -310,6 +310,7 @@ struct SongRow: View {
         .buttonStyle(.plain)
         // One line under each row, from the row's own edge, whatever its first column holds.
         .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        .pageRow()
         .hoverEffect(.highlight)
         .contextMenu { SongMenu(song: song) }
         .draggableSongs([song])
