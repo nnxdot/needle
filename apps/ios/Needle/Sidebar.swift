@@ -185,6 +185,15 @@ final class SidebarStyler: NSObject, UITabBarController.Sidebar.Delegate {
             SidebarDump.note("\(item.content) selected \(item.configurationState.isSelected) content \(type(of: item.contentConfiguration)) background \(item.backgroundConfiguration)")
         }
         #endif
+        // A section's action (New Playlist): in the ink, as the rows, not the accent.
+        if case .action = item.content, var content = item.contentConfiguration as? UIListContentConfiguration {
+            content.imageProperties.tintColor = .secondaryLabel
+            content.imageProperties.tintColorTransformer = nil
+            content.textProperties.color = .label
+            content.textProperties.colorTransformer = nil
+            item.contentConfiguration = content
+            return
+        }
         // A section's heading (Library, Playlists) keeps the system's look.
         guard case .tab(let tab) = item.content, !(tab is UITabGroup) else { return }
         let selected = item.configurationState.isSelected
