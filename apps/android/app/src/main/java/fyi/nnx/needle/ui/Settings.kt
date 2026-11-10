@@ -67,6 +67,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.WavingHand
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.VolumeDown
 import androidx.compose.material.icons.rounded.ViewHeadline
@@ -1120,6 +1121,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         SwitchRow("Volume slider", "A slider under the buttons", app.volumeSlider, icon = Icons.Rounded.VolumeUp) { on ->
             update { it.copy(volumeSlider = on) }
+        }
+        Divider()
+        SwitchRow("Song format", "Such as FLAC 24/48, under the seek bar", app.formatChip, icon = Icons.Rounded.HighQuality) { on ->
+            update { it.copy(formatChip = on) }
         }
         Divider()
         SwitchRow("Swipe the cover to skip", "Left for next, right for back", app.swipeCover, icon = Icons.Rounded.Swipe) { on ->

@@ -631,7 +631,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
             val controls: @Composable () -> Unit = {
                 val shape = rememberShape(song)
-                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape, format = song.quality.ifEmpty { song.format }) }
+                val app by NeedleApp.instance.app.collectAsState()
+                // The format between the times (Settings › Appearance › Player › Song format).
+                val format = if (app.formatChip) song.quality.ifEmpty { song.format } else ""
+                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape, format = format) }
                 androidx.compose.animation.AnimatedVisibility(stopped != null) {
                     Text(
                         stopped.orEmpty(),
@@ -641,7 +644,6 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
                     )
                 }
-                val app by NeedleApp.instance.app.collectAsState()
                 val more by NeedleApp.instance.more.collectAsState()
                 val buttons = chosenButtons(more.playerButtons)
                 PlayerControls(buttons.take(MainButtons), playing, position, song.duration, haptics, repeat, panel, { panel = if (panel == it) Panel.Cover else it }, favorite.takeIf { !song.onComputer() }, toggleFavorite)
@@ -1487,7 +1489,12 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean, height
                 Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White))
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // With the format's pill between the times, a little room above and below it: the pill
+        // sits right over the large Play button, and looked pressed against it and the bar.
+        Row(
+            Modifier.fillMaxWidth().padding(top = if (format.isNotBlank()) 4.dp else 0.dp, bottom = if (format.isNotBlank()) 10.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(time((shown * length).toDouble()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
             Spacer(Modifier.weight(1f))
             // The song's format ("FLAC 24/48"), between the times in a thin pill, as on the iPhone.

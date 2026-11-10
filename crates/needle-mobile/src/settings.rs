@@ -153,6 +153,9 @@ pub struct AppSettings {
     /// Keep the screen on while the player shows, lyrics or not (a TV playing to a room).
     #[uniffi(default = false)]
     pub keep_screen_on_player: bool,
+    /// The player shows the song's format ("FLAC 24/48") between the times under the seek bar.
+    #[uniffi(default = true)]
+    pub format_chip: bool,
 }
 
 impl Default for AppSettings {
@@ -192,6 +195,7 @@ impl Default for AppSettings {
             server_mark: true,
             usb_bit_perfect: false,
             keep_screen_on_player: false,
+            format_chip: true,
         }
     }
 }
