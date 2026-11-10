@@ -186,23 +186,6 @@ struct AlbumTile: View {
                     .clipShape(.soft(Corner.cover))
                     .modifier(CoverSource(id: source))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
-                    .overlay(alignment: .bottomTrailing) {
-                        if hovered {
-                            Button { store.playAlbum(album) } label: {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundStyle(store.colors.onAccent)
-                                    .offset(x: 1)
-                                    .frame(width: 40, height: 40)
-                                    .background(store.colors.accent, in: .circle)
-                                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-                            }
-                            .buttonStyle(Pressable())
-                            .padding(10)
-                            .transition(.opacity)
-                            .accessibilityLabel("Play \(album.shownTitle)")
-                        }
-                    }
                     .padding(.bottom, 5)
                 Text(album.shownTitle).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
                 Text(album.shownArtist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
@@ -214,6 +197,29 @@ struct AlbumTile: View {
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
+        // Play on the cover's corner while the pointer is over the tile: a button of its own
+        // beside the link (inside it, it was part of the link's one button).
+        .overlay(alignment: .topLeading) {
+            if hovered {
+                GeometryReader { geo in
+                    Button { store.playAlbum(album) } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(store.colors.onAccent)
+                            .offset(x: 1)
+                            .frame(width: 40, height: 40)
+                            .background(store.colors.accent, in: .circle)
+                            .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+                    }
+                    .buttonStyle(Pressable())
+                    .padding(10)
+                    .accessibilityLabel("Play \(album.shownTitle)")
+                    // The cover is the tile's width, square, at its top.
+                    .frame(width: geo.size.width, height: geo.size.width, alignment: .bottomTrailing)
+                }
+                .transition(.opacity)
+            }
+        }
         .hoverEffect(.lift)
         .onHover { over in withFade(.easeOut(duration: 0.15)) { hovered = over } }
         .contextMenu { AlbumMenu(album: album) }

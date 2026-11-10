@@ -867,21 +867,8 @@ struct PlayerSidePane: View {
     }
 }
 
-/// A key that closes what shows (the player, a tool): Esc, from a hardware keyboard.
-struct EscapeKey: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button("Close", action: action)
-            .keyboardShortcut(.escape, modifiers: [])
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
-    }
-}
-
-/// The player's watches for a wide window: whether it is wide enough for two parts, the pane
-/// asked for from the floating bar or the keyboard, and Esc.
+/// The player's watches for a wide window: whether it is wide enough for two parts, and the pane
+/// asked for from the floating bar or the keyboard.
 private struct WideWatch: ViewModifier {
     @Environment(Store.self) private var store
     @Environment(WindowState.self) private var window
@@ -897,8 +884,6 @@ private struct WideWatch: ViewModifier {
                 withMotion(.smooth(duration: 0.3)) { twoParts = now }
             }
             .motion(.spring(response: 0.45, dampingFraction: 0.85), value: side)
-            // Esc closes the player, as the grabber and a swipe down do.
-            .background { EscapeKey { dismiss() } }
             // Asked from the floating bar or the keyboard: the lyrics or the queue.
             .onChange(of: window.playerPane, initial: true) { _, asked in
                 guard let asked else { return }

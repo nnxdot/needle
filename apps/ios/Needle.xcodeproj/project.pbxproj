@@ -27,6 +27,13 @@
 			remoteGlobalIDString = A1000000000000000000A003;
 			remoteInfo = NeedleWatch;
 		};
+		A10000000000000000006003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000008001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1000000000000000000A001;
+			remoteInfo = Needle;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -61,6 +68,7 @@
 		A1000000000000000000E003 /* NeedleWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NeedleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000000000000000000E004 /* NeedleWidgets-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NeedleWidgets-Info.plist"; sourceTree = "<group>"; };
 		A1000000000000000000E005 /* NeedleWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NeedleWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000E006 /* NeedleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NeedleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -68,6 +76,7 @@
 		A1000000000000000000D002 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Shared; sourceTree = "<group>"; };
 		A1000000000000000000D003 /* NeedleWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NeedleWidgets; sourceTree = "<group>"; };
 		A1000000000000000000D004 /* NeedleWatch */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NeedleWatch; sourceTree = "<group>"; };
+		A1000000000000000000D005 /* NeedleUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NeedleUITests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,6 +102,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000000000000000000C031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -103,6 +119,7 @@
 				A1000000000000000000D002 /* Shared */,
 				A1000000000000000000D003 /* NeedleWidgets */,
 				A1000000000000000000D004 /* NeedleWatch */,
+				A1000000000000000000D005 /* NeedleUITests */,
 				A1000000000000000000E002 /* Info.plist */,
 				A1000000000000000000E004 /* NeedleWidgets-Info.plist */,
 				A1000000000000000000E001 /* NeedleCore.xcframework */,
@@ -116,6 +133,7 @@
 				A1000000000000000000E000 /* Needle.app */,
 				A1000000000000000000E003 /* NeedleWidgets.appex */,
 				A1000000000000000000E005 /* NeedleWatch.app */,
+				A1000000000000000000E006 /* NeedleUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -190,6 +208,27 @@
 			productReference = A1000000000000000000E005 /* NeedleWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1000000000000000000A004 /* NeedleUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000009004 /* Build configuration list for PBXNativeTarget "NeedleUITests" */;
+			buildPhases = (
+				A1000000000000000000C032 /* Sources */,
+				A1000000000000000000C031 /* Frameworks */,
+				A1000000000000000000C033 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000005003 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1000000000000000000D005 /* NeedleUITests */,
+			);
+			name = NeedleUITests;
+			productName = NeedleUITests;
+			productReference = A1000000000000000000E006 /* NeedleUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -208,6 +247,10 @@
 					};
 					A1000000000000000000A003 = {
 						CreatedOnToolsVersion = 27.0;
+					};
+					A1000000000000000000A004 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = A1000000000000000000A001;
 					};
 				};
 			};
@@ -228,6 +271,7 @@
 				A1000000000000000000A001 /* Needle */,
 				A1000000000000000000A002 /* NeedleWidgets */,
 				A1000000000000000000A003 /* NeedleWatch */,
+				A1000000000000000000A004 /* NeedleUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -248,6 +292,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A1000000000000000000C023 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000000000000000000C033 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -300,6 +351,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000000000000000000C032 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -312,6 +370,11 @@
 			isa = PBXTargetDependency;
 			target = A1000000000000000000A003 /* NeedleWatch */;
 			targetProxy = A10000000000000000006002 /* PBXContainerItemProxy */;
+		};
+		A10000000000000000005003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1000000000000000000A001 /* Needle */;
+			targetProxy = A10000000000000000006003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -600,6 +663,52 @@
 			};
 			name = Release;
 		};
+		A10000000000000000007009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 2.0.6;
+				OTHER_SWIFT_FLAGS = (
+					"$(inherited)",
+					"-file-prefix-map",
+					"$(HOME)=/build",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NEEDLE_ID).uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Needle;
+			};
+			name = Debug;
+		};
+		A1000000000000000000700A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 2.0.6;
+				OTHER_SWIFT_FLAGS = (
+					"$(inherited)",
+					"-file-prefix-map",
+					"$(HOME)=/build",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NEEDLE_ID).uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Needle;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -635,6 +744,15 @@
 			buildConfigurations = (
 				A10000000000000000007007 /* Debug */,
 				A10000000000000000007008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000009004 /* Build configuration list for PBXNativeTarget "NeedleUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000007009 /* Debug */,
+				A1000000000000000000700A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

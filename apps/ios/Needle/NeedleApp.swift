@@ -200,8 +200,9 @@ struct RootView: View {
         .fullScreenCover(isPresented: $window.showPlayer) {
             NowPlayingView()
                 .modifier(PlayerZoom(space: player))
+                .modifier(WindowCommands(window: window, actions: actions))
                 // In a wide window the player's tools are popovers from their buttons.
-                .sheet(item: Binding(get: { wide && window.sheet?.isTool == true ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0) }
+                .sheet(item: Binding(get: { wide && window.sheet?.isTool == true ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
                 .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
                 .modifier(QuestionAlert(shown: true))
         }
@@ -209,17 +210,22 @@ struct RootView: View {
                                               set: { if !$0 { welcomeTest = false; window.welcomeAgain = false } })) {
             WelcomeView { where_, route in welcomeTest = false; window.welcomeAgain = false; go(where_, route) }
         }
-        .sheet(item: Binding(get: { window.showPlayer || window.showSettings ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0) }
+        .sheet(item: Binding(get: { window.showPlayer || window.showSettings ? nil : window.sheet }, set: { window.sheet = $0 })) {
+            SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions))
+        }
         // Settings, in a wide window: a large sheet of two columns, as the Mac's window. Its
         // own sheets, messages, and questions show over it.
         .sheet(isPresented: $window.showSettings) {
             SettingsSplit()
                 .presentationSizing(.page)
-                .sheet(item: Binding(get: { window.showPlayer ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0) }
+                .modifier(WindowCommands(window: window, actions: actions))
+                .sheet(item: Binding(get: { window.showPlayer ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
                 .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
                 .modifier(QuestionAlert(shown: !window.showPlayer))
         }
-        .sheet(isPresented: $window.newPlaylist) { NavigationStack { PlaylistEditor {} }.presentationSizing(.form) }
+        .sheet(isPresented: $window.newPlaylist) {
+            NavigationStack { PlaylistEditor {} }.presentationSizing(.form).modifier(WindowCommands(window: window, actions: actions))
+        }
         .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
         .modifier(QuestionAlert(shown: !window.showPlayer && !window.showSettings))
         .onChange(of: window.opening) { _, route in
@@ -239,10 +245,25 @@ struct RootView: View {
             // sync): the list of playlists shows instead.
             if case .playlist(let id) = place, !playlists.contains(where: { $0.id == id }) { place = .part(.playlists) }
         }
-        .focusedSceneValue(\.windowActions, WindowActions(go: { go($0, nil) }, back: back, search: { place = .search }))
+        .focusedSceneValue(\.windowActions, actions)
         .grain(store.app.grain)
+        #if DEBUG
+        // Test builds with -stub-player: the presses that reached the player, for a UI test.
+        .overlay(alignment: .bottomLeading) {
+            if Store.stubbed {
+                Text("presses:" + store.stubPresses.joined(separator: ",") + (Typing.shared.active ? ",typing" : ""))
+                    .font(.system(size: 2)).opacity(0.05).allowsHitTesting(false)
+                    .accessibilityIdentifier("test-presses")
+            }
+        }
+        #endif
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
+    }
+
+    /// What the keyboard's commands do in this window.
+    private var actions: WindowActions {
+        WindowActions(go: { go($0, nil) }, back: back, search: { place = .search })
     }
 
     /// A playlist in the sidebar: its name, and the server's mark (always on a read-only one).
@@ -590,6 +611,23 @@ private struct PlayerAccessory: ViewModifier {
     }
 }
 
+/// The keyboard's commands act in this window from what is presented in it too (the player,
+/// Settings, a sheet): a presentation is a part of its own, which the window's values do not
+/// reach.
+private struct WindowCommands: ViewModifier {
+    let window: WindowState
+    let actions: WindowActions
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.windowState, window)
+            .focusedSceneValue(\.windowActions, actions)
+            // Esc closes it, as Done, Cancel, or a swipe down do.
+            .background { EscapeKey { dismiss() }.frame(width: 0, height: 0).accessibilityHidden(true) }
+    }
+}
+
 /// What the keyboard's commands do in a window: go to a place, back, and search.
 struct WindowActions {
     let go: (Place) -> Void
@@ -697,7 +735,8 @@ private struct ToolPopover: ViewModifier {
                 }
             }
             .presentationCompactAdaptation(.popover)
-            .background { EscapeKey { window.sheet = nil } }
+            .focusedSceneValue(\.windowState, window)
+            .background { EscapeKey { window.sheet = nil }.frame(width: 0, height: 0).accessibilityHidden(true) }
         }
     }
 }

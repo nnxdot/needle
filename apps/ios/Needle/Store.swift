@@ -346,7 +346,11 @@ final class Store {
     /// Needle is on the screen, or not: four times a second while it shows, once a second
     /// while away (the lock screen, the watch, and the sleep timer still follow).
     func onScreen(_ shown: Bool) {
-        let seconds: TimeInterval = shown ? 0.25 : 1
+        var seconds: TimeInterval = shown ? 0.25 : 1
+        #if DEBUG
+        // A UI test waits for the app to be still between its steps: no quick ticks then.
+        if Self.stubbed { seconds = 2 }
+        #endif
         guard timer?.timeInterval != seconds else { return }
         startTicking(every: seconds)
     }
@@ -708,7 +712,18 @@ final class Store {
         message = "Added to the queue"
     }
 
+    #if DEBUG
+    /// Test builds: -stub-player keeps Play/Pause, Next, Previous, and seeking from the core, so
+    /// a UI test can never make a sound (a simulator plays at full volume); each press is
+    /// noted here instead, for the test to read.
+    static let stubbed = CommandLine.arguments.contains("-stub-player")
+    var stubPresses: [String] = []
+    #endif
+
     func toggle() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("toggle"); return }
+        #endif
         if onComputer {
             computer { try $0.pcDo(action: "toggle") }
         } else {
@@ -717,10 +732,24 @@ final class Store {
             core.toggle()
         }
     }
-    func next() { onComputer ? computer { try $0.pcDo(action: "next") } : core.next() }
-    func previous() { onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous() }
+    func next() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("next"); return }
+        #endif
+        onComputer ? computer { try $0.pcDo(action: "next") } : core.next()
+    }
+
+    func previous() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("previous"); return }
+        #endif
+        onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous()
+    }
 
     func seek(_ seconds: Double) {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("seek"); return }
+        #endif
         onComputer ? computer { try $0.pcSeek(seconds: seconds) } : core.seek(seconds: seconds)
     }
 
@@ -816,6 +845,13 @@ final class Store {
         if url.scheme?.hasPrefix("discord-") == true { return }
         guard url.scheme == "needle" else { return openFile(url) }
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
+        #if DEBUG
+        // Test builds: needle://test-new-window asks for a second window, as File › New Window.
+        if url.host == "test-new-window" {
+            UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil)
+            return
+        }
+        #endif
         switch url.host {
         case "player": if playback?.current != nil { window.showPlayer = true }
         case "stats": opening(.stats)
