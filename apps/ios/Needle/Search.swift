@@ -253,7 +253,7 @@ struct SearchView: View {
     /// The best match, large: its cover or photo, what it is, its name, and Play.
     private func bestMatch(_ best: SearchBest) -> some View {
         let (name, detail, label, artwork): (String, String, String, String?) = switch best.kind {
-        case "album": (best.album?.title ?? "", best.album?.artist ?? "", "Album", best.album?.artwork)
+        case "album": (best.album?.shownTitle ?? "", best.album?.shownArtist ?? "", "Album", best.album?.artwork)
         case "artist": (best.artist?.name ?? "", count(Int(best.artist?.songs ?? 0), "song"), "Artist", best.artist?.artwork)
         default: (best.song?.title ?? "", best.song?.artist ?? "", "Song", best.song?.artwork)
         }

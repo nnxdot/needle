@@ -73,7 +73,7 @@ struct RecordCrateView: View {
         )
         .accessibilityElement()
         .accessibilityLabel("Record crate")
-        .accessibilityValue("\(albums[index].title), by \(albums[index].artist), \(index + 1) of \(albums.count)")
+        .accessibilityValue("\(albums[index].shownTitle), by \(albums[index].shownArtist), \(index + 1) of \(albums.count)")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: flip(to: index + 1, count: albums.count)
@@ -104,8 +104,8 @@ struct RecordCrateView: View {
     private func info(_ album: Album) -> some View {
         VStack(spacing: 12) {
             VStack(spacing: 3) {
-                Text(album.title).font(.needle(.title3).bold()).lineLimit(1)
-                Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.shownTitle).font(.needle(.title3).bold()).lineLimit(1)
+                Text(album.shownArtist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(.horizontal)
             GlassEffectContainer(spacing: 4) {

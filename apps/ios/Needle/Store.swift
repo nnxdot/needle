@@ -1165,7 +1165,7 @@ final class Store {
             let week = await load { try $0.stats(days: 7) }
             var recent: [Snapshot.Item] = []
             for album in (home?.recent ?? home?.added ?? []).prefix(4) {
-                recent.append(.init(id: album.key, title: album.title, detail: album.artist,
+                recent.append(.init(id: album.key, title: album.shownTitle, detail: album.shownArtist,
                                     cover: await Self.shareCover(album.artwork, in: folder)))
             }
             snapshot.recent = recent

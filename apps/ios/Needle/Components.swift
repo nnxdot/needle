@@ -20,6 +20,14 @@ func isPlaceholderArtist(_ name: String) -> Bool {
     name.trimmingCharacters(in: .whitespaces).isEmpty || name == unknownArtist
 }
 
+extension Album {
+    /// Its name as shown: "Unknown album" when its songs have none, as on the Mac (and in the
+    /// core's own words), never an empty line.
+    var shownTitle: String { title.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : title }
+    /// Its artist as shown: the core's name for none when it has none.
+    var shownArtist: String { artist.trimmingCharacters(in: .whitespaces).isEmpty ? unknownArtist : artist }
+}
+
 enum Route: Hashable {
     case album(Album)
     /// An album opened from its tile: the page grows out of that tile's cover (its zoom id).
@@ -192,13 +200,16 @@ struct AlbumTile: View {
                             .buttonStyle(Pressable())
                             .padding(10)
                             .transition(.opacity)
-                            .accessibilityLabel("Play \(album.title)")
+                            .accessibilityLabel("Play \(album.shownTitle)")
                         }
                     }
                     .padding(.bottom, 5)
-                Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
-                Text(album.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.shownTitle).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(album.shownArtist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
+            // Its own height, whatever the others on the row: a lazy row measured by a shorter
+            // tile made the rest smaller.
+            .fixedSize(horizontal: false, vertical: true)
             .frame(width: width == Tiles.phoneShelf ? Tiles.shelf(wide) : width)
             .contentShape(.rect)
         }
