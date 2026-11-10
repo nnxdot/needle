@@ -521,6 +521,7 @@ struct GenreView: View {
 struct AlbumView: View {
     @Environment(Store.self) private var store
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.wide) private var wide
     let album: Album
     @State private var songs: [Song]?
     @State private var more: [Album] = []
@@ -534,6 +535,14 @@ struct AlbumView: View {
 
     /// The cover's side at the top of the page.
     private var headerSide: CGFloat { pageHeight > 0 ? pageHeight * 0.6 : .infinity }
+    @State private var pageWidth: CGFloat = 0
+
+    /// A wide window with room: the Mac's album page, the cover beside the name and buttons,
+    /// the songs as a table under them.
+    private var beside: Bool { wide && pageWidth >= 600 }
+
+    /// The songs' own artists, where some are not the album's (a wide window's table shows them).
+    private var mixedArtists: Bool { songs?.contains { $0.artist != album.artist } ?? false }
 
     init(album: Album) {
         self.album = album
@@ -543,13 +552,16 @@ struct AlbumView: View {
     var body: some View {
         let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         List(selection: selecting ? $selected : nil) {
-            header(look)
+            Group {
+                if beside { besideHeader(look) } else { header(look) }
+            }
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
                 .selectionDisabled()
             ForEach(Array((songs ?? []).enumerated()), id: \.element.id) { i, song in
-                SongRow(song: song, number: Int(song.trackNumber > 0 ? song.trackNumber : Int64(i + 1))) {
+                SongRow(song: song, number: Int(song.trackNumber > 0 ? song.trackNumber : Int64(i + 1)),
+                        albumArtist: mixedArtists ? album.artist : nil) {
                     store.play(songs ?? [], from: i)
                 }
                 .tag(song.id)
@@ -563,10 +575,13 @@ struct AlbumView: View {
                 .selectionDisabled()
         }
         .listStyle(.plain)
-        .ignoresSafeArea(edges: .top)
+        // The cover runs up under the bar on a phone; beside the name it starts under it.
+        .ignoresSafeArea(edges: beside ? [] : .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > min($0.containerSize.width, headerSide) * 0.8 } action: { _, past in
+        .readableWidth(1180)
+        .background(alignment: .top) { if beside { HeaderGlow(path: album.artwork, seed: album.title + album.artist, look: look) } }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { pageHeight = $0.height; pageWidth = $0.width }
+        .onScrollGeometryChange(for: Bool.self) { [beside] in $0.contentOffset.y > (beside ? 240 : min($0.containerSize.width, headerSide) * 0.8) } action: { _, past in
             withFade(.easeOut(duration: 0.2)) { pastHeader = past }
         }
         .paged(look)
@@ -624,16 +639,54 @@ struct AlbumView: View {
         }
     }
 
+    /// A wide window's header, as the Mac's: the cover at the left, and beside it "Album", the
+    /// name, the artist, what it holds, and Play, Shuffle, and the album's menu.
+    private func besideHeader(_ look: PageColors) -> some View {
+        let side = min(260, max(180, pageHeight * 0.36))
+        return HStack(alignment: .bottom, spacing: 28) {
+            Artwork(path: album.artwork, seed: album.title + album.artist, size: 800)
+                .aspectRatio(1, contentMode: .fill)
+                .frame(width: side, height: side)
+                .overlay {
+                    MovingCoverLayer(song: songs?.first, on: store.app.animatedCovers && !systemReduceMotion && !store.app.reduceMotion)
+                        .clipped()
+                }
+                .clipShape(.soft(Corner.cover))
+                .shadow(color: .black.opacity(look.dark ? 0.45 : 0.25), radius: 26, y: 14)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Album").font(.needle(.subheadline).weight(.semibold)).foregroundStyle(look.muted)
+                Text(album.title).font(.needleTitle(size: 38, relativeTo: .largeTitle)).lineLimit(2).minimumScaleFactor(0.7)
+                Button { store.opening = .artist(album.artist) } label: {
+                    Text(album.artist).font(.needle(.title3).weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).lineLimit(1)
+                }
+                .buttonStyle(.borderless)
+                .hoverEffect(.highlight)
+                .disabled(isPlaceholderArtist(album.artist))
+                Text(([details] + [summary]).filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.needle(.footnote).weight(.medium)).foregroundStyle(look.muted)
+                if let songs, !songs.isEmpty {
+                    PlayButtons(songs: songs, look: look).padding(.top, 10)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 20)
+        .padding(.bottom, 18)
+    }
+
     @ViewBuilder
     private func footer(_ look: PageColors) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(summary).font(.needle(.footnote)).foregroundStyle(look.muted)
-                .padding(.horizontal).padding(.top, 14)
+            if !beside {
+                Text(summary).font(.needle(.footnote)).foregroundStyle(look.muted)
+                    .padding(.horizontal).padding(.top, 14)
+            }
             if !more.isEmpty, !isPlaceholderArtist(album.artist) {
                 SectionTitle(title: "More by \(album.artist)", route: .artist(album.artist))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 14) {
-                        ForEach(more) { AlbumTile(album: $0, width: 150, shelf: "more by") }
+                    LazyHStack(alignment: .top, spacing: Tiles.gap(wide)) {
+                        ForEach(more) { AlbumTile(album: $0, width: Tiles.shelf(wide), shelf: "more by") }
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 10)
@@ -646,9 +699,10 @@ struct AlbumView: View {
     private var details: String {
         var parts: [String] = []
         if album.year > 0 { parts.append(String(album.year)) }
-        // The format, when every song has the same one.
-        if let songs, let format = songs.first?.format, !format.isEmpty, songs.allSatisfy({ $0.format == format }) {
-            parts.append(format.uppercased())
+        // The format (the core's text, "FLAC 24/48"), when every song has the same one.
+        let text = { (song: Song) in song.quality.isEmpty ? song.format.uppercased() : song.quality }
+        if let songs, let format = songs.first.map(text), !format.isEmpty, songs.allSatisfy({ text($0) == format }) {
+            parts.append(format)
         }
         return parts.joined(separator: " · ")
     }
@@ -658,6 +712,28 @@ struct AlbumView: View {
         guard let songs else { return "\(count(Int(album.songs), "song")), \(clock(album.duration))" }
         if songs.isEmpty { return "These songs are not on this iPhone." }
         return "\(count(songs.count, "song")), \(clock(songs.reduce(0) { $0 + $1.duration }))"
+    }
+}
+
+/// The cover, softly blurred, glowing at the top of a wide window's album or playlist page and
+/// fading into the page, as the Mac's.
+struct HeaderGlow: View {
+    let path: String?
+    let seed: String
+    let look: PageColors
+
+    var body: some View {
+        Artwork(path: path, seed: seed, size: 200)
+            .aspectRatio(contentMode: .fill)
+            .frame(height: 460)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            .blur(radius: 60, opaque: true)
+            .opacity(look.dark ? 0.45 : 0.35)
+            .mask(LinearGradient(colors: [.black, .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
