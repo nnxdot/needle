@@ -206,6 +206,8 @@ struct GenreMapView: View {
                 .padding(20)
             }
         }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle("Genre map")
         .themed()
         .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)|\(tries)") {

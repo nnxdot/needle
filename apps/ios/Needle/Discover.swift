@@ -163,7 +163,7 @@ struct NumbersView: View {
                         tile(Int(n.albums).formatted(), "albums")
                         tile(Int(n.artists).formatted(), "artists")
                         tile(hours(n.duration), "of music")
-                        if n.size > 0 { tile(ByteCountFormatter.string(fromByteCount: n.size, countStyle: .file), "on this iPhone") }
+                        if n.size > 0 { tile(ByteCountFormatter.string(fromByteCount: n.size, countStyle: .file), "on this \(Device.name)") }
                         if n.serverSongs > 0 { tile(Int(n.serverSongs).formatted(), "from your server") }
                     }
                     .padding(.horizontal)
@@ -200,6 +200,8 @@ struct NumbersView: View {
                 ProgressView().padding(.top, 80)
             }
         }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle("Library in numbers")
         .themed()
         .task(id: store.libraryVersion) { numbers = await store.load { try $0.libraryNumbers() } }

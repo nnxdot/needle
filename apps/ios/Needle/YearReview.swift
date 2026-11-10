@@ -44,6 +44,8 @@ struct YearReviewView: View {
             }
             .padding()
         }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(720)
         .navigationTitle("Your year in music")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
