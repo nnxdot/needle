@@ -12,13 +12,17 @@ use gpui_component::{
     button::{Button, ButtonVariants},
 };
 
-/// The folder's name: the last part of its path.
+/// The folder's name: the last part of its path, with either separator (the same on every
+/// system, also for a path written on another one).
 fn folder_name(root: &str) -> String {
     let shown = root.trim_start_matches("\\\\?\\");
-    std::path::Path::new(shown)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| shown.to_string())
+    shown
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(shown)
+        .to_string()
 }
 
 /// What the file manager is called here.
