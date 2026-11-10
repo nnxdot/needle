@@ -43,11 +43,17 @@ private struct ReadableWidth: ViewModifier {
     @State private var width: CGFloat = 0
 
     func body(content: Content) -> some View {
-        let side = wide ? max(0, (width - most) / 2) : 0
-        content
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            // Room at the sides as safe area: a list keeps its own insets, lines, and swipes.
-            .safeAreaPadding(.horizontal, side)
+        let side = max(0, (width - most) / 2)
+        Group {
+            // Room at the sides as the scroll content's margins: a list keeps its own insets,
+            // lines, and swipes, and its background still fills the page.
+            if wide {
+                content.contentMargins(.horizontal, side, for: .scrollContent)
+            } else {
+                content
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 

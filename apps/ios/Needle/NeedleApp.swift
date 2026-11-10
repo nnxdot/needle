@@ -372,7 +372,12 @@ struct RootView: View {
                          "playerbuttons": [.settings, .settingsAppearance, .playerButtons],
                          "about": [.settings, .about], "sound": [.settings, .settingsSound], "fixlibrary": [.settings, .fixLibrary],
                          "missingtags": [.settings, .fixLibrary, .albumProblems], "playlists": [.playlists]][args[i + 1]] {
-            paths[place] = NavigationPath(route)
+            // After the test turn (-fake-landscape), so the page opens at its size.
+            let wait = args.contains("-fake-landscape") ? 2.5 : 0
+            Task {
+                try? await Task.sleep(for: .seconds(wait))
+                paths[place] = NavigationPath(route)
+            }
         }
         // -playlist <name> opens that playlist's page, from Playlists.
         if let name = value("-playlist") {

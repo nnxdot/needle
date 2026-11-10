@@ -16,6 +16,8 @@ struct YearReviewView: View {
     @State private var page = CommandLine.arguments.firstIndex(of: "-year-page").flatMap { i in
         CommandLine.arguments.indices.contains(i + 1) ? Int(CommandLine.arguments[i + 1]) : nil } ?? 0
 
+    @Environment(\.wide) private var wide
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -43,9 +45,11 @@ struct YearReviewView: View {
                 }
             }
             .padding()
+            // A readable width in a wide window (an iPad), not a band across it: the cards'
+            // pages fill their width whatever the safe area.
+            .frame(maxWidth: wide ? 720 : .infinity)
+            .frame(maxWidth: .infinity)
         }
-        // A readable width in a wide window (an iPad), not a band across it.
-        .readableWidth(720)
         .navigationTitle("Your year in music")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
