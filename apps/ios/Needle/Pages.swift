@@ -3,17 +3,18 @@ import UniformTypeIdentifiers
 
 /// A row of cards that scrolls sideways and stops at each one.
 struct Shelf<Content: View>: View {
+    @Environment(\.wide) private var wide
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: 12) { content() }
+            LazyHStack(alignment: .top, spacing: wide ? 18 : 12) { content() }
                 .scrollTargetLayout()
                 .padding(.vertical, 6)
         }
         .scrollTargetBehavior(.viewAligned)
         .scrollIndicators(.hidden)
-        .contentMargins(.horizontal, 16, for: .scrollContent)
+        .contentMargins(.horizontal, Tiles.margin(wide), for: .scrollContent)
         // The cards' shadows go past the row; cut off there, they made a band across the page.
         .scrollClipDisabled()
     }
@@ -80,7 +81,12 @@ struct HomeView: View {
                         empty
                     } else {
                         NowCard()
-                        if let reviewYear { YearHomeCard(year: reviewYear).padding(.horizontal).padding(.top, 14) }
+                        if let reviewYear {
+                            YearHomeCard(year: reviewYear)
+                                .frame(maxWidth: wide ? 620 : .infinity)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, Tiles.margin(wide)).padding(.top, 14)
+                        }
                         shelf("Jump back in", "Albums you played last", home.recent, route: .history)
                         shelf("New in your library", "Added most recently", home.added, route: .albums)
                         // The arrows open the lists the shelves come from: the most played (in
@@ -180,12 +186,16 @@ struct HomeView: View {
 /// and goes softly when music starts or ends.
 struct NowCard: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
 
     var body: some View {
         ZStack {
             if let song = store.playback?.current {
                 NowCardBody(song: song)
-                    .padding(.horizontal).padding(.top, 6)
+                    // A card, not a band across a wide window.
+                    .frame(maxWidth: wide ? 620 : .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Tiles.margin(wide)).padding(.top, 6)
                     .transition(Motion.transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity)))
             }
         }
@@ -249,22 +259,25 @@ struct TopArtist: Identifiable, Hashable, Sendable {
 
 /// An artist as a round picture with their name under it.
 struct ArtistBubble: View {
+    @Environment(\.wide) private var wide
     let name: String
     let artwork: String?
 
     var body: some View {
+        let side = Tiles.bubble(wide)
         NavigationLink(value: Route.artist(name)) {
             VStack(spacing: 7) {
                 Artwork(path: artwork, seed: name, size: 300)
-                    .frame(width: 104, height: 104)
+                    .frame(width: side, height: side)
                     .clipShape(.circle)
                     .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
                 Text(name).font(.needle(.footnote).weight(.medium)).lineLimit(1)
             }
-            .frame(width: 110)
+            .frame(width: side + 6)
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
     }
 }
 
@@ -301,6 +314,7 @@ struct PlaylistCover: View {
 
 struct LibraryView: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     @State private var added: [Album] = []
 
     private var rows: [(String, String, Route)] { Self.parts }
@@ -335,13 +349,17 @@ struct LibraryView: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
+                        .hoverEffect(.highlight)
                         if i < rows.count - 1 { Divider().padding(.leading, 58) }
                     }
                 }
                 // A plain group in the page's raised colour: rows are content, and glass is kept
                 // for the controls over it.
                 .background(store.colors.card, in: .soft(Corner.large))
-                .padding(.horizontal)
+                // A group of a readable width in a wide window, not a band across it.
+                .frame(maxWidth: wide ? 640 : .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Tiles.margin(wide))
                 .padding(.top, 8)
                 if !added.isEmpty {
                     SectionTitle(title: "Recently added")
@@ -361,16 +379,18 @@ struct LibraryView: View {
 }
 
 struct AlbumGrid: View {
+    @Environment(\.wide) private var wide
     let albums: [Album]
     /// Which grid on the page, for the cover the album's page grows from.
     var shelf = "grid"
 
     var body: some View {
-        // Two to a row on a phone held upright, more on its side.
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 18) {
+        // Two to a row on a phone held upright, more on its side; on an iPad as many as fit
+        // tiles of a good size.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Tiles.least(wide)), spacing: Tiles.gap(wide))], spacing: wide ? 26 : 18) {
             ForEach(albums) { AlbumTile(album: $0, width: nil, shelf: shelf) }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, Tiles.margin(wide))
     }
 }
 
@@ -430,6 +450,7 @@ struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
+        .readableWidth()
         .overlay {
             if playlists == nil { ProgressView() }
             else if playlists?.isEmpty == true {
@@ -467,15 +488,16 @@ struct GenresView: View {
 /// colour (content, not glass).
 struct GenreTiles: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let genres: [Genre]
 
     var body: some View {
         let colors = store.colors
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 200 : 150), spacing: wide ? 16 : 12)], spacing: wide ? 16 : 12) {
             ForEach(genres) { genre in
                 NavigationLink(value: Route.genre(genre.name)) {
                     Artwork(path: genre.artwork, seed: genre.name, size: 300)
-                        .frame(height: 104)
+                        .frame(height: wide ? 124 : 104)
                         .frame(maxWidth: .infinity)
                         .overlay(alignment: .bottomLeading) {
                             Text(genre.name).font(.needle(.subheadline).bold()).lineLimit(1)
@@ -487,9 +509,10 @@ struct GenreTiles: View {
                         .clipShape(.soft(Corner.middle))
                 }
                 .buttonStyle(Pressable())
+                .hoverEffect(.lift)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, Tiles.margin(wide))
     }
 }
 
@@ -758,6 +781,7 @@ struct Fade: View {
 struct ArtistView: View {
     @Environment(Store.self) private var store
     @Environment(\.zoomScope) private var scope
+    @Environment(\.wide) private var wide
     let name: String
     @State private var top: [Song] = []
     @State private var albums: [Album]?
@@ -790,12 +814,12 @@ struct ArtistView: View {
                 if let latest { featured(latest, look) }
                 if !top.isEmpty {
                     SectionTitle(title: "Top Songs")
-                    VStack(spacing: 10) {
+                    VStack(spacing: wide ? 2 : 10) {
                         ForEach(Array(top.prefix(5).enumerated()), id: \.element.id) { i, song in
                             SongRow(song: song) { store.play(top, from: i) }
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, Tiles.margin(wide))
                     .padding(.top, 8)
                 }
                 if let albums, !albums.isEmpty {
@@ -867,7 +891,10 @@ struct ArtistView: View {
     /// The picture's height: 590 points, or about 60% of the page when that is less (a phone on
     /// its side), with room left for the name and the buttons over its foot.
     private var headerHeight: CGFloat {
-        pageHeight > 0 ? max(300, min(590, pageHeight * 0.6)) : 590
+        // A band in a wide window (an iPad's), never most of the screen.
+        let most: CGFloat = wide ? 440 : 590
+        let part: CGFloat = wide ? 0.5 : 0.6
+        return pageHeight > 0 ? max(300, min(most, pageHeight * part)) : most
     }
 
     /// As Apple Music's: the picture tall across the top, the logo (or name) in the middle
@@ -990,7 +1017,9 @@ struct ArtistView: View {
         }
         .buttonStyle(Pressable())
         .contextMenu { AlbumMenu(album: album) }
-        .padding(.horizontal)
+        .frame(maxWidth: wide ? 620 : .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Tiles.margin(wide))
         .padding(.top, 22)
     }
 }

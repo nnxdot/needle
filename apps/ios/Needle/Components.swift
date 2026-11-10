@@ -123,6 +123,7 @@ func count(_ n: Int, _ one: String, _ many: String? = nil) -> String {
 
 /// A section's title, with an arrow when it opens a full list.
 struct SectionTitle: View {
+    @Environment(\.wide) private var wide
     let title: String
     var route: Route?
     /// A short grey line under the title.
@@ -150,8 +151,8 @@ struct SectionTitle: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal)
-        .padding(.top, 22)
+        .padding(.horizontal, Tiles.margin(wide))
+        .padding(.top, wide ? 28 : 22)
     }
 }
 
@@ -159,8 +160,10 @@ struct SectionTitle: View {
 struct AlbumTile: View {
     @Environment(Store.self) private var store
     @Environment(\.zoomScope) private var scope
+    @Environment(\.wide) private var wide
     let album: Album
-    var width: CGFloat? = 150
+    /// Its width on a shelf (nil in a grid, where the grid sizes it); wider in a wide window.
+    var width: CGFloat? = Tiles.phoneShelf
     /// Which shelf or grid on the page holds it: an album can be on two shelves at once.
     var shelf = "grid"
     /// The pointer is over the tile (an iPad's): Play shows on its cover, as on the Mac.
@@ -196,7 +199,7 @@ struct AlbumTile: View {
                 Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
                 Text(album.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(width: width)
+            .frame(width: width == Tiles.phoneShelf ? Tiles.shelf(wide) : width)
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
@@ -497,6 +500,7 @@ struct SongList: View {
             }
         }
         .listStyle(.plain)
+        .readableWidth(1180)
         .navigationTitle(title)
         .themed()
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
@@ -535,6 +539,7 @@ struct SelectToolbar: ToolbarContent {
 /// libraries.
 struct PagedSongs: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let title: String
     let query: String
     @State private var songs: [Song] = []
@@ -549,15 +554,17 @@ struct PagedSongs: View {
                 // The container's spacing under the gap: Play and Shuffle never melt together.
                 GlassEffectContainer(spacing: 4) {
                     HStack(spacing: 12) {
+                        // Two pills of their own size at the left in a wide window.
                         Button { playAll(shuffled: false) } label: {
-                            Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                            Label("Play", systemImage: "play.fill").frame(maxWidth: wide ? nil : .infinity).padding(.vertical, 6).padding(.horizontal, wide ? 14 : 0)
                         }
                         .buttonStyle(.glassProminent)
                         .foregroundStyle(store.colors.onAccent)
                         Button { playAll(shuffled: true) } label: {
-                            Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
+                            Label("Shuffle", systemImage: "shuffle").frame(maxWidth: wide ? nil : .infinity).padding(.vertical, 6).padding(.horizontal, wide ? 14 : 0)
                         }
                         .buttonStyle(.glass)
+                        if wide { Spacer(minLength: 0) }
                     }
                 }
                 .font(.needle(.headline))
@@ -570,6 +577,7 @@ struct PagedSongs: View {
             }
         }
         .listStyle(.plain)
+        .readableWidth(1180)
         .navigationTitle(title)
         .themed()
         .environment(\.editMode, .constant(selecting ? .active : .inactive))

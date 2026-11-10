@@ -60,7 +60,11 @@ enum Tiles {
     /// The page's margin at the sides of a grid.
     static func margin(_ wide: Bool) -> CGFloat { wide ? 28 : 16 }
     /// A tile's width on a shelf.
-    static func shelf(_ wide: Bool) -> CGFloat { wide ? 180 : 150 }
+    static func shelf(_ wide: Bool) -> CGFloat { wide ? 180 : phoneShelf }
+    /// A tile's width on a phone's shelf (an album tile's own width unless it is given one).
+    static let phoneShelf: CGFloat = 150
+    /// An artist's round picture on a shelf.
+    static func bubble(_ wide: Bool) -> CGFloat { wide ? 128 : 104 }
 }
 
 // MARK: - Dragging songs onto a playlist
