@@ -146,29 +146,9 @@ final class Store {
     private(set) var messageCount = 0
     /// A plugin's question, answered with text.
     var question: Question?
-    var showPlayer = false
-    /// Settings as a large sheet of two columns (an iPad's wide window; an iPhone opens the
-    /// page in its tab).
-    var showSettings = false
-    /// The new playlist's sheet, from the + of the sidebar's Playlists.
-    var newPlaylist = false
-    /// The player was asked to show "lyrics" or "queue" (the floating bar, the keyboard): it
-    /// shows it, then clears this.
-    var playerPane: String?
-
-    /// Opens the player with the lyrics or the queue showing (beside the cover in a wide
-    /// window, in its place in a narrow one).
-    func openPlayer(with pane: String) {
-        guard playback?.current != nil else { return }
-        playerPane = pane
-        showPlayer = true
-    }
-    /// The welcome guide, asked for again (Settings › About).
-    var welcomeAgain = false
-    /// A page to open, from a widget or a link.
-    var opening: Route?
-    /// A sheet over everything: adding to a playlist, tags, identifying, lyrics timing.
-    var sheet: Sheet?
+    /// The windows open (an iPad can show two). What is open in each (the player, sheets,
+    /// pages) is its own `WindowState`.
+    @ObservationIgnored let windows = Windows()
     /// Plugin commands that act on chosen songs, for the songs' menus.
     private(set) var songCommands: [SongCommand] = []
 
@@ -288,7 +268,7 @@ final class Store {
         if welcomed, UserDefaults.standard.string(forKey: "whats-new-seen") != version {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1))
-                if self.sheet == nil { self.sheet = .whatsNew }
+                self.inFront { if $0.sheet == nil { $0.sheet = .whatsNew } }
             }
         }
         UserDefaults.standard.set(version, forKey: "whats-new-seen")
@@ -342,7 +322,7 @@ final class Store {
         if ["-show-player", "-show-lyrics", "-show-queue"].contains(where: CommandLine.arguments.contains) {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.showPlayer = true
+                self?.inFront { $0.showPlayer = true }
             }
         }
         #endif
@@ -683,7 +663,7 @@ final class Store {
         Task {
             for _ in 0..<40 {
                 try? await Task.sleep(for: .milliseconds(250))
-                if local?.current != nil, local?.queueVersion != before { showPlayer = true; return }
+                if local?.current != nil, local?.queueVersion != before { inFront { $0.showPlayer = true }; return }
             }
         }
     }
@@ -713,7 +693,7 @@ final class Store {
 
     /// Opens the player when a song is chosen, if that is on.
     func played() {
-        if app.openPlayerOnPlay { showPlayer = true }
+        if app.openPlayerOnPlay { inFront { $0.showPlayer = true } }
     }
 
     func playNext(_ songs: [Song]) {
@@ -830,21 +810,22 @@ final class Store {
     }
 
     /// Opens a link from a widget, Siri, or another app: `needle://album?id=…` and so on, or a
-    /// music file.
-    func open(_ url: URL) {
+    /// music file, in the window it came to.
+    func open(_ url: URL, in window: WindowState) {
+        let opening = { (route: Route) in window.opening = route }
         if url.scheme?.hasPrefix("discord-") == true { return }
         guard url.scheme == "needle" else { return openFile(url) }
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
         switch url.host {
-        case "player": if playback?.current != nil { showPlayer = true }
-        case "stats": opening = .stats
+        case "player": if playback?.current != nil { window.showPlayer = true }
+        case "stats": opening(.stats)
         case "album":
             Task {
-                if let album = await load({ try $0.albums().first { $0.key == id } }) ?? nil { opening = .album(album) }
+                if let album = await load({ try $0.albums().first { $0.key == id } }) ?? nil { opening(.album(album)) }
             }
         case "playlist":
             Task {
-                if let playlist = await load({ try $0.playlists().first { $0.id == id } }) ?? nil { opening = .playlist(playlist) }
+                if let playlist = await load({ try $0.playlists().first { $0.id == id } }) ?? nil { opening(.playlist(playlist)) }
             }
         default: break
         }

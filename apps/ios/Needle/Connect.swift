@@ -6,6 +6,7 @@ import VisionKit
 /// other.
 struct ComputerView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @State private var connected = false
     @State private var link = ""
     @State private var busy = false
@@ -125,7 +126,7 @@ struct ComputerView: View {
                 ComputerVolume()
             }
             Section {
-                Button("Show it in the player", systemImage: "play.rectangle") { store.showPlayer = true }
+                Button("Show it in the player", systemImage: "play.rectangle") { window.showPlayer = true }
                     .disabled(!store.onComputer)
             } footer: {
                 Text("While nothing plays on this \(Device.name), its player works the computer's.")

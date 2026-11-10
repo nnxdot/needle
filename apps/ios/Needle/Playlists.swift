@@ -461,6 +461,7 @@ struct AddToPlaylistView: View {
 /// What can be done with songs chosen in a list.
 struct SelectionActions: ToolbarContent {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let songs: [Song]
 
     var body: some ToolbarContent {
@@ -469,7 +470,7 @@ struct SelectionActions: ToolbarContent {
             Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext(songs) }
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue(songs) }
             Menu {
-                Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
+                Button("Add to Playlist", systemImage: "music.note.list") { window.sheet = .addToPlaylist(songs) }
                 Button("Add to Favorites", systemImage: "heart") {
                     let ids = songs.map(\.id)
                     Task {
@@ -483,7 +484,7 @@ struct SelectionActions: ToolbarContent {
                     Button("Save to this \(Device.name)", systemImage: "square.and.arrow.down") { store.saveToPhone(songs.filter(\.fromServer)) }
                 }
                 if !songs.contains(where: \.fromServer) {
-                    Button("Edit Tags", systemImage: "tag") { store.sheet = .tags(songs.map(\.id)) }
+                    Button("Edit Tags", systemImage: "tag") { window.sheet = .tags(songs.map(\.id)) }
                 }
             } label: { Image(systemName: "ellipsis.circle") }
         }

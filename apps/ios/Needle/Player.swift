@@ -117,6 +117,7 @@ struct MiniLyricLine: View {
 /// the lyrics and the songs up next.
 struct NowPlayingView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var pane = Pane.cover
@@ -474,12 +475,12 @@ struct NowPlayingView: View {
                 loopMenu(song)
             }
             if !store.onComputer {
-                Button("Speed and Pitch", systemImage: "gauge.with.dots.needle.67percent") { store.sheet = .speed }
+                Button("Speed and Pitch", systemImage: "gauge.with.dots.needle.67percent") { window.sheet = .speed }
             }
             if !store.onComputer {
                 Button("Visualizer", systemImage: "waveform.circle") { showVisualizer = true }
             }
-            Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
+            Button("Play on…", systemImage: "hifispeaker.2") { window.sheet = .speakers }
         } label: {
             Image(systemName: "ellipsis").font(.needle(.title3).weight(.semibold))
                 .frame(width: 44, height: 44)
@@ -546,7 +547,7 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func artistButton(_ song: Song?) -> some View {
         if let song, !song.onComputer, !isPlaceholderArtist(song.artist) {
-            Button { store.opening = .artist(song.artist) } label: {
+            Button { window.opening = .artist(song.artist) } label: {
                 Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
             }
             .buttonStyle(.plain)
@@ -860,6 +861,7 @@ struct EscapeKey: View {
 /// asked for from the floating bar or the keyboard, and Esc.
 private struct WideWatch: ViewModifier {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Binding var twoParts: Bool
     @Binding var side: String
     @Binding var pane: NowPlayingView.Pane
@@ -875,9 +877,9 @@ private struct WideWatch: ViewModifier {
             // Esc closes the player, as the grabber and a swipe down do.
             .background { EscapeKey { dismiss() } }
             // Asked from the floating bar or the keyboard: the lyrics or the queue.
-            .onChange(of: store.playerPane, initial: true) { _, asked in
+            .onChange(of: window.playerPane, initial: true) { _, asked in
                 guard let asked else { return }
-                store.playerPane = nil
+                window.playerPane = nil
                 side = asked
                 pane = asked == "lyrics" ? .lyrics : .queue
             }
@@ -1353,6 +1355,7 @@ struct RoutePicker: UIViewRepresentable {
 /// sung when the lyrics have word timing; or the plain words.
 struct LyricsPane: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let song: Song?
     /// The player's Lyrics look: only the words, very large, centred.
     var stage = false
@@ -1406,7 +1409,7 @@ struct LyricsPane: View {
                             }
                         }
                         .buttonStyle(onPane ? AnyPrimitiveButtonStyle(.bordered) : AnyPrimitiveButtonStyle(.glass))
-                        Button("Add and time them") { store.sheet = .timing(song) }
+                        Button("Add and time them") { window.sheet = .timing(song) }
                             .buttonStyle(onPane ? AnyPrimitiveButtonStyle(.bordered) : AnyPrimitiveButtonStyle(.glass))
                     }
                 }

@@ -51,7 +51,7 @@ extension View {
     /// Opens the screens of [`Route`] from any navigation stack.
     func routes() -> some View {
         navigationDestination(for: Route.self) { route in
-            Self.page(route).modifier(ZoomScope())
+            Self.page(route).modifier(ZoomScope()).modifier(PageSlot())
         }
     }
 
@@ -223,6 +223,7 @@ struct AlbumTile: View {
 
 struct AlbumMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let album: Album
 
     var body: some View {
@@ -230,15 +231,15 @@ struct AlbumMenu: View {
         Button("Shuffle", systemImage: "shuffle") { store.playAlbum(album, shuffled: true) }
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { withSongs(store.playNext) }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { withSongs(store.enqueue) }
-        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
+        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { window.sheet = .addToPlaylist($0) } }
         Button("Edit Tags", systemImage: "tag") {
             withSongs { songs in
                 let own = songs.filter { !$0.fromServer }.map(\.id)
-                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { store.sheet = .tags(own) }
+                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { window.sheet = .tags(own) }
             }
         }
         Divider()
-        Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(album.artist) }
+        Button("Go to Artist", systemImage: "music.microphone") { window.opening = .artist(album.artist) }
             .disabled(isPlaceholderArtist(album.artist))
     }
 
@@ -414,6 +415,7 @@ struct HeartButton: View {
 
 struct SongMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let song: Song
     var inPlayer = false
 
@@ -423,7 +425,7 @@ struct SongMenu: View {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext([song]) }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue([song]) }
             }
-            Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist([song]) }
+            Button("Add to Playlist", systemImage: "music.note.list") { window.sheet = .addToPlaylist([song]) }
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
@@ -444,18 +446,18 @@ struct SongMenu: View {
                 Label("Rate", systemImage: "star")
             }
             Divider()
-            Button("Go to Album", systemImage: "square.stack") { store.opening = .albumOf(song.id) }
-            Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(song.artist) }
+            Button("Go to Album", systemImage: "square.stack") { window.opening = .albumOf(song.id) }
+            Button("Go to Artist", systemImage: "music.microphone") { window.opening = .artist(song.artist) }
                 .disabled(isPlaceholderArtist(song.artist))
             Divider()
             if song.fromServer {
                 Button("Keep Offline", systemImage: "arrow.down.circle") { store.keepOffline([song], keep: true) }
                 Button("Save to This \(Device.name)", systemImage: "square.and.arrow.down") { store.saveToPhone([song]) }
             } else {
-                Button("Edit Tags", systemImage: "tag") { store.sheet = .tags([song.id]) }
-                Button("Identify by Sound", systemImage: "waveform.badge.magnifyingglass") { store.sheet = .identify(song.id) }
+                Button("Edit Tags", systemImage: "tag") { window.sheet = .tags([song.id]) }
+                Button("Identify by Sound", systemImage: "waveform.badge.magnifyingglass") { window.sheet = .identify(song.id) }
             }
-            Button("Time the Lyrics", systemImage: "text.badge.checkmark") { store.sheet = .timing(song) }
+            Button("Time the Lyrics", systemImage: "text.badge.checkmark") { window.sheet = .timing(song) }
             if !store.songCommands.isEmpty {
                 Menu {
                     ForEach(store.songCommands) { command in
@@ -744,7 +746,7 @@ struct TabStack<Root: View>: View {
     @Namespace private var covers
 
     var body: some View {
-        NavigationStack(path: $path) { root().routes() }
+        NavigationStack(path: $path) { root().modifier(PageSlot()).routes() }
             .environment(\.coverSpace, covers)
     }
 }

@@ -290,6 +290,49 @@ extension View {
             .environment(\.colorScheme, colors.dark ? .dark : .light)
             .toolbarColorScheme(colors.dark ? .dark : .light, for: .navigationBar)
             .animation(Motion.fade(.easeOut(duration: 0.35)), value: colors)
+            // For the sidebar beside it (`PageSlot`).
+            .preference(key: PageDarkKey.self, value: colors.dark)
+    }
+}
+
+/// A page in its picture's colours is dark or light (nil: the theme's own page).
+struct PageDarkKey: PreferenceKey {
+    static let defaultValue: Bool? = nil
+
+    static func reduce(value: inout Bool?, nextValue: () -> Bool?) {
+        value = value ?? nextValue()
+    }
+}
+
+extension EnvironmentValues {
+    /// The window's place (a tab, or an entry of an iPad's sidebar) a page is in.
+    @Entry var place: Place?
+}
+
+/// A page of a place's stack: while it is the one on top, the window knows whether it is in a
+/// dark or light picture's colours (or the theme's), for the sidebar beside it.
+struct PageSlot: ViewModifier {
+    @Environment(\.place) private var place
+    @Environment(WindowState.self) private var window: WindowState?
+    @State private var dark: Bool?
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .onPreferenceChange(PageDarkKey.self) { now in
+                dark = now
+                if shown { report() }
+            }
+            .onAppear {
+                shown = true
+                report()
+            }
+            .onDisappear { shown = false }
+    }
+
+    private func report() {
+        guard let place, let window, window.pageDark[place] != dark else { return }
+        window.pageDark[place] = dark
     }
 }
 

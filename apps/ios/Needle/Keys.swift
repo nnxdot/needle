@@ -5,16 +5,18 @@ import SwiftUI
 /// window's places come from its own root (`WindowActions`).
 struct NeedleCommands: Commands {
     @FocusedValue(\.windowActions) private var window
+    /// What is open in that window: its player, sheets, and Settings.
+    @FocusedValue(\.windowState) private var scene
 
     private var store: Store? { Launch.shared.store }
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { store?.showSettings = true }
+            Button("Settings…") { scene?.showSettings = true }
                 .keyboardShortcut(",")
         }
         CommandGroup(after: .sidebar) {
-            Button(store?.showPlayer == true ? "Close the Player" : "Player") { togglePlayer() }
+            Button(scene?.showPlayer == true ? "Close the Player" : "Player") { togglePlayer() }
                 .keyboardShortcut("p")
                 .disabled(store?.playback?.current == nil)
             Button("Show Lyrics") { openPane("lyrics") }
@@ -24,7 +26,7 @@ struct NeedleCommands: Commands {
                 .keyboardShortcut("j")
                 .disabled(store?.playback?.current == nil)
             Divider()
-            Button("Search") { store?.showPlayer = false; window?.search() }
+            Button("Search") { scene?.showPlayer = false; window?.search() }
                 .keyboardShortcut("f")
                 .disabled(window == nil)
         }
@@ -45,10 +47,10 @@ struct NeedleCommands: Commands {
             Button((store?.playback?.current?.rating ?? 0) >= 4 ? "Remove from Favorites" : "Add to Favorites") { toggleFavorite() }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(store?.playback?.current == nil || store?.onComputer == true)
-            Button("Sleep Timer…") { store?.sheet = .sleep }
-            Button("Speed and Pitch…") { store?.sheet = .speed }
+            Button("Sleep Timer…") { scene?.sheet = .sleep }
+            Button("Speed and Pitch…") { scene?.sheet = .speed }
                 .disabled(store?.onComputer == true)
-            Button("Play On…") { store?.sheet = .speakers }
+            Button("Play On…") { scene?.sheet = .speakers }
         }
         CommandMenu("Go") {
             Button("Back") { window?.back() }.keyboardShortcut("[")
@@ -65,8 +67,8 @@ struct NeedleCommands: Commands {
             go("Radio", .radio, nil)
             if let song = store?.playback?.current, !song.onComputer {
                 Divider()
-                Button("Go to the Album Playing") { store?.opening = .albumOf(song.id) }
-                Button("Go to the Artist Playing") { store?.opening = .artist(song.artist) }
+                Button("Go to the Album Playing") { scene?.opening = .albumOf(song.id) }
+                Button("Go to the Artist Playing") { scene?.opening = .artist(song.artist) }
                     .disabled(isPlaceholderArtist(song.artist))
             }
         }
@@ -74,7 +76,7 @@ struct NeedleCommands: Commands {
 
     private func go(_ title: String, _ place: Place, _ key: KeyEquivalent?) -> some View {
         Button(title) {
-            store?.showPlayer = false
+            scene?.showPlayer = false
             window?.go(place)
         }
         .keyboardShortcut(key.map { KeyboardShortcut($0) })
@@ -90,14 +92,15 @@ struct NeedleCommands: Commands {
     }
 
     private func togglePlayer() {
-        guard let store else { return }
-        if store.showPlayer { store.showPlayer = false } else if store.playback?.current != nil { store.showPlayer = true }
+        guard let store, let scene else { return }
+        if scene.showPlayer { scene.showPlayer = false } else if store.playback?.current != nil { scene.showPlayer = true }
     }
 
     /// Opens the player with the lyrics or the queue beside the cover (in a narrow window, in
     /// its place).
     private func openPane(_ pane: String) {
-        store?.openPlayer(with: pane)
+        guard let store else { return }
+        scene?.openPlayer(with: pane, store: store)
     }
 
     private func toggleFavorite() {
