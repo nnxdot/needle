@@ -962,18 +962,25 @@ private fun rememberDarkLogo(path: String): Boolean {
     return dark
 }
 
-/** Play and Shuffle pills, a round Radio, and a Blend with another artist, as on the Mac. */
+/**
+ * Play and Shuffle pills, a round Radio, and a Blend with another artist, as on the Mac. A phone
+ * has no room for two pills and two round buttons: there Shuffle is a round button too, so all
+ * four stay in view (the Play pill gives way a little on the narrowest phones).
+ */
 @Composable
 private fun ArtistButtons(name: String, onShuffle: () -> Unit, onPlay: () -> Unit, onRadio: () -> Unit) {
-    Row(
-        Modifier.padding(top = 6.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        PlayPill(Modifier.firstFocus(), onPlay)
-        ShufflePill(onClick = onShuffle)
-        RoundAction(Icons.Rounded.Radio, "Artist radio", onRadio)
-        BlendButton(name)
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp)) {
+        // Two pills (about 137 dp each), two round buttons (50 dp), and three gaps of 12 dp.
+        val narrow = maxWidth < 420.dp
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(if (narrow) 10.dp else 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlayPill(Modifier.firstFocus().weight(1f, fill = false), onPlay)
+            if (narrow) RoundAction(Icons.Rounded.Shuffle, "Shuffle", onShuffle) else ShufflePill(onClick = onShuffle)
+            RoundAction(Icons.Rounded.Radio, "Artist radio", onRadio)
+            BlendButton(name)
+        }
     }
 }
 
