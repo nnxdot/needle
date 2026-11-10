@@ -61,6 +61,10 @@ final class SidebarStyler: NSObject, UITabBarController.Sidebar.Delegate {
     private static let chosen = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 0, alpha: 0.08) }
 
     func attach(from view: UIView) {
+        #if DEBUG
+        // Test builds: -plain-sidebar leaves the system's sidebar as it is, to compare.
+        if CommandLine.arguments.contains("-plain-sidebar") { return }
+        #endif
         guard let root = view.window?.rootViewController, let found = Self.tabs(in: root) else { return }
         controller = found
         guard found.sidebar.delegate !== self else { return }
@@ -70,6 +74,13 @@ final class SidebarStyler: NSObject, UITabBarController.Sidebar.Delegate {
         if CommandLine.arguments.contains("-dump-sidebar") {
             SidebarDump.note("attached; SwiftUI's was \(String(describing: inner)); shown \(Self.sidebar(in: found) != nil)")
             SidebarDump.write(found)
+        }
+        #endif
+        #if DEBUG
+        // Test builds: -close-sidebar closes the sidebar a moment after the start, as its button
+        // does (-sidebar-hidden only sets where it starts, which a window on its side ignores).
+        if CommandLine.arguments.contains("-close-sidebar") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { found.sidebar.isHidden = true }
         }
         #endif
         // The sidebar learns what its delegate does when it is made: one already shown is made
@@ -254,6 +265,8 @@ enum SidebarDump {
             view.subviews.forEach { views($0, depth + 1) }
         }
         views(root, 0)
+        let window = controller.view.window
+        lines.append("window safe area \(window?.safeAreaInsets ?? .zero), status bar \(window?.windowScene?.statusBarManager?.statusBarFrame ?? .zero)")
         lines.append("sidebar delegate was \(String(describing: controller.sidebar.delegate))")
         try? lines.joined(separator: "\n").write(toFile: NSTemporaryDirectory() + "needle-sidebar.log", atomically: true, encoding: .utf8)
     }

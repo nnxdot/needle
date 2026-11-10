@@ -301,7 +301,8 @@ struct SongRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if !onAlbum {
-                    Text(song.album).foregroundStyle(.secondary).lineLimit(1)
+                    // As the Mac's table: a song with no album says so.
+                    Text(song.album.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : song.album).foregroundStyle(.secondary).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Text(clock(song.duration)).font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.secondary)

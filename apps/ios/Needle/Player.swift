@@ -766,6 +766,29 @@ struct NowPlayingView: View {
         .padding(.leading, 32)
         .padding(.trailing, side.isEmpty ? 32 : 16)
         .padding(.bottom, 8)
+        // Its Close and the pane's top below the status bar, where the window's safe area
+        // leaves the status bar over the page (an iPad on its side).
+        .modifier(ClearsStatusBar())
+    }
+}
+
+/// Room at the top for the status bar where the safe area does not leave it (an iPad on its
+/// side gives only its corners' room): for Needle's own controls at the top, not a system bar's.
+struct ClearsStatusBar: ViewModifier {
+    @State private var bar: CGFloat = 0
+    @State private var safe: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.top, max(0, bar - safe))
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { safe = $0 }
+            .background {
+                WindowReader(found: { window in
+                    let found = window.windowScene?.statusBarManager?.statusBarFrame.height ?? 0
+                    if found != bar { bar = found }
+                }, becameKey: {})
+                .frame(width: 0, height: 0)
+            }
     }
 }
 
