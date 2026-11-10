@@ -10,11 +10,14 @@ struct FloatingPlayerBar: ViewModifier {
     /// The tab open: its bar is the one the player zooms from.
     let source: Bool
     let space: Namespace.ID
+    /// The page under it is dark (its picture's colours, or the theme's).
+    var dark = true
 
     func body(content: Content) -> some View {
         content.safeAreaBar(edge: .bottom, spacing: 0) {
             if shown && store.playingID != nil {
                 FloatingPlayer()
+                    .environment(\.colorScheme, dark ? .dark : .light)
                     .modifier(PlayerSource(on: source, space: space))
                     .padding(.horizontal, 24)
                     .padding(.bottom, 14)
@@ -41,6 +44,8 @@ private struct PlayerSource: ViewModifier {
 /// cover.
 struct FloatingPlayer: View {
     @Environment(Store.self) private var store
+    @Environment(\.colorScheme) private var scheme
+    @Environment(WindowState.self) private var window
     /// Presses of Play/Pause here: the buzz is for them only.
     @State private var presses = 0
     /// The playing song's timed lines, while Lyrics in the mini player is on.
@@ -69,7 +74,7 @@ struct FloatingPlayer: View {
                     if store.app.sideButtons == "jump" { store.jumpBy(10) } else { store.next() }
                 }
             }
-            Button { store.showPlayer = true } label: {
+            Button { window.showPlayer = true } label: {
                 HStack(spacing: 10) {
                     Artwork(path: song?.artwork, seed: (song?.album ?? "") + (song?.artist ?? ""), size: 120)
                         .frame(width: 38, height: 38)
@@ -104,7 +109,9 @@ struct FloatingPlayer: View {
             HStack(spacing: 2) {
                 sign("quote.bubble", "Lyrics") { open("lyrics") }
                 sign("list.bullet", "Up Next") { open("queue") }
-                RoutePicker(tint: UIColor(colors.text)).frame(width: 44, height: 44).opacity(0.8)
+                // The page's ink: the theme's, or the other look's over a page of the other kind.
+                RoutePicker(tint: UIColor((scheme == .dark) == colors.dark ? colors.text : ThemeColors.base(scheme == .dark ? "night" : "day").text))
+                    .frame(width: 44, height: 44).opacity(0.8)
             }
         }
         .buttonStyle(.plain)
@@ -131,7 +138,7 @@ struct FloatingPlayer: View {
 
     /// Opens the player with the lyrics or the queue in its pane.
     private func open(_ pane: String) {
-        store.openPlayer(with: pane)
+        window.openPlayer(with: pane, store: store)
     }
 
     private func loadLines() async {

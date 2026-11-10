@@ -5,6 +5,7 @@ import SwiftUI
 /// the words, songs from your server, and rules to try. Genres to browse while it is empty.
 struct SearchView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.wide) private var wide
     @State private var query = ""
     @State private var kind = Kind.all
@@ -253,7 +254,7 @@ struct SearchView: View {
     /// The best match, large: its cover or photo, what it is, its name, and Play.
     private func bestMatch(_ best: SearchBest) -> some View {
         let (name, detail, label, artwork): (String, String, String, String?) = switch best.kind {
-        case "album": (best.album?.title ?? "", best.album?.artist ?? "", "Album", best.album?.artwork)
+        case "album": (best.album?.shownTitle ?? "", best.album?.shownArtist ?? "", "Album", best.album?.artwork)
         case "artist": (best.artist?.name ?? "", count(Int(best.artist?.songs ?? 0), "song"), "Artist", best.artist?.artwork)
         default: (best.song?.title ?? "", best.song?.artist ?? "", "Song", best.song?.artwork)
         }
@@ -375,8 +376,8 @@ struct SearchView: View {
 
     private func open(_ best: SearchBest) {
         switch best.kind {
-        case "album": if let album = best.album { store.opening = .album(album) }
-        case "artist": if let artist = best.artist { store.opening = .artist(artist.name) }
+        case "album": if let album = best.album { window.opening = .album(album) }
+        case "artist": if let artist = best.artist { window.opening = .artist(artist.name) }
         default: if let song = best.song { store.play([song]) }
         }
     }

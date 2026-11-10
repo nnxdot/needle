@@ -23,8 +23,9 @@ struct NeedleApp: App {
                     // The text font chosen (Settings › Appearance › Text). Every `Font.needle`
                     // follows a change by itself, so the pages and their places stay.
                     .font(.needle(.body))
+                    // What is open is this window's own; what plays is shared.
+                    .modifier(PerWindow())
                     .environment(store)
-                    .onOpenURL { store.open($0) }
                     .task {
                         WatchLink.shared.start(store)
                         store.moveOldTitleFont()
@@ -66,6 +67,26 @@ private struct CompactTest: ViewModifier {
 }
 #endif
 
+/// A window's own state (`WindowState`): made with the window, in front when it becomes the
+/// key window, and the one its links and keyboard commands act in.
+private struct PerWindow: ViewModifier {
+    @Environment(Store.self) private var store
+    @State private var window = WindowState()
+
+    func body(content: Content) -> some View {
+        content
+            .environment(window)
+            .focusedSceneValue(\.windowState, window)
+            .onOpenURL { store.open($0, in: window) }
+            .background {
+                WindowReader(found: { _ in }, becameKey: { store.windows.came(window) })
+                    .frame(width: 0, height: 0)
+            }
+            .onAppear { store.windows.came(window) }
+            .onDisappear { store.windows.went(window) }
+    }
+}
+
 /// A tab, or, in an iPad's wide window, an entry of the sidebar.
 enum Place: Hashable {
     case home, library, radio, search
@@ -77,6 +98,7 @@ enum Place: Hashable {
 
 struct RootView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.wide) private var wide
     @State private var place = Place.home
     /// Test builds: -show-welcome shows the welcome guide once, with nothing reset.
@@ -99,7 +121,7 @@ struct RootView: View {
     }
 
     var body: some View {
-        @Bindable var store = store
+        @Bindable var window = window
         let colors = store.colors
         TabView(selection: Binding(get: { place }, set: { choose($0) })) {
             // Each tab its own stack, and its own space for covers zooming into their pages.
@@ -145,7 +167,7 @@ struct RootView: View {
                     }
                 }
                 .sectionActions {
-                    Button("New Playlist", systemImage: "plus") { store.newPlaylist = true }
+                    Button("New Playlist", systemImage: "plus") { window.newPlaylist = true }
                 }
                 // Only in the sidebar: the tabs at the top keep the four.
                 .tabPlacement(.sidebarOnly)
@@ -157,6 +179,13 @@ struct RootView: View {
             }
         }
         .modifier(SidebarStyle())
+        // The sidebar's chosen row and its light or dark, as the Mac's (`SidebarLook`).
+        .background {
+            if WideReader.isPad {
+                SidebarLook(dark: wide ? window.pageDark[place] ?? colors.dark : colors.dark,
+                            accent: .sidebarAccent(colors.accent), reduced: Motion.reduced)
+            }
+        }
         .tabBarMinimizeBehavior(.onScrollDown)
         // Every page fades softly under the bars at the top and under the tab bar, as Apple's
         // own apps do; a page can still ask for its own.
@@ -167,37 +196,43 @@ struct RootView: View {
         .modifier(PlayerAccessory(floats: floats, space: player))
         .environment(\.playerSpace, player)
         // With Reduce motion the player comes and goes at once, without the zoom.
-        .transaction(value: store.showPlayer) { if Motion.reduced { $0.disablesAnimations = true } }
-        .fullScreenCover(isPresented: $store.showPlayer) {
+        .transaction(value: window.showPlayer) { if Motion.reduced { $0.disablesAnimations = true } }
+        .fullScreenCover(isPresented: $window.showPlayer) {
             NowPlayingView()
                 .modifier(PlayerZoom(space: player))
+                .modifier(WindowCommands(window: window, actions: actions))
                 // In a wide window the player's tools are popovers from their buttons.
-                .sheet(item: Binding(get: { wide && store.sheet?.isTool == true ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
+                .sheet(item: Binding(get: { wide && window.sheet?.isTool == true ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
                 .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
                 .modifier(QuestionAlert(shown: true))
         }
-        .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest || store.welcomeAgain },
-                                              set: { if !$0 { welcomeTest = false; store.welcomeAgain = false } })) {
-            WelcomeView { where_, route in welcomeTest = false; store.welcomeAgain = false; go(where_, route) }
+        .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest || window.welcomeAgain },
+                                              set: { if !$0 { welcomeTest = false; window.welcomeAgain = false } })) {
+            WelcomeView { where_, route in welcomeTest = false; window.welcomeAgain = false; go(where_, route) }
         }
-        .sheet(item: Binding(get: { store.showPlayer || store.showSettings ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
+        .sheet(item: Binding(get: { window.showPlayer || window.showSettings ? nil : window.sheet }, set: { window.sheet = $0 })) {
+            SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions))
+        }
         // Settings, in a wide window: a large sheet of two columns, as the Mac's window. Its
         // own sheets, messages, and questions show over it.
-        .sheet(isPresented: $store.showSettings) {
+        .sheet(isPresented: $window.showSettings) {
             SettingsSplit()
                 .presentationSizing(.page)
-                .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
+                .modifier(WindowCommands(window: window, actions: actions))
+                .sheet(item: Binding(get: { window.showPlayer ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
                 .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
-                .modifier(QuestionAlert(shown: !store.showPlayer))
+                .modifier(QuestionAlert(shown: !window.showPlayer))
         }
-        .sheet(isPresented: $store.newPlaylist) { NavigationStack { PlaylistEditor {} }.presentationSizing(.form) }
+        .sheet(isPresented: $window.newPlaylist) {
+            NavigationStack { PlaylistEditor {} }.presentationSizing(.form).modifier(WindowCommands(window: window, actions: actions))
+        }
         .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
-        .modifier(QuestionAlert(shown: !store.showPlayer && !store.showSettings))
-        .onChange(of: store.opening) { _, route in
+        .modifier(QuestionAlert(shown: !window.showPlayer && !window.showSettings))
+        .onChange(of: window.opening) { _, route in
             guard let route else { return }
-            store.opening = nil
-            store.showPlayer = false
-            store.showSettings = false
+            window.opening = nil
+            window.showPlayer = false
+            window.showSettings = false
             go(place, route)
         }
         // Narrowed (Split View, Slide Over): the sidebar's own entries fold back into the
@@ -210,10 +245,25 @@ struct RootView: View {
             // sync): the list of playlists shows instead.
             if case .playlist(let id) = place, !playlists.contains(where: { $0.id == id }) { place = .part(.playlists) }
         }
-        .focusedSceneValue(\.windowActions, WindowActions(go: { go($0, nil) }, back: back, search: { place = .search }))
+        .focusedSceneValue(\.windowActions, actions)
         .grain(store.app.grain)
+        #if DEBUG
+        // Test builds with -stub-player: the presses that reached the player, for a UI test.
+        .overlay(alignment: .bottomLeading) {
+            if Store.stubbed {
+                Text("presses:" + store.stubPresses.joined(separator: ",") + (Typing.shared.active ? ",typing" : ""))
+                    .font(.system(size: 2)).opacity(0.05).allowsHitTesting(false)
+                    .accessibilityIdentifier("test-presses")
+            }
+        }
+        #endif
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
+    }
+
+    /// What the keyboard's commands do in this window.
+    private var actions: WindowActions {
+        WindowActions(go: { go($0, nil) }, back: back, search: { place = .search })
     }
 
     /// A playlist in the sidebar: its name, and the server's mark (always on a read-only one).
@@ -232,13 +282,15 @@ struct RootView: View {
     /// A tab's stack of pages, with the floating player at its foot in a wide window.
     private func stack<Root: View>(_ at: Place, @ViewBuilder root: @escaping () -> Root) -> some View {
         TabStack(path: path(at), root: root)
-            .modifier(FloatingPlayerBar(shown: floats, source: at == place, space: player))
+            // Over a page in its picture's colours, the bar takes the page's dark or light.
+            .modifier(FloatingPlayerBar(shown: floats, source: at == place, space: player, dark: window.pageDark[at] ?? store.colors.dark))
+            .environment(\.place, at)
     }
 
     /// Settings opens as its sheet, over the page that was open.
     private func choose(_ next: Place) {
         if next == .settings {
-            store.showSettings = true
+            window.showSettings = true
         } else {
             place = next
         }
@@ -291,7 +343,7 @@ struct RootView: View {
     }
 
     private func go(_ where_: Place, _ route: Route?) {
-        if where_ == .settings { store.showSettings = true; return }
+        if where_ == .settings { window.showSettings = true; return }
         place = where_
         if let route {
             var next = paths[where_] ?? NavigationPath()
@@ -330,7 +382,7 @@ struct RootView: View {
         // -settings [route]: Settings' sheet in a wide window, on that page.
         if let i = args.firstIndex(of: "-settings") {
             if args.indices.contains(i + 1), !args[i + 1].hasPrefix("-") { UserDefaults.standard.set(args[i + 1], forKey: "settings-page") }
-            store.showSettings = true
+            window.showSettings = true
         }
         // -orient landscape|portrait: turns the window, as if the iPad were turned.
         if let orient = value("-orient") {
@@ -458,7 +510,7 @@ struct RootView: View {
         // -theme night|midnight|day: that look (kept, as Settings keeps it).
         if let theme = value("-theme") { store.updateApp { $0.theme = theme } }
         // -artist <name>, -album <title>: open that page.
-        if let name = value("-artist") { store.opening = .artist(name) }
+        if let name = value("-artist") { window.opening = .artist(name) }
         // -sleep <minutes> starts the sleep timer, -speed <times> plays at that speed, and
         // -sheet sleep|speed|timing opens that sheet (timing: the song playing), a few seconds in.
         Task {
@@ -471,11 +523,11 @@ struct RootView: View {
             }
             try? await Task.sleep(for: .seconds(1))
             switch value("-sheet") {
-            case "sleep": store.sheet = .sleep
-            case "speed": store.sheet = .speed
-            case "speakers": store.sheet = .speakers
-            case "timing": if let song = store.playback?.current { store.sheet = .timing(song) }
-            case "add": if let song = store.playback?.current { store.sheet = .addToPlaylist([song]) }
+            case "sleep": window.sheet = .sleep
+            case "speed": window.sheet = .speed
+            case "speakers": window.sheet = .speakers
+            case "timing": if let song = store.playback?.current { window.sheet = .timing(song) }
+            case "add": if let song = store.playback?.current { window.sheet = .addToPlaylist([song]) }
             default: break
             }
         }
@@ -502,7 +554,7 @@ struct RootView: View {
         if let title = value("-album") {
             Task {
                 try? await Task.sleep(for: .seconds(1))
-                if let album = await store.load({ try $0.albums().first { $0.title == title } }) ?? nil { store.opening = .album(album) }
+                if let album = await store.load({ try $0.albums().first { $0.title == title } }) ?? nil { window.opening = .album(album) }
             }
         }
     }
@@ -539,6 +591,7 @@ private struct SidebarStyle: ViewModifier {
 /// the page's foot instead (`FloatingPlayerBar`).
 private struct PlayerAccessory: ViewModifier {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let floats: Bool
     let space: Namespace.ID
 
@@ -551,10 +604,27 @@ private struct PlayerAccessory: ViewModifier {
     }
 
     private var bar: some View {
-        MiniPlayer { if store.playback?.current != nil { store.showPlayer = true } }
+        MiniPlayer { if store.playback?.current != nil { window.showPlayer = true } }
             .matchedTransitionSource(id: "player", in: space)
             .contentShape(.rect)
-            .onTapGesture { if store.playback?.current != nil { store.showPlayer = true } }
+            .onTapGesture { if store.playback?.current != nil { window.showPlayer = true } }
+    }
+}
+
+/// The keyboard's commands act in this window from what is presented in it too (the player,
+/// Settings, a sheet): a presentation is a part of its own, which the window's values do not
+/// reach.
+private struct WindowCommands: ViewModifier {
+    let window: WindowState
+    let actions: WindowActions
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.windowState, window)
+            .focusedSceneValue(\.windowActions, actions)
+            // Esc closes it, as Done, Cancel, or a swipe down do.
+            .background { EscapeKey { dismiss() }.frame(width: 0, height: 0).accessibilityHidden(true) }
     }
 }
 
@@ -650,12 +720,13 @@ private struct FormSized: ViewModifier {
 
 private struct ToolPopover: ViewModifier {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.wide) private var wide
     let ids: Set<String>
 
     func body(content: Content) -> some View {
-        content.popover(item: Binding(get: { wide ? store.sheet.flatMap { ids.contains($0.id) ? $0 : nil } : nil },
-                                      set: { store.sheet = $0 })) { sheet in
+        content.popover(item: Binding(get: { wide ? window.sheet.flatMap { ids.contains($0.id) ? $0 : nil } : nil },
+                                      set: { window.sheet = $0 })) { sheet in
             Group {
                 switch sheet {
                 case .sleep: SleepSheet().frame(width: 380).fixedSize(horizontal: false, vertical: true)
@@ -664,7 +735,8 @@ private struct ToolPopover: ViewModifier {
                 }
             }
             .presentationCompactAdaptation(.popover)
-            .background { EscapeKey { store.sheet = nil } }
+            .focusedSceneValue(\.windowState, window)
+            .background { EscapeKey { window.sheet = nil }.frame(width: 0, height: 0).accessibilityHidden(true) }
         }
     }
 }

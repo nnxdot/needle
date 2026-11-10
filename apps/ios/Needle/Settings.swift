@@ -14,7 +14,7 @@ struct SettingsView: View {
     var selection: Binding<Route?>? = nil
 
     var body: some View {
-        List(selection: selection) {
+        List {
             Section {
                 header
             }
@@ -99,19 +99,31 @@ struct SettingsView: View {
         if let selection { selection.wrappedValue = route } else { opened = route }
     }
 
+    @ViewBuilder
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
-        NavigationLink(value: route) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(tint.gradient, in: .soft(Corner.small))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                    Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
-                }
+        let label = HStack(spacing: 14) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(tint.gradient, in: .soft(Corner.small))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
             }
-            .padding(.vertical, 1)
+        }
+        .padding(.vertical, 1)
+        if let selection {
+            // Beside its page, as the Mac's Settings and the sidebar: the chosen section on a
+            // quiet capsule of the ink, its words in the ink (amber marks only what plays).
+            let chosen = selection.wrappedValue == route
+            Button { selection.wrappedValue = route } label: {
+                label.frame(maxWidth: .infinity, alignment: .leading).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(chosen ? Capsule().fill(store.colors.text.opacity(store.colors.dark ? 0.12 : 0.08)) : nil)
+            .accessibilityAddTraits(chosen ? .isSelected : [])
+        } else {
+            NavigationLink(value: route) { label }
         }
     }
 }
@@ -422,9 +434,10 @@ struct PlaybackSettingsView: View {
 /// The sleep timer's row: what runs, and a tap opens the timer.
 struct SleepMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
 
     var body: some View {
-        Button { store.sheet = .sleep } label: {
+        Button { window.sheet = .sleep } label: {
             HStack {
                 Label("Sleep timer", systemImage: "moon.zzz")
                 Spacer()
@@ -588,7 +601,7 @@ struct SoundView: View {
     }
 
     private func balance(_ value: Float) -> String {
-        abs(value) < 0.03 ? "Centre" : value < 0 ? "\(Int(-value * 100))% left" : "\(Int(value * 100))% right"
+        abs(value) < 0.03 ? "Center" : value < 0 ? "\(Int(-value * 100))% left" : "\(Int(value * 100))% right"
     }
 
     private func dB(_ label: String, value: Float, set: @escaping (Float) -> Void) -> some View {
@@ -1276,6 +1289,7 @@ struct WhatsNewView: View {
 
 struct AboutView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.openURL) private var openURL
     @State private var crashReports = false
     @State private var settings: PlaybackSettings?
@@ -1309,7 +1323,7 @@ struct AboutView: View {
                 HStack {
                     SettingLabel(title: "Welcome guide", detail: "The short guide from the first start.", icon: "house.fill", tint: .green)
                     Spacer(minLength: 8)
-                    Button("Show it again") { store.welcomeAgain = true }
+                    Button("Show it again") { window.welcomeAgain = true }
                         .buttonStyle(.borderless)
                         .fixedSize()
                 }

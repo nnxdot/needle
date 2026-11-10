@@ -117,6 +117,7 @@ struct MiniLyricLine: View {
 /// the lyrics and the songs up next.
 struct NowPlayingView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var pane = Pane.cover
@@ -474,12 +475,12 @@ struct NowPlayingView: View {
                 loopMenu(song)
             }
             if !store.onComputer {
-                Button("Speed and Pitch", systemImage: "gauge.with.dots.needle.67percent") { store.sheet = .speed }
+                Button("Speed and Pitch", systemImage: "gauge.with.dots.needle.67percent") { window.sheet = .speed }
             }
             if !store.onComputer {
                 Button("Visualizer", systemImage: "waveform.circle") { showVisualizer = true }
             }
-            Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
+            Button("Play on…", systemImage: "hifispeaker.2") { window.sheet = .speakers }
         } label: {
             Image(systemName: "ellipsis").font(.needle(.title3).weight(.semibold))
                 .frame(width: 44, height: 44)
@@ -546,7 +547,7 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func artistButton(_ song: Song?) -> some View {
         if let song, !song.onComputer, !isPlaceholderArtist(song.artist) {
-            Button { store.opening = .artist(song.artist) } label: {
+            Button { window.opening = .artist(song.artist) } label: {
                 Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
             }
             .buttonStyle(.plain)
@@ -765,6 +766,29 @@ struct NowPlayingView: View {
         .padding(.leading, 32)
         .padding(.trailing, side.isEmpty ? 32 : 16)
         .padding(.bottom, 8)
+        // Its Close and the pane's top below the status bar, where the window's safe area
+        // leaves the status bar over the page (an iPad on its side).
+        .modifier(ClearsStatusBar())
+    }
+}
+
+/// Room at the top for the status bar where the safe area does not leave it (an iPad on its
+/// side gives only its corners' room): for Needle's own controls at the top, not a system bar's.
+struct ClearsStatusBar: ViewModifier {
+    @State private var bar: CGFloat = 0
+    @State private var safe: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.top, max(0, bar - safe))
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { safe = $0 }
+            .background {
+                WindowReader(found: { window in
+                    let found = window.windowScene?.statusBarManager?.statusBarFrame.height ?? 0
+                    if found != bar { bar = found }
+                }, becameKey: {})
+                .frame(width: 0, height: 0)
+            }
     }
 }
 
@@ -843,23 +867,11 @@ struct PlayerSidePane: View {
     }
 }
 
-/// A key that closes what shows (the player, a tool): Esc, from a hardware keyboard.
-struct EscapeKey: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button("Close", action: action)
-            .keyboardShortcut(.escape, modifiers: [])
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
-    }
-}
-
-/// The player's watches for a wide window: whether it is wide enough for two parts, the pane
-/// asked for from the floating bar or the keyboard, and Esc.
+/// The player's watches for a wide window: whether it is wide enough for two parts, and the pane
+/// asked for from the floating bar or the keyboard.
 private struct WideWatch: ViewModifier {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Binding var twoParts: Bool
     @Binding var side: String
     @Binding var pane: NowPlayingView.Pane
@@ -872,12 +884,10 @@ private struct WideWatch: ViewModifier {
                 withMotion(.smooth(duration: 0.3)) { twoParts = now }
             }
             .motion(.spring(response: 0.45, dampingFraction: 0.85), value: side)
-            // Esc closes the player, as the grabber and a swipe down do.
-            .background { EscapeKey { dismiss() } }
             // Asked from the floating bar or the keyboard: the lyrics or the queue.
-            .onChange(of: store.playerPane, initial: true) { _, asked in
+            .onChange(of: window.playerPane, initial: true) { _, asked in
                 guard let asked else { return }
-                store.playerPane = nil
+                window.playerPane = nil
                 side = asked
                 pane = asked == "lyrics" ? .lyrics : .queue
             }
@@ -1353,6 +1363,7 @@ struct RoutePicker: UIViewRepresentable {
 /// sung when the lyrics have word timing; or the plain words.
 struct LyricsPane: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let song: Song?
     /// The player's Lyrics look: only the words, very large, centred.
     var stage = false
@@ -1406,7 +1417,7 @@ struct LyricsPane: View {
                             }
                         }
                         .buttonStyle(onPane ? AnyPrimitiveButtonStyle(.bordered) : AnyPrimitiveButtonStyle(.glass))
-                        Button("Add and time them") { store.sheet = .timing(song) }
+                        Button("Add and time them") { window.sheet = .timing(song) }
                             .buttonStyle(onPane ? AnyPrimitiveButtonStyle(.bordered) : AnyPrimitiveButtonStyle(.glass))
                     }
                 }

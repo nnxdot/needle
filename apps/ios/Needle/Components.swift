@@ -20,6 +20,14 @@ func isPlaceholderArtist(_ name: String) -> Bool {
     name.trimmingCharacters(in: .whitespaces).isEmpty || name == unknownArtist
 }
 
+extension Album {
+    /// Its name as shown: "Unknown album" when its songs have none, as on the Mac (and in the
+    /// core's own words), never an empty line.
+    var shownTitle: String { title.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : title }
+    /// Its artist as shown: the core's name for none when it has none.
+    var shownArtist: String { artist.trimmingCharacters(in: .whitespaces).isEmpty ? unknownArtist : artist }
+}
+
 enum Route: Hashable {
     case album(Album)
     /// An album opened from its tile: the page grows out of that tile's cover (its zoom id).
@@ -43,7 +51,7 @@ extension View {
     /// Opens the screens of [`Route`] from any navigation stack.
     func routes() -> some View {
         navigationDestination(for: Route.self) { route in
-            Self.page(route).modifier(ZoomScope())
+            Self.page(route).modifier(ZoomScope()).modifier(PageSlot())
         }
     }
 
@@ -178,31 +186,40 @@ struct AlbumTile: View {
                     .clipShape(.soft(Corner.cover))
                     .modifier(CoverSource(id: source))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
-                    .overlay(alignment: .bottomTrailing) {
-                        if hovered {
-                            Button { store.playAlbum(album) } label: {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundStyle(store.colors.onAccent)
-                                    .offset(x: 1)
-                                    .frame(width: 40, height: 40)
-                                    .background(store.colors.accent, in: .circle)
-                                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-                            }
-                            .buttonStyle(Pressable())
-                            .padding(10)
-                            .transition(.opacity)
-                            .accessibilityLabel("Play \(album.title)")
-                        }
-                    }
                     .padding(.bottom, 5)
-                Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
-                Text(album.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.shownTitle).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(album.shownArtist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
+            // Its own height, whatever the others on the row: a lazy row measured by a shorter
+            // tile made the rest smaller.
+            .fixedSize(horizontal: false, vertical: true)
             .frame(width: width == Tiles.phoneShelf ? Tiles.shelf(wide) : width)
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
+        // Play on the cover's corner while the pointer is over the tile: a button of its own
+        // beside the link (inside it, it was part of the link's one button).
+        .overlay(alignment: .topLeading) {
+            if hovered {
+                GeometryReader { geo in
+                    Button { store.playAlbum(album) } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(store.colors.onAccent)
+                            .offset(x: 1)
+                            .frame(width: 40, height: 40)
+                            .background(store.colors.accent, in: .circle)
+                            .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+                    }
+                    .buttonStyle(Pressable())
+                    .padding(10)
+                    .accessibilityLabel("Play \(album.shownTitle)")
+                    // The cover is the tile's width, square, at its top.
+                    .frame(width: geo.size.width, height: geo.size.width, alignment: .bottomTrailing)
+                }
+                .transition(.opacity)
+            }
+        }
         .hoverEffect(.lift)
         .onHover { over in withFade(.easeOut(duration: 0.15)) { hovered = over } }
         .contextMenu { AlbumMenu(album: album) }
@@ -212,6 +229,7 @@ struct AlbumTile: View {
 
 struct AlbumMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let album: Album
 
     var body: some View {
@@ -219,15 +237,15 @@ struct AlbumMenu: View {
         Button("Shuffle", systemImage: "shuffle") { store.playAlbum(album, shuffled: true) }
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { withSongs(store.playNext) }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { withSongs(store.enqueue) }
-        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
+        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { window.sheet = .addToPlaylist($0) } }
         Button("Edit Tags", systemImage: "tag") {
             withSongs { songs in
                 let own = songs.filter { !$0.fromServer }.map(\.id)
-                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { store.sheet = .tags(own) }
+                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { window.sheet = .tags(own) }
             }
         }
         Divider()
-        Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(album.artist) }
+        Button("Go to Artist", systemImage: "music.microphone") { window.opening = .artist(album.artist) }
             .disabled(isPlaceholderArtist(album.artist))
     }
 
@@ -289,7 +307,8 @@ struct SongRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if !onAlbum {
-                    Text(song.album).foregroundStyle(.secondary).lineLimit(1)
+                    // As the Mac's table: a song with no album says so.
+                    Text(song.album.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : song.album).foregroundStyle(.secondary).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Text(clock(song.duration)).font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.secondary)
@@ -403,6 +422,7 @@ struct HeartButton: View {
 
 struct SongMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let song: Song
     var inPlayer = false
 
@@ -412,7 +432,7 @@ struct SongMenu: View {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext([song]) }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue([song]) }
             }
-            Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist([song]) }
+            Button("Add to Playlist", systemImage: "music.note.list") { window.sheet = .addToPlaylist([song]) }
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
@@ -433,18 +453,18 @@ struct SongMenu: View {
                 Label("Rate", systemImage: "star")
             }
             Divider()
-            Button("Go to Album", systemImage: "square.stack") { store.opening = .albumOf(song.id) }
-            Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(song.artist) }
+            Button("Go to Album", systemImage: "square.stack") { window.opening = .albumOf(song.id) }
+            Button("Go to Artist", systemImage: "music.microphone") { window.opening = .artist(song.artist) }
                 .disabled(isPlaceholderArtist(song.artist))
             Divider()
             if song.fromServer {
                 Button("Keep Offline", systemImage: "arrow.down.circle") { store.keepOffline([song], keep: true) }
                 Button("Save to This \(Device.name)", systemImage: "square.and.arrow.down") { store.saveToPhone([song]) }
             } else {
-                Button("Edit Tags", systemImage: "tag") { store.sheet = .tags([song.id]) }
-                Button("Identify by Sound", systemImage: "waveform.badge.magnifyingglass") { store.sheet = .identify(song.id) }
+                Button("Edit Tags", systemImage: "tag") { window.sheet = .tags([song.id]) }
+                Button("Identify by Sound", systemImage: "waveform.badge.magnifyingglass") { window.sheet = .identify(song.id) }
             }
-            Button("Time the Lyrics", systemImage: "text.badge.checkmark") { store.sheet = .timing(song) }
+            Button("Time the Lyrics", systemImage: "text.badge.checkmark") { window.sheet = .timing(song) }
             if !store.songCommands.isEmpty {
                 Menu {
                     ForEach(store.songCommands) { command in
@@ -733,7 +753,7 @@ struct TabStack<Root: View>: View {
     @Namespace private var covers
 
     var body: some View {
-        NavigationStack(path: $path) { root().routes() }
+        NavigationStack(path: $path) { root().modifier(PageSlot()).routes() }
             .environment(\.coverSpace, covers)
     }
 }

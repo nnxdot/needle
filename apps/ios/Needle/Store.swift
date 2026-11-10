@@ -146,29 +146,9 @@ final class Store {
     private(set) var messageCount = 0
     /// A plugin's question, answered with text.
     var question: Question?
-    var showPlayer = false
-    /// Settings as a large sheet of two columns (an iPad's wide window; an iPhone opens the
-    /// page in its tab).
-    var showSettings = false
-    /// The new playlist's sheet, from the + of the sidebar's Playlists.
-    var newPlaylist = false
-    /// The player was asked to show "lyrics" or "queue" (the floating bar, the keyboard): it
-    /// shows it, then clears this.
-    var playerPane: String?
-
-    /// Opens the player with the lyrics or the queue showing (beside the cover in a wide
-    /// window, in its place in a narrow one).
-    func openPlayer(with pane: String) {
-        guard playback?.current != nil else { return }
-        playerPane = pane
-        showPlayer = true
-    }
-    /// The welcome guide, asked for again (Settings › About).
-    var welcomeAgain = false
-    /// A page to open, from a widget or a link.
-    var opening: Route?
-    /// A sheet over everything: adding to a playlist, tags, identifying, lyrics timing.
-    var sheet: Sheet?
+    /// The windows open (an iPad can show two). What is open in each (the player, sheets,
+    /// pages) is its own `WindowState`.
+    @ObservationIgnored let windows = Windows()
     /// Plugin commands that act on chosen songs, for the songs' menus.
     private(set) var songCommands: [SongCommand] = []
 
@@ -288,7 +268,7 @@ final class Store {
         if welcomed, UserDefaults.standard.string(forKey: "whats-new-seen") != version {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1))
-                if self.sheet == nil { self.sheet = .whatsNew }
+                self.inFront { if $0.sheet == nil { $0.sheet = .whatsNew } }
             }
         }
         UserDefaults.standard.set(version, forKey: "whats-new-seen")
@@ -342,7 +322,7 @@ final class Store {
         if ["-show-player", "-show-lyrics", "-show-queue"].contains(where: CommandLine.arguments.contains) {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.showPlayer = true
+                self?.inFront { $0.showPlayer = true }
             }
         }
         #endif
@@ -366,7 +346,11 @@ final class Store {
     /// Needle is on the screen, or not: four times a second while it shows, once a second
     /// while away (the lock screen, the watch, and the sleep timer still follow).
     func onScreen(_ shown: Bool) {
-        let seconds: TimeInterval = shown ? 0.25 : 1
+        var seconds: TimeInterval = shown ? 0.25 : 1
+        #if DEBUG
+        // A UI test waits for the app to be still between its steps: no quick ticks then.
+        if Self.stubbed { seconds = 2 }
+        #endif
         guard timer?.timeInterval != seconds else { return }
         startTicking(every: seconds)
     }
@@ -683,7 +667,7 @@ final class Store {
         Task {
             for _ in 0..<40 {
                 try? await Task.sleep(for: .milliseconds(250))
-                if local?.current != nil, local?.queueVersion != before { showPlayer = true; return }
+                if local?.current != nil, local?.queueVersion != before { inFront { $0.showPlayer = true }; return }
             }
         }
     }
@@ -713,7 +697,7 @@ final class Store {
 
     /// Opens the player when a song is chosen, if that is on.
     func played() {
-        if app.openPlayerOnPlay { showPlayer = true }
+        if app.openPlayerOnPlay { inFront { $0.showPlayer = true } }
     }
 
     func playNext(_ songs: [Song]) {
@@ -728,7 +712,18 @@ final class Store {
         message = "Added to the queue"
     }
 
+    #if DEBUG
+    /// Test builds: -stub-player keeps Play/Pause, Next, Previous, and seeking from the core, so
+    /// a UI test can never make a sound (a simulator plays at full volume); each press is
+    /// noted here instead, for the test to read.
+    static let stubbed = CommandLine.arguments.contains("-stub-player")
+    var stubPresses: [String] = []
+    #endif
+
     func toggle() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("toggle"); return }
+        #endif
         if onComputer {
             computer { try $0.pcDo(action: "toggle") }
         } else {
@@ -737,10 +732,24 @@ final class Store {
             core.toggle()
         }
     }
-    func next() { onComputer ? computer { try $0.pcDo(action: "next") } : core.next() }
-    func previous() { onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous() }
+    func next() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("next"); return }
+        #endif
+        onComputer ? computer { try $0.pcDo(action: "next") } : core.next()
+    }
+
+    func previous() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("previous"); return }
+        #endif
+        onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous()
+    }
 
     func seek(_ seconds: Double) {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("seek"); return }
+        #endif
         onComputer ? computer { try $0.pcSeek(seconds: seconds) } : core.seek(seconds: seconds)
     }
 
@@ -830,21 +839,29 @@ final class Store {
     }
 
     /// Opens a link from a widget, Siri, or another app: `needle://album?id=…` and so on, or a
-    /// music file.
-    func open(_ url: URL) {
+    /// music file, in the window it came to.
+    func open(_ url: URL, in window: WindowState) {
+        let opening = { (route: Route) in window.opening = route }
         if url.scheme?.hasPrefix("discord-") == true { return }
         guard url.scheme == "needle" else { return openFile(url) }
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
+        #if DEBUG
+        // Test builds: needle://test-new-window asks for a second window, as File › New Window.
+        if url.host == "test-new-window" {
+            UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil)
+            return
+        }
+        #endif
         switch url.host {
-        case "player": if playback?.current != nil { showPlayer = true }
-        case "stats": opening = .stats
+        case "player": if playback?.current != nil { window.showPlayer = true }
+        case "stats": opening(.stats)
         case "album":
             Task {
-                if let album = await load({ try $0.albums().first { $0.key == id } }) ?? nil { opening = .album(album) }
+                if let album = await load({ try $0.albums().first { $0.key == id } }) ?? nil { opening(.album(album)) }
             }
         case "playlist":
             Task {
-                if let playlist = await load({ try $0.playlists().first { $0.id == id } }) ?? nil { opening = .playlist(playlist) }
+                if let playlist = await load({ try $0.playlists().first { $0.id == id } }) ?? nil { opening(.playlist(playlist)) }
             }
         default: break
         }
@@ -1165,7 +1182,7 @@ final class Store {
             let week = await load { try $0.stats(days: 7) }
             var recent: [Snapshot.Item] = []
             for album in (home?.recent ?? home?.added ?? []).prefix(4) {
-                recent.append(.init(id: album.key, title: album.title, detail: album.artist,
+                recent.append(.init(id: album.key, title: album.shownTitle, detail: album.shownArtist,
                                     cover: await Self.shareCover(album.artwork, in: folder)))
             }
             snapshot.recent = recent

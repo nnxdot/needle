@@ -34,10 +34,11 @@ extension SpeedPitch {
 /// The moon in the player's foot: lit while the sleep timer runs, with the time left beside it.
 struct SleepMoon: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
 
     var body: some View {
         let running = store.sleep
-        Button { store.sheet = .sleep } label: {
+        Button { window.sheet = .sleep } label: {
             HStack(spacing: 5) {
                 Image(systemName: running == nil ? "moon" : "moon.fill")
                     .font(.needle(.title3).weight(running == nil ? .regular : .semibold))

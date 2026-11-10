@@ -74,7 +74,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     /// An album: its cover, name, and artist; chosen, its songs.
     private func albumItem(_ album: Album) -> CPListItem {
-        let item = CPListItem(text: album.title, detailText: album.artist, image: nil)
+        let item = CPListItem(text: album.shownTitle, detailText: album.shownArtist, image: nil)
         item.accessoryType = .disclosureIndicator
         if let path = album.artwork {
             Task { @MainActor in
@@ -85,7 +85,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             Task { @MainActor in
                 let key = album.key
                 let songs = await self?.store?.load { try $0.albumSongs(key: key) } ?? []
-                self?.showSongs(songs, title: album.title)
+                self?.showSongs(songs, title: album.shownTitle)
                 done()
             }
         }

@@ -61,6 +61,7 @@ struct ScanPill: View {
 /// and artists, each with a line saying what it holds.
 struct HomeView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.wide) private var wide
     @State private var home: Home?
     @State private var favorites: [Album] = []
@@ -118,7 +119,7 @@ struct HomeView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 // In a wide window Settings is a large sheet of its own, as on the Mac.
                 if wide {
-                    Button { store.showSettings = true } label: { Image(systemName: "gearshape") }
+                    Button { window.showSettings = true } label: { Image(systemName: "gearshape") }
                         .accessibilityLabel("Settings")
                 } else {
                     NavigationLink(value: Route.settings) { Image(systemName: "gearshape") }
@@ -205,6 +206,7 @@ struct NowCard: View {
 
 private struct NowCardBody: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let song: Song
     /// Presses of Play/Pause here: the buzz is for them only.
     @State private var presses = 0
@@ -213,7 +215,7 @@ private struct NowCardBody: View {
         let playing = store.isPlaying
         let colors = store.colors
         HStack(spacing: 14) {
-            Button { store.showPlayer = true } label: {
+            Button { window.showPlayer = true } label: {
                 HStack(spacing: 14) {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 200)
                         .frame(width: 72, height: 72)
@@ -544,6 +546,7 @@ struct GenreView: View {
 /// by the artist at the foot.
 struct AlbumView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.wide) private var wide
     let album: Album
@@ -610,7 +613,7 @@ struct AlbumView: View {
         }
         .paged(look)
         // The name moves into the bar once the cover has scrolled away.
-        .navigationTitle(pastHeader ? album.title : "")
+        .navigationTitle(pastHeader ? album.shownTitle : "")
         .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
         .toolbar {
@@ -645,11 +648,11 @@ struct AlbumView: View {
                 .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: min(230, headerSide * 0.5)) }
                 .modifier(Stretchy())
             VStack(spacing: 5) {
-                Text(album.title).font(.needle(.title).bold()).multilineTextAlignment(.center)
+                Text(album.shownTitle).font(.needle(.title).bold()).multilineTextAlignment(.center)
                 // A button, not a link: a link in a list row is laid out as a row, at the left
                 // with an arrow.
-                Button { store.opening = .artist(album.artist) } label: {
-                    Text(album.artist).font(.needle(.title3).weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
+                Button { window.opening = .artist(album.artist) } label: {
+                    Text(album.shownArtist).font(.needle(.title3).weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
                 }
                 .buttonStyle(.borderless)
                 .disabled(isPlaceholderArtist(album.artist))
@@ -679,9 +682,9 @@ struct AlbumView: View {
                 .shadow(color: .black.opacity(look.dark ? 0.45 : 0.25), radius: 26, y: 14)
             VStack(alignment: .leading, spacing: 5) {
                 Text("Album").font(.needle(.subheadline).weight(.semibold)).foregroundStyle(look.muted)
-                Text(album.title).font(.needleTitle(size: 38, relativeTo: .largeTitle)).lineLimit(2).minimumScaleFactor(0.7)
-                Button { store.opening = .artist(album.artist) } label: {
-                    Text(album.artist).font(.needle(.title3).weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).lineLimit(1)
+                Text(album.shownTitle).font(.needleTitle(size: 38, relativeTo: .largeTitle)).lineLimit(2).minimumScaleFactor(0.7)
+                Button { window.opening = .artist(album.artist) } label: {
+                    Text(album.shownArtist).font(.needle(.title3).weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).lineLimit(1)
                 }
                 .buttonStyle(.borderless)
                 .hoverEffect(.highlight)
@@ -996,7 +999,7 @@ struct ArtistView: View {
                     if album.year > 0 {
                         Text(String(album.year)).font(.needle(.subheadline)).foregroundStyle(look.muted)
                     }
-                    Text(album.title).font(.needle(.headline)).lineLimit(2)
+                    Text(album.shownTitle).font(.needle(.headline)).lineLimit(2)
                     Text(count(Int(album.songs), "Song")).font(.needle(.subheadline)).foregroundStyle(look.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1010,7 +1013,7 @@ struct ArtistView: View {
                         .background(look.ink, in: .circle)
                 }
                 .buttonStyle(Pressable())
-                .accessibilityLabel("Play \(album.title)")
+                .accessibilityLabel("Play \(album.shownTitle)")
             }
             .padding(14)
             .glassEffect(.regular.tint(look.ink.opacity(0.05)).interactive(), in: .soft(Corner.large))
