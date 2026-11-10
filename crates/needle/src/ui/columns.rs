@@ -140,6 +140,8 @@ impl Render for Ghost {
             .px_2()
             .py_1()
             .map(|el| super::glass::pane(el, 6., 10., cx.theme().popover, cx))
+            // macOS: no shadow under the dragged column's name, as before.
+            .when(cfg!(target_os = "macos"), |el| el.shadow(vec![]))
             .border_1()
             .border_color(p.accent)
             .text_size(px(12.))
@@ -483,7 +485,6 @@ impl AppView {
 
     pub(super) fn header_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let menu = self.header_menu.as_ref()?;
-        let p = pal(cx);
         let entries = self.header_menu_entries();
         let rows = Self::menu_rows(&entries, None, cx);
         let body = div()
@@ -492,9 +493,6 @@ impl AppView {
             .w(px(220.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {

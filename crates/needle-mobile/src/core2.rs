@@ -544,12 +544,9 @@ impl Needle {
     /// Fix my library's overview as JSON (see `needle_core::doctor::Health`): `songs`, `fine`,
     /// `duplicate_sets`, `duplicate_copies`, `albums_without_cover`, `album_issues`,
     /// `no_artist`, `no_album`, `no_genre`, `gone`, `low_quality_albums`.
-    pub fn library_health_json(&self) -> String {
-        self.library
-            .health()
-            .ok()
-            .and_then(|h| serde_json::to_string(&h).ok())
-            .unwrap_or_else(|| "{}".into())
+    pub fn library_health_json(&self) -> Result<String> {
+        let health = self.library.health()?;
+        serde_json::to_string(&health).map_err(|e| NeedleError::Failed(e.to_string()))
     }
 
     /// Forgets the songs on this device whose file is gone (Fix my library); returns how many.
@@ -561,7 +558,7 @@ impl Needle {
     /// core for a picture `aspect` times as wide as high: `height` (the width is 1) and `items`,
     /// each with `genre`, `spellings`, `songs`, `plays`, `family`, `hue`, `x`, `y`, and `size`
     /// (a word's font size or a circle's radius). By plays with `by_plays`, else by songs.
-    pub fn genre_art_json(&self, kind: String, by_plays: bool, aspect: f32) -> String {
+    pub fn genre_art_json(&self, kind: String, by_plays: bool, aspect: f32) -> Result<String> {
         let kind = if kind == "cloud" {
             needle_core::genre_art::ArtKind::Cloud
         } else {
@@ -572,11 +569,8 @@ impl Needle {
         } else {
             160
         };
-        self.library
-            .genre_art(kind, by_plays, aspect, most)
-            .ok()
-            .and_then(|art| serde_json::to_string(&art).ok())
-            .unwrap_or_else(|| "{\"height\":1,\"items\":[]}".into())
+        let art = self.library.genre_art(kind, by_plays, aspect, most)?;
+        serde_json::to_string(&art).map_err(|e| NeedleError::Failed(e.to_string()))
     }
 
     /// The songs of a genre written any of these ways (a word or bubble of the genre map),

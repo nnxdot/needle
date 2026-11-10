@@ -93,7 +93,8 @@ struct RecordSpin<Content: View>: View {
     @State private var held: Double = 0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / rate, paused: !on)) { context in
+        // Still while paused, and while the main window cannot be seen.
+        TimelineView(.animation(minimumInterval: 1 / rate, paused: !on || !Store.shared.mainVisible)) { context in
             // From the state alone, so the frame on which `on` changes does not jump.
             let turned = held + (start.map { max(0, context.date.timeIntervalSince($0)) } ?? 0) * 360 / period
             content().rotationEffect(.degrees(turned))

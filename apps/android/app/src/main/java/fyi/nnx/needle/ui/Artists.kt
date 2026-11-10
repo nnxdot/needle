@@ -26,7 +26,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Collections
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Restore
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.layout.offset
@@ -57,7 +56,8 @@ import fyi.nnx.needle.core.Artist
 import kotlinx.coroutines.launch
 
 /** The orders the Artists list can take (the core's `artist_order`), as people see them. */
-val ArtistOrders = listOf("name" to "Name", "most_played" to "Most played", "most_songs" to "Most songs", "recently_added" to "Recently added")
+// The Mac's words (Pages.swift), the same in every app.
+val ArtistOrders = listOf("name" to "A–Z", "most_played" to "Most played", "most_songs" to "Most songs", "recently_added" to "Newest")
 
 /**
  * Sort and Only album artists for the Artists list: a menu from the sort button, as the other
@@ -70,7 +70,7 @@ fun ArtistSortButton() {
     val current = ArtistOrders.firstOrNull { it.first == more.artistOrder } ?: ArtistOrders.first()
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${current.second}") }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }, shape = RoundedCornerShape(16.dp)) {
+        GlassMenu(expanded = open, onDismissRequest = { open = false }) {
             ArtistOrders.forEach { (id, label) ->
                 DropdownMenuItem(
                     text = { Text(label) },
@@ -263,7 +263,7 @@ private fun FanartPicker(name: String, kind: String, onChanged: () -> Unit, onDi
     val choicesLoad = rememberLoaded(name, kind, cache = false) { fanartChoices(name, kind) }
     val choices by choicesLoad
     var saving by remember { mutableStateOf(false) }
-    androidx.compose.material3.AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(PictureKinds.firstOrNull { it.first == kind }?.second ?: "Picture") },
         text = {

@@ -98,10 +98,15 @@ impl AppView {
                 letters.push((group.letter.clone(), index));
             }
         }
-        // As many letters as fit beside the grid (below the title bar and the page's head,
-        // above the player); with more, every second or third shows, the first and last
-        // always, and each still jumps to its own place.
-        let room = self.window_height - LETTER_BAR_ABOVE - f32::from(self.foot_room()) - 16.;
+        // As many letters as fit beside the grid on the sheet (the bar runs from 8 px under
+        // its top to 8 px over the player); with more, every second or third shows, the first
+        // and last always, and each still jumps to its own place. Before the grid was ever
+        // measured, a guess from the window.
+        let grid = match self.letter_room.get() {
+            measured if measured > 0. => measured,
+            _ => self.window_height - LETTER_BAR_ABOVE,
+        };
+        let room = grid - f32::from(self.foot_room()) - 16.;
         let letters = fit_letters(letters, (room / LETTER_PITCH).floor().max(3.) as usize);
         Some(
             div()
@@ -142,7 +147,8 @@ impl AppView {
 /// The height of one letter in the A–Z bar, with its gap.
 const LETTER_PITCH: f32 = 15.;
 
-/// The room above the A–Z bar's grid: the title bar and the Artists page's head.
+/// The room above the A–Z bar's grid, before it was measured: the title bar and the Artists
+/// page's head.
 const LETTER_BAR_ABOVE: f32 = 210.;
 
 /// At most `room` letters, spread evenly: the first and the last always.

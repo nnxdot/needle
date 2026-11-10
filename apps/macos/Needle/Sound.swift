@@ -39,7 +39,7 @@ struct SoundPane: View {
         }
         if let sound {
             Section {
-                SettingRow(title: "Balance", detail: abs(sound.balance) < 0.01 ? "Centred." : sound.balance < 0 ? "Leaning left." : "Leaning right.", icon: "speaker.wave.2") {
+                SettingRow(title: "Balance", detail: abs(sound.balance) < 0.01 ? "Centered." : sound.balance < 0 ? "Leaning left." : "Leaning right.", icon: "speaker.wave.2") {
                     HStack {
                         Text("L").foregroundStyle(.secondary)
                         Slider(value: Binding(get: { Double(sound.balance) }, set: { v in change { $0.balance = abs(v) < 0.03 ? 0 : Float(v) } }), in: -1...1)

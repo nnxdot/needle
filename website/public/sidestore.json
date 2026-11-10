@@ -49,6 +49,15 @@
             ],
             "versions": [
                 {
+                    "version": "2.0.6",
+                    "buildVersion": "1",
+                    "date": "2026-11-10",
+                    "localizedDescription": "Needle 2.0.6: Needle for iPad, your Navidrome playlists, and more glass.\n\n- A real iPad app: a sidebar with your library and playlists, a player that floats over the page, and the lyrics or Up Next beside the cover.\n- Playlists you make on your Navidrome (or any Subsonic) server show up in Needle, and changes go both ways.\n- Fix my library has Look up all: it looks up every album with tag gaps and keeps only sure matches.\n- New settings: Film grain, Roomy or Compact song rows, and Keep the screen on with the player.\n- Many fixes: word-by-word lyrics light up on time, sound comes back after a Bluetooth fault, and the phone buzzes only when you press.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-2.0.6-ios.ipa",
+                    "size": 18958742,
+                    "minOSVersion": "26.0"
+                },
+                {
                     "version": "2.0.4",
                     "buildVersion": "1",
                     "date": "2026-11-08",

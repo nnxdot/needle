@@ -36,7 +36,7 @@ struct BigPlayer: View {
                                    animated: store.settings.animatedCovers && store.motion,
                                    alone: !(wide && (!store.immersive || immersiveSide != nil)))
                 } else if let p, p.hasSong {
-                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion)
+                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion && store.isPlaying)
                 } else {
                     store.colors.glow.opacity(0.3)
                 }
@@ -79,7 +79,7 @@ struct BigPlayer: View {
                                 Cover(path: p.artwork, seed: p.album + p.artist, side: min(geo.size.height * 0.5, wide ? 460 : 340), corner: 14)
                                     .overlay {
                                         MovingCoverLayer(songID: store.current?.id, on: store.settings.animatedCovers && store.motion)
-                                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                                     }
                                     .shadow(color: .black.opacity(0.45), radius: 40, y: 18)
                             }
@@ -402,6 +402,12 @@ struct MiniPlayer: View {
     @AppStorage("mini-view") private var view = "cover"
     @State private var hovering = false
     private let side: CGFloat = 300
+    #if DEBUG
+    /// Test pictures: the controls show as under the pointer (see `TestRenders`).
+    static var showControls = false
+    #else
+    static let showControls = false
+    #endif
 
     var body: some View {
         let p = store.playback
@@ -419,7 +425,7 @@ struct MiniPlayer: View {
                 Color.black.opacity(0.3)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
         .onHover { inside in
             withAnimation(store.motion ? .easeOut(duration: 0.18) : nil) { hovering = inside }
         }
@@ -437,7 +443,7 @@ struct MiniPlayer: View {
             } else {
                 Image(systemName: "music.note").font(.system(size: 54)).foregroundStyle(.white.opacity(0.3))
             }
-            if hovering || p?.hasSong != true {
+            if hovering || p?.hasSong != true || Self.showControls {
                 controls(p).transition(.opacity)
             }
         }
@@ -470,9 +476,10 @@ struct MiniPlayer: View {
             }
             .font(.system(size: 14, weight: .semibold))
             .padding(.horizontal, 12)
+            .frame(height: 34)
+            .miniGlass(Capsule())
+            .padding(.horizontal, 10)
             .padding(.top, 10)
-            .padding(.bottom, 30)
-            .background(LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom))
             Spacer(minLength: 0)
             VStack(spacing: 8) {
                 VStack(spacing: 1) {
@@ -491,10 +498,11 @@ struct MiniPlayer: View {
                 }
                 .font(.system(size: 14))
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 44)
-            .padding(.bottom, 14)
-            .background(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            // On glass over the cover, as the other floating players.
+            .miniGlass(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+            .padding(10)
         }
         .foregroundStyle(.white)
         .buttonStyle(.plain)
@@ -599,6 +607,23 @@ struct MiniHistory: View {
         .scrollContentBackground(.hidden)
         .task(id: store.playback?.current) {
             items = await store.load { try $0.history(offset: 0, limit: 40) } ?? []
+        }
+    }
+}
+
+extension View {
+    /// The mini player's glass over its cover: Liquid Glass on macOS 26, a thin material
+    /// before; a dim layer with the Plain background (the mini player is always dark).
+    @MainActor @ViewBuilder
+    func miniGlass<S: Shape>(_ shape: S) -> some View {
+        if Store.shared.liquidGlass {
+            if #available(macOS 26, *) {
+                glassEffect(.regular.interactive(), in: shape)
+            } else {
+                background(.ultraThinMaterial, in: shape)
+            }
+        } else {
+            background(.black.opacity(0.5), in: shape)
         }
     }
 }

@@ -63,6 +63,8 @@ pub struct Theme {
     pub radius: Pixels,
     /// Radius for the large elements, e.g.: Dialog, Notification border radius.
     pub radius_lg: Pixels,
+    /// Needle patch: radius for popovers, menus and tooltips.
+    pub popover_radius: Pixels,
     pub shadow: bool,
     pub transparent: Hsla,
     /// Show the scrollbar mode, default: Scrolling
@@ -197,6 +199,7 @@ impl From<&ThemeColor> for Theme {
             mono_font_size: px(13.),
             radius: px(6.),
             radius_lg: px(8.),
+            popover_radius: px(6.),
             shadow: true,
             scrollbar_show: ScrollbarShow::default(),
             tile_grid_size: px(8.),

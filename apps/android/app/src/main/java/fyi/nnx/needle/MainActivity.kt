@@ -20,6 +20,8 @@ import fyi.nnx.needle.ui.NeedleTheme
 import fyi.nnx.needle.ui.showMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import androidx.lifecycle.lifecycleScope
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -81,6 +83,15 @@ class MainActivity : ComponentActivity() {
 
     /** A music file opened with Needle from another app: it plays, and joins the library. */
     private fun openFrom(intent: Intent?) {
+        // The Listening widget: the History page, once the pages are there to take it.
+        if (intent?.getStringExtra(OpenExtra) == "history") {
+            intent.removeExtra(OpenExtra)
+            lifecycleScope.launch {
+                fyi.nnx.needle.ui.Ui.openRoute.subscriptionCount.first { it > 0 }
+                fyi.nnx.needle.ui.Ui.openRoute.emit(fyi.nnx.needle.ui.Route.History)
+            }
+            return
+        }
         // A long press on the Quick Settings tile: its setting.
         if (intent?.action == "android.service.quicksettings.action.QS_TILE_PREFERENCES") {
             fyi.nnx.needle.ui.Ui.openRoute.tryEmit(fyi.nnx.needle.ui.Route.SettingsPage(fyi.nnx.needle.ui.SettingsSection.Playback))

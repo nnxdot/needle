@@ -10,6 +10,8 @@ struct SettingsView: View {
     @State private var songs: UInt32?
     /// What's new or About, opened from the card's buttons.
     @State private var opened: Route?
+    /// In Settings' two columns (an iPad's wide window): the page open beside the list.
+    var selection: Binding<Route?>? = nil
 
     var body: some View {
         List {
@@ -17,18 +19,18 @@ struct SettingsView: View {
                 header
             }
             Section("Listening") {
-                row("Playback", "Crossfade and even loudness", "play.fill", .blue, .settingsPlayback)
+                row("Playback", "Crossfade and loudness", "play.fill", .blue, .settingsPlayback)
                 row("Sound", "Equalizer, balance, and headphones", "slider.vertical.3", .purple, .settingsSound)
-                row("Scrobbling", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
+                row("Online services", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
                 if discord {
                     row("Discord", "Show what you play on your profile", "bubble.left.and.text.bubble.right.fill", .indigo, .settingsDiscord)
                 }
             }
             Section("Look and feel") {
-                row("Appearance", "Themes, colours, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
+                row("Appearance", "Themes, colors, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
             }
             Section("Your music") {
-                row("Sources", "This iPhone, your server, and your computer", "globe", .teal, .sources)
+                row("Sources", "This \(Device.name), your server, and your computer", "globe", .teal, .sources)
                 row("Library", "Music folders and online lookups", "music.note.house.fill", .orange, .settingsLibrary)
                 row("Music server", "Navidrome and other Subsonic servers", "server.rack", .cyan, .server("subsonic"))
                 row("Your computer", "Control Needle there, play its music here", "laptopcomputer", .indigo, .computer)
@@ -62,7 +64,7 @@ struct SettingsView: View {
                     .foregroundStyle(.white)
                     .frame(width: 60, height: 60)
                     .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: .rect(cornerRadius: 14))
+                                in: .soft(Corner.middle))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Needle").font(.needle(.title2).bold())
@@ -76,33 +78,103 @@ struct SettingsView: View {
             // Two buttons in one row, each opening its own page (links in a list row would all
             // open with a tap anywhere on it).
             HStack(spacing: 10) {
-                Button { opened = .whatsNew } label: {
+                Button { open(.whatsNew) } label: {
                     Label("What's new", systemImage: "sparkles").frame(maxWidth: .infinity)
                 }
-                Button { opened = .about } label: {
+                Button { open(.about) } label: {
                     Label("About", systemImage: "info.circle").frame(maxWidth: .infinity)
                 }
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
             .font(.needle(.subheadline).weight(.medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
         .padding(.vertical, 6)
     }
 
+    /// What's new or About: beside the list in two columns, else on a page of their own.
+    private func open(_ route: Route) {
+        if let selection { selection.wrappedValue = route } else { opened = route }
+    }
+
+    @ViewBuilder
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
-        NavigationLink(value: route) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(tint.gradient, in: .rect(cornerRadius: 8))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                    Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
+        let label = HStack(spacing: 14) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(tint.gradient, in: .soft(Corner.small))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 1)
+        if let selection {
+            // Beside its page, as the Mac's Settings and the sidebar: the chosen section on a
+            // quiet capsule of the ink, its words in the ink (amber marks only what plays).
+            let chosen = selection.wrappedValue == route
+            Button { selection.wrappedValue = route } label: {
+                label.frame(maxWidth: .infinity, alignment: .leading).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(chosen ? Capsule().fill(store.colors.text.opacity(store.colors.dark ? 0.12 : 0.08)) : nil)
+            .accessibilityAddTraits(chosen ? .isSelected : [])
+        } else {
+            NavigationLink(value: route) { label }
+        }
+    }
+}
+
+/// Settings in a wide window, as the Mac's Settings window: a large sheet with the sections at
+/// the left and the section's page at the right. In a narrow one (or a sheet made narrow), the
+/// iPhone's list of pages.
+struct SettingsSplit: View {
+    @Environment(Store.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var page: Route? = .settingsPlayback
+    @State private var path = NavigationPath()
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        Group {
+            if width >= 640 {
+                NavigationSplitView {
+                    SettingsView(selection: $page)
+                        .toolbar { done }
+                        .navigationSplitViewColumnWidth(min: 320, ideal: 360, max: 400)
+                } detail: {
+                    NavigationStack(path: $path) {
+                        RoutePage(route: page ?? .settingsPlayback).routes()
+                    }
+                    // Each section starts on its own page.
+                    .id(page)
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else {
+                NavigationStack {
+                    SettingsView().routes().toolbar { done }
                 }
             }
-            .padding(.vertical, 1)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .scrollEdgeEffectStyle(.soft, for: .all)
+        .readsWide()
+        #if DEBUG
+        // Test builds: -settings <page> opens Settings on that page.
+        .onAppear {
+            let pages: [String: Route] = ["appearance": .settingsAppearance, "sound": .settingsSound, "library": .settingsLibrary,
+                                          "fixlibrary": .fixLibrary, "sources": .sources, "about": .about, "whatsnew": .whatsNew, "playback": .settingsPlayback]
+            if let name = UserDefaults.standard.string(forKey: "settings-page"), let route = pages[name] { page = route }
+        }
+        #endif
+    }
+
+    private var done: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { dismiss() }
         }
     }
 }
@@ -119,7 +191,7 @@ struct SettingLabel: View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(tint.gradient, in: .rect(cornerRadius: 7))
+                .background(tint.gradient, in: .soft(Corner.small))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
@@ -178,7 +250,7 @@ struct LibrarySettingsView: View {
                 ForEach(folders, id: \.self) { folder in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : (folder as NSString).lastPathComponent)
-                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My iPhone › Needle" : folder)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My \(Device.name) › Needle" : folder)
                             .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .deleteDisabled(Store.realPath(folder) == Store.realPath(store.musicFolder.path))
@@ -261,14 +333,14 @@ struct LibrarySettingsView: View {
                 }
                 Section("Radio") {
                     Toggle(isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) })) {
-                        SettingLabel(title: "Measure songs for radio", detail: "Tempo, key, and energy, on this iPhone.", icon: "dot.radiowaves.left.and.right", tint: .orange)
+                        SettingLabel(title: "Measure songs for radio", detail: "Tempo, key, and energy, on this \(Device.name).", icon: "dot.radiowaves.left.and.right", tint: .orange)
                     }
                     if measured.count == 2 {
                         LabeledContent("Measured", value: "\(measured[0].formatted()) of \(measured[1].formatted())")
                         Button("Measure now") { store.core.measureInBackground(); store.message = "Measuring in the background" }
                             .disabled(measured[0] >= measured[1])
                     }
-                    OpenRow(label: SettingLabel(title: "When nothing is up next", detail: "Keep playing songs that match.", icon: "sparkles", tint: .purple),
+                    OpenRow(label: SettingLabel(title: "When the queue runs out", detail: "Keep playing songs that match a rule.", icon: "sparkles", tint: .purple),
                             value: settings.autoplayQuery.isEmpty ? "Off" : settings.autoplayQuery) {
                         TextField("For example: rating is at least 4", text: Binding(get: { settings.autoplayQuery }, set: { var s = settings; s.autoplayQuery = $0; save(s) }))
                             .textInputAutocapitalization(.never)
@@ -337,8 +409,8 @@ struct PlaybackSettingsView: View {
                         SettingLabel(title: "Shuffle stays on", detail: "As in Spotify: the shuffle button turns shuffle on and off, and the song playing goes on.", icon: "shuffle", tint: .green)
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        SettingLabel(title: "Even loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
-                    Picker("Even loudness", selection: Binding(
+                        SettingLabel(title: "Even out loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
+                    Picker("Even out loudness", selection: Binding(
                         get: { !settings.replayGain ? 0 : (settings.albumGain ? 2 : 1) },
                         set: { var s = settings; s.replayGain = $0 > 0; s.albumGain = $0 == 2; save(s) })) {
                         Text("Off").tag(0)
@@ -362,9 +434,10 @@ struct PlaybackSettingsView: View {
 /// The sleep timer's row: what runs, and a tap opens the timer.
 struct SleepMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
 
     var body: some View {
-        Button { store.sheet = .sleep } label: {
+        Button { window.sheet = .sleep } label: {
             HStack {
                 Label("Sleep timer", systemImage: "moon.zzz")
                 Spacer()
@@ -390,6 +463,9 @@ struct SoundView: View {
     @State private var naming = false
     @State private var newName = ""
     @State private var loadingFile = false
+    /// The equalizer written as a file, to save where the person chooses.
+    @State private var eqFile: URL?
+    @State private var savingFile = false
 
     var body: some View {
         Form {
@@ -427,6 +503,9 @@ struct SoundView: View {
                         Divider()
                         Button("Save as preset…", systemImage: "square.and.arrow.down") { newName = ""; naming = true }
                         Button("Headphone correction file…", systemImage: "headphones") { loadingFile = true }
+                        // As on the Mac: the equalizer as a "ParametricEQ.txt", which AutoEq and
+                        // other players read.
+                        Button("Save EQ file…", systemImage: "doc.badge.arrow.up") { saveFile() }
                     } label: {
                         LabeledContent("Preset", value: sound.preset.isEmpty ? "Your own" : sound.preset)
                     }
@@ -487,6 +566,9 @@ struct SoundView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .fileMover(isPresented: $savingFile, file: eqFile) { result in
+            if case .success = result { store.message = "Saved in the Equalizer APO format." }
+        }
         .fileImporter(isPresented: $loadingFile, allowedContentTypes: [.plainText, .text]) { result in
             guard case .success(let url) = result, let path = store.copyIn(url) else { return }
             Task {
@@ -505,8 +587,21 @@ struct SoundView: View {
         }
     }
 
+    private func saveFile() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("ParametricEQ.txt")
+        let path = url.path
+        Task {
+            if await store.ask({ try $0.saveEqFile(path: path) }) != nil {
+                eqFile = url
+                savingFile = true
+            }
+        }
+    }
+
     private func balance(_ value: Float) -> String {
-        abs(value) < 0.03 ? "Centre" : value < 0 ? "\(Int(-value * 100))% left" : "\(Int(value * 100))% right"
+        abs(value) < 0.03 ? "Center" : value < 0 ? "\(Int(-value * 100))% left" : "\(Int(value * 100))% right"
     }
 
     private func dB(_ label: String, value: Float, set: @escaping (Float) -> Void) -> some View {
@@ -687,11 +782,11 @@ struct ScrobblingView: View {
                         }
                     }
                 } footer: {
-                    Text("Your passwords and keys stay in the iPhone Keychain.")
+                    Text("Your passwords and keys stay in the \(Device.name) Keychain.")
                 }
             }
         }
-        .navigationTitle("Scrobbling")
+        .navigationTitle("Online services")
         .themed()
         .task {
             #if DEBUG
@@ -976,11 +1071,11 @@ struct SyncView: View {
                 }
                 .disabled(passphrase.count < 4)
             } header: {
-                Text("From this iPhone")
+                Text("From this \(Device.name)")
             } footer: {
                 Text("History, ratings, and playlists, locked with the passphrase. No music and no passwords go in it.")
             }
-            Section("Into this iPhone") {
+            Section("Into this \(Device.name)") {
                 Button("Open a sync file…") { choosing = true }
             }
             if let report {
@@ -988,7 +1083,7 @@ struct SyncView: View {
                     LabeledContent("Songs matched", value: report.songsMatched.formatted())
                     LabeledContent("Listens added", value: report.listensAdded.formatted())
                     LabeledContent("Playlists added", value: report.playlistsAdded.formatted())
-                    if report.songsNotFound > 0 { LabeledContent("Songs not on this iPhone", value: report.songsNotFound.formatted()) }
+                    if report.songsNotFound > 0 { LabeledContent("Songs not on this \(Device.name)", value: report.songsNotFound.formatted()) }
                 }
             }
         }
@@ -1092,7 +1187,7 @@ struct WhatsNewView: View {
                         if let tagline = release.tagline { Text(tagline).font(.needle(.subheadline)) }
                         ForEach(release.changes) { change in row(change) }
                         if index > 0 {
-                            Button("Fold \(release.version)") { withAnimation { _ = unfolded.remove(release.version) } }
+                            Button("Fold \(release.version)") { withMotion(.default) { _ = unfolded.remove(release.version) } }
                                 .font(.needle(.subheadline))
                         }
                     } header: {
@@ -1101,7 +1196,7 @@ struct WhatsNewView: View {
                 } else {
                     Section {
                         Button {
-                            withAnimation { _ = unfolded.insert(release.version) }
+                            withMotion(.default) { _ = unfolded.insert(release.version) }
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -1129,12 +1224,12 @@ struct WhatsNewView: View {
         let open = opened.contains(change.id)
         let (symbol, tint) = Self.icon(change)
         return Button {
-            withAnimation(.snappy(duration: 0.2)) { if open { opened.remove(change.id) } else { opened.insert(change.id) } }
+            withMotion(.snappy(duration: 0.2)) { if open { opened.remove(change.id) } else { opened.insert(change.id) } }
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 28, height: 28)
-                    .background(tint.gradient, in: .rect(cornerRadius: 7))
+                    .background(tint.gradient, in: .soft(Corner.small))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     if change.title.isEmpty {
@@ -1194,9 +1289,12 @@ struct WhatsNewView: View {
 
 struct AboutView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.openURL) private var openURL
     @State private var crashReports = false
     @State private var settings: PlaybackSettings?
+    /// The log file being written now, once it is there.
+    @State private var log: URL?
 
     var body: some View {
         Form {
@@ -1221,9 +1319,34 @@ struct AboutView: View {
                 })) {
                     SettingLabel(title: "Send crash reports", detail: "What went wrong. No music, names, or files.", icon: "exclamationmark.triangle.fill", tint: .orange)
                 }
+                // As on the Mac and Android: the first start's guide, again.
+                HStack {
+                    SettingLabel(title: "Welcome guide", detail: "The short guide from the first start.", icon: "house.fill", tint: .green)
+                    Spacer(minLength: 8)
+                    Button("Show it again") { window.welcomeAgain = true }
+                        .buttonStyle(.borderless)
+                        .fixedSize()
+                }
+                // As on the Mac (Settings › Your data): the log to send, and an error report to
+                // paste in an email.
+                HStack {
+                    SettingLabel(title: "Log file", detail: "What Needle does and any errors, kept on this \(Device.name).", icon: "doc.text.fill", tint: .gray)
+                    Spacer(minLength: 8)
+                    if let log {
+                        ShareLink(item: log) { Text("Share…") }
+                            .buttonStyle(.borderless)
+                            .fixedSize()
+                    }
+                }
+                Button("Copy error report") {
+                    Task {
+                        UIPasteboard.general.string = await store.load { $0.errorReport() } ?? ""
+                        store.message = "Copied an error report, without file paths or your name. Paste it in an email to dot@nnx.fyi."
+                    }
+                }
             }
             Section("Privacy") {
-                Text("Needle has no account and no tracking. Your library stays on this iPhone. It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
+                Text("Needle has no account and no tracking. Your library stays on this \(Device.name). It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
                     .font(.needle(.subheadline)).foregroundStyle(.secondary)
             }
             Section {
@@ -1235,6 +1358,9 @@ struct AboutView: View {
         .task {
             crashReports = await store.load { $0.crashReports() } ?? false
             settings = await store.load { try $0.playbackSettings() }
+            if let path = await store.load({ $0.logFile() }), FileManager.default.fileExists(atPath: path) {
+                log = URL(fileURLWithPath: path)
+            }
         }
     }
 }
@@ -1252,17 +1378,34 @@ struct ScrobbleProblemsLink: View {
     @Environment(Store.self) private var store
     let service: String
     @State private var problems: Problems?
+    /// Why the listens held back could not be read, when they could not.
+    @State private var problem: String?
+    @State private var tries = 0
 
     var body: some View {
         Group {
             if let p = problems, !p.reasons.isEmpty {
                 NavigationLink("Why some listens were not sent") { list(p) }
+            } else if let problem {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Could not read the listens not sent")
+                        Text(problem).font(.needle(.caption)).foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "exclamationmark.triangle") }
+                Button("Try Again") { tries += 1 }
             }
         }
-        .task {
+        .task(id: tries) {
             let service = service
-            let json = await store.load { $0.scrobbleProblemsJson(service: service) } ?? ""
-            problems = try? JSONDecoder().decode(Problems.self, from: Data(json.utf8))
+            switch await store.attempt({ try $0.scrobbleProblemsJson(service: service) }) {
+            case .success(let json):
+                problems = try? JSONDecoder().decode(Problems.self, from: Data(json.utf8))
+                problem = problems == nil ? "Needle could not read its own answer." : nil
+            case .failure(let error):
+                problems = nil
+                problem = error.words
+            }
         }
     }
 

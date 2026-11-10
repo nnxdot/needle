@@ -9,6 +9,31 @@ import SwiftUI
 import UIKit
 import WidgetKit
 
+/// Where the song is, apart from the rest of what plays: it changes four times a second, and
+/// only what shows it (the seek bar, the clocks, the lyrics) reads it, so the rest of the
+/// screen is not drawn again each time.
+@MainActor @Observable
+final class PlaybackClock {
+    /// Seconds into the song, at `at`.
+    private(set) var position: Double = 0
+    /// When `position` was read.
+    @ObservationIgnored private(set) var at = Date()
+    /// Seconds of song a second: the speed while it plays, 0 while paused.
+    @ObservationIgnored private(set) var rate: Double = 0
+
+    func set(_ position: Double, rate: Double) {
+        at = Date()
+        self.rate = rate
+        if position != self.position { self.position = position }
+    }
+
+    /// Where the song is at `date`, between the core's reports: for word-by-word lyrics, which
+    /// are drawn each frame.
+    func estimate(at date: Date) -> Double {
+        position + max(0, min(date.timeIntervalSince(at), 1)) * rate
+    }
+}
+
 /// Holds Needle's core for the whole app: the screens, the lock screen, Control Center, the
 /// widgets, and Siri share it. What plays is read from the core a few times a second.
 @MainActor @Observable
@@ -19,8 +44,14 @@ final class Store {
     /// Needle's own files (the library, covers, logs), out of the Files app's sight.
     let dataFolder: URL
 
-    /// What plays: on this phone, or on the computer while the phone shows that.
+    /// What plays: on this phone, or on the computer while the phone shows that. It changes
+    /// with the song, playing or paused, the queue, and the like, not with the time: its
+    /// `position` is where the song was at the last such change. The time is `clock`.
     private(set) var playback: Playback?
+    /// Where the song is, now (see `PlaybackClock`).
+    let clock = PlaybackClock()
+    /// Where the song is now, in seconds: what reads it is drawn again as the song goes on.
+    var position: Double { clock.position }
     /// What Needle on the computer plays, while connected to it.
     private(set) var pc: PcState?
     /// The player shows (and works) the computer's song: the phone plays nothing, and the
@@ -70,6 +101,22 @@ final class Store {
 
     func lyricsChanged() { lyricsVersion += 1 }
 
+    /// A row of a list of songs with an id of its own: the song's, and which time it is in the
+    /// list (a song can be in Up Next or a playlist twice). A row taken out or moved keeps it.
+    struct Row: Identifiable {
+        let id: String
+        let song: Song
+    }
+
+    nonisolated static func rowIDs(_ songs: [Song]) -> [Row] {
+        var seen: [String: Int] = [:]
+        return songs.map { song in
+            let n = seen[song.id, default: 0]
+            seen[song.id] = n + 1
+            return Row(id: n == 0 ? song.id : "\(song.id)#\(n)", song: song)
+        }
+    }
+
     /// Takes a song out of Up Next, at once on the screen too (the queue is read again a moment
     /// later, and a second swipe meanwhile used the old places).
     func removeUpNext(at rows: IndexSet) {
@@ -99,11 +146,9 @@ final class Store {
     private(set) var messageCount = 0
     /// A plugin's question, answered with text.
     var question: Question?
-    var showPlayer = false
-    /// A page to open, from a widget or a link.
-    var opening: Route?
-    /// A sheet over everything: adding to a playlist, tags, identifying, lyrics timing.
-    var sheet: Sheet?
+    /// The windows open (an iPad can show two). What is open in each (the player, sheets,
+    /// pages) is its own `WindowState`.
+    @ObservationIgnored let windows = Windows()
     /// Plugin commands that act on chosen songs, for the songs' menus.
     private(set) var songCommands: [SongCommand] = []
 
@@ -165,13 +210,24 @@ final class Store {
     @ObservationIgnored private var syncActivity: Activity<NeedleActivity>?
     @ObservationIgnored private var widgetSong: (String?, Bool) = (nil, false)
 
-    /// The one store, shared by the app's window and CarPlay, so there is one library.
-    static let main = Store()
+    /// The one store, shared by the app's window and CarPlay, so there is one library; none
+    /// while the library cannot be opened (see `Launch`).
+    static var shared: Store?
 
-    init() {
-        let files = FileManager.default
-        let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// Needle's own files: the library, covers, logs.
+    nonisolated static var dataFolderURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Needle", isDirectory: true)
+    }
+
+    #if DEBUG
+    private static var brokenShown = false
+    #endif
+
+    /// Opens the library; throws when it cannot be opened (the app then shows `RecoveryView`).
+    init() throws {
+        let files = FileManager.default
+        let support = Self.dataFolderURL
         try? files.createDirectory(at: support, withIntermediateDirectories: true)
         dataFolder = support
         musicFolder = files.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -184,11 +240,15 @@ final class Store {
         } else {
             defaults.set(home, forKey: "home")
         }
-        do {
-            core = try Needle(dataDir: support.path)
-        } catch {
-            fatalError("Needle could not open its library: \(error)")
+        #if DEBUG
+        // Test builds: -broken-library shows the recovery screen, as if the library could not
+        // be opened (nothing is changed).
+        if CommandLine.arguments.contains("-broken-library"), !Self.brokenShown {
+            Self.brokenShown = true
+            throw NeedleError.Failed(message: "database disk image is malformed (a test)")
         }
+        #endif
+        core = try Needle(dataDir: support.path)
         app = core.appSettings()
         let chosen = (try? core.libraryChoices())
             ?? LibraryChoices(displayFont: "system", textFont: "system", playerButtons: PlayerButtons.all, artistOrder: "name",
@@ -208,7 +268,7 @@ final class Store {
         if welcomed, UserDefaults.standard.string(forKey: "whats-new-seen") != version {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1))
-                if self.sheet == nil { self.sheet = .whatsNew }
+                self.inFront { if $0.sheet == nil { $0.sheet = .whatsNew } }
             }
         }
         UserDefaults.standard.set(version, forKey: "whats-new-seen")
@@ -247,11 +307,7 @@ final class Store {
             }
         }
         network.start(queue: DispatchQueue(label: "needle.network"))
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
-        // Also while a finger scrolls a list (the timer's own mode waits for it to stop).
-        if let timer { RunLoop.main.add(timer, forMode: .common) }
+        startTicking(every: 0.25)
         followComputer()
         refreshPlugins()
         #if DEBUG
@@ -266,7 +322,7 @@ final class Store {
         if ["-show-player", "-show-lyrics", "-show-queue"].contains(where: CommandLine.arguments.contains) {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.showPlayer = true
+                self?.inFront { $0.showPlayer = true }
             }
         }
         #endif
@@ -275,14 +331,40 @@ final class Store {
 
     // MARK: - Following the core
 
+    /// Reads the core every `seconds`, also while a finger scrolls a list (the timer's own mode
+    /// waits for it to stop).
+    private func startTicking(every seconds: TimeInterval) {
+        timer?.invalidate()
+        let timer = Timer(timeInterval: seconds, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        timer.tolerance = seconds * 0.1
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    /// Needle is on the screen, or not: four times a second while it shows, once a second
+    /// while away (the lock screen, the watch, and the sleep timer still follow).
+    func onScreen(_ shown: Bool) {
+        var seconds: TimeInterval = shown ? 0.25 : 1
+        #if DEBUG
+        // A UI test waits for the app to be still between its steps: no quick ticks then.
+        if Self.stubbed { seconds = 2 }
+        #endif
+        guard timer?.timeInterval != seconds else { return }
+        startTicking(every: seconds)
+    }
+
     private func tick() {
         let now = core.playback()
         local = now
         let shown = showComputer(now)
         if shown != onComputer { onComputer = shown }
         let next = shown ? pc.map(Self.playback(of:)) ?? now : now
-        if next != playback { playback = next }
-        WatchLink.shared.update(next)
+        // Only a change other than the time redraws what reads `playback`; the time is the clock's.
+        if !Self.same(next, playback) { playback = next }
+        clock.set(next.position, rate: next.playing ? (shown ? 1 : Double(tempo.speed)) : 0)
+        WatchLink.shared.update(next, speed: shown ? 1 : Double(tempo.speed))
         if next.current?.id != playingID { playingID = next.current?.id }
         if now.playing, !audioTaken { activateAudio() }
         audioTaken = now.playing
@@ -290,12 +372,13 @@ final class Store {
         if next.queueVersion != queueVersion {
             queueVersion = next.queueVersion
             if shown {
-                upNext = (pc?.upNext ?? []).map(Self.song(of:))
+                withMotion(.snappy) { upNext = (pc?.upNext ?? []).map(Self.song(of:)) }
             } else {
                 let (core, version) = (core, next.queueVersion)
                 Task {
                     let list = await Task.detached { core.upNext() }.value
-                    if self.queueVersion == version { self.upNext = list }
+                    // Rows come in, go, and move into place (the song ended, more were added).
+                    if self.queueVersion == version, list != self.upNext { withMotion(.snappy) { self.upNext = list } }
                 }
             }
         }
@@ -339,6 +422,13 @@ final class Store {
         if ticks % 8 == 0 { followSync() }
     }
 
+    /// The same but for the time.
+    private static func same(_ a: Playback, _ b: Playback?) -> Bool {
+        guard var b else { return false }
+        b.position = a.position
+        return a == b
+    }
+
     func libraryChanged() {
         libraryVersion += 1
         refreshPlugins()
@@ -371,10 +461,10 @@ final class Store {
     /// Saves songs from a music server as files in Needle's folder, as the phone's own.
     func saveToPhone(_ songs: [Song]) {
         let (ids, folder) = (songs.map(\.id), musicFolder.path)
-        message = "Saving to this iPhone…"
+        message = "Saving to this \(Device.name)…"
         Task {
             if let saved = await ask({ try $0.saveToMusic(ids: ids, folder: folder) }) {
-                message = "Saved \(count(Int(saved), "song")) to this iPhone"
+                message = "Saved \(count(Int(saved), "song")) to this \(Device.name)"
                 rescan()
             }
         }
@@ -416,6 +506,31 @@ final class Store {
     nonisolated func load<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> T? {
         let core = core
         return await Task.detached { try? work(core) }.value
+    }
+
+    /// Reads a value away from the screen, or the words of what went wrong, for a page that
+    /// shows its own error (never an empty page).
+    nonisolated func attempt<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> Result<T, Problem> {
+        let core = core
+        return await Task.detached { Result { try work(core) }.mapError { Problem(words: Self.words($0)) } }.value
+    }
+
+    /// What went wrong, in Needle's words.
+    struct Problem: Error, Sendable {
+        let words: String
+    }
+
+    /// Tells the person where a playlist change went: `done` when it went as asked, the
+    /// core's note when it did not, and the copy's name when it went to a copy (then never
+    /// `done`, which names the playlist asked for).
+    func told(_ saved: PlaylistSaved, done: String?) {
+        if let copy = saved.copyName {
+            message = (saved.note.map { $0 + ". " } ?? "") + "Saved in “\(copy)” instead."
+        } else if let note = saved.note {
+            message = note
+        } else if let done {
+            message = done
+        }
     }
 
     // MARK: - Settings
@@ -495,7 +610,7 @@ final class Store {
     // MARK: - Playback
 
     func play(_ songs: [Song], from start: Int = 0) {
-        guard !songs.isEmpty else { message = "These songs are not on this iPhone"; return }
+        guard !songs.isEmpty else { message = "These songs are not on this \(Device.name)"; return }
         activateAudio()
         let ids = songs.map(\.id)
         run { try $0.play(ids: ids, start: UInt32(start)) }
@@ -521,11 +636,11 @@ final class Store {
     func playIDs(_ find: @escaping @Sendable (Needle) throws -> [String], shuffled: Bool = false, from start: Int = 0) {
         Task {
             guard var ids = await ask(find) else { return }
-            guard !ids.isEmpty else { message = "These songs are not on this iPhone"; return }
+            guard !ids.isEmpty else { message = "These songs are not on this \(Device.name)"; return }
             activateAudio()
             if shuffled { ids.shuffle() }
-            let at = UInt32(min(start, ids.count - 1))
-            if await ask({ try $0.play(ids: ids, start: at) }) != nil { played() }
+            let (chosen, at) = (ids, UInt32(min(start, ids.count - 1)))
+            if await ask({ try $0.play(ids: chosen, start: at) }) != nil { played() }
         }
     }
 
@@ -537,13 +652,22 @@ final class Store {
 
     /// Opens the player (if that is on) once a song plays: a radio station takes a moment to
     /// make, and an empty player showed until then.
+    /// Plays songs from both artists that flow from one to the other (a blend), as on the Mac.
+    func blend(_ first: String, _ second: String) {
+        message = "Tuning in…"
+        playedWhenReady()
+        Task {
+            if let n = await ask({ try $0.startBlend(first: first, second: second) }) { message = "\(first) × \(second): \(n) songs." }
+        }
+    }
+
     func playedWhenReady() {
         guard app.openPlayerOnPlay else { return }
         let before = local?.queueVersion
         Task {
             for _ in 0..<40 {
                 try? await Task.sleep(for: .milliseconds(250))
-                if local?.current != nil, local?.queueVersion != before { showPlayer = true; return }
+                if local?.current != nil, local?.queueVersion != before { inFront { $0.showPlayer = true }; return }
             }
         }
     }
@@ -573,7 +697,7 @@ final class Store {
 
     /// Opens the player when a song is chosen, if that is on.
     func played() {
-        if app.openPlayerOnPlay { showPlayer = true }
+        if app.openPlayerOnPlay { inFront { $0.showPlayer = true } }
     }
 
     func playNext(_ songs: [Song]) {
@@ -588,7 +712,18 @@ final class Store {
         message = "Added to the queue"
     }
 
+    #if DEBUG
+    /// Test builds: -stub-player keeps Play/Pause, Next, Previous, and seeking from the core, so
+    /// a UI test can never make a sound (a simulator plays at full volume); each press is
+    /// noted here instead, for the test to read.
+    static let stubbed = CommandLine.arguments.contains("-stub-player")
+    var stubPresses: [String] = []
+    #endif
+
     func toggle() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("toggle"); return }
+        #endif
         if onComputer {
             computer { try $0.pcDo(action: "toggle") }
         } else {
@@ -597,17 +732,31 @@ final class Store {
             core.toggle()
         }
     }
-    func next() { onComputer ? computer { try $0.pcDo(action: "next") } : core.next() }
-    func previous() { onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous() }
+    func next() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("next"); return }
+        #endif
+        onComputer ? computer { try $0.pcDo(action: "next") } : core.next()
+    }
+
+    func previous() {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("previous"); return }
+        #endif
+        onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous()
+    }
 
     func seek(_ seconds: Double) {
+        #if DEBUG
+        if Self.stubbed { stubPresses.append("seek"); return }
+        #endif
         onComputer ? computer { try $0.pcSeek(seconds: seconds) } : core.seek(seconds: seconds)
     }
 
     /// Goes back or on by `seconds` in the song.
     func jumpBy(_ seconds: Double) {
         guard let p = playback else { return }
-        seek(min(max(0, p.position + seconds), max(0, (p.current?.duration ?? 0) - 1)))
+        seek(min(max(0, clock.position + seconds), max(0, (p.current?.duration ?? 0) - 1)))
     }
 
     func jump(_ index: Int) {
@@ -674,7 +823,7 @@ final class Store {
         case .favourites:
             run { core in
                 let ids = try core.favorites().map(\.id).shuffled()
-                guard !ids.isEmpty else { throw NeedleError.Failed(message: "No favourites yet") }
+                guard !ids.isEmpty else { throw NeedleError.Failed(message: "No favorites yet") }
                 try core.play(ids: ids, start: 0)
             }
         case .radio:
@@ -690,21 +839,29 @@ final class Store {
     }
 
     /// Opens a link from a widget, Siri, or another app: `needle://album?id=…` and so on, or a
-    /// music file.
-    func open(_ url: URL) {
+    /// music file, in the window it came to.
+    func open(_ url: URL, in window: WindowState) {
+        let opening = { (route: Route) in window.opening = route }
         if url.scheme?.hasPrefix("discord-") == true { return }
         guard url.scheme == "needle" else { return openFile(url) }
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
+        #if DEBUG
+        // Test builds: needle://test-new-window asks for a second window, as File › New Window.
+        if url.host == "test-new-window" {
+            UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil)
+            return
+        }
+        #endif
         switch url.host {
-        case "player": if playback?.current != nil { showPlayer = true }
-        case "stats": opening = .stats
+        case "player": if playback?.current != nil { window.showPlayer = true }
+        case "stats": opening(.stats)
         case "album":
             Task {
-                if let album = await load({ try $0.albums().first { $0.key == id } }) ?? nil { opening = .album(album) }
+                if let album = await load({ try $0.albums().first { $0.key == id } }) ?? nil { opening(.album(album)) }
             }
         case "playlist":
             Task {
-                if let playlist = await load({ try $0.playlists().first { $0.id == id } }) ?? nil { opening = .playlist(playlist) }
+                if let playlist = await load({ try $0.playlists().first { $0.id == id } }) ?? nil { opening(.playlist(playlist)) }
             }
         default: break
         }
@@ -978,7 +1135,7 @@ final class Store {
         Task {
             let image = await Covers.load(path, size: 40)
             let color = await Task.detached { image.flatMap(Self.mainColor(of:)) }.value
-            if colorFor == path { withAnimation(.easeInOut(duration: 0.5)) { coverColor = color } }
+            if colorFor == path { withFade(.easeInOut(duration: 0.5)) { coverColor = color } }
         }
     }
 
@@ -1025,7 +1182,7 @@ final class Store {
             let week = await load { try $0.stats(days: 7) }
             var recent: [Snapshot.Item] = []
             for album in (home?.recent ?? home?.added ?? []).prefix(4) {
-                recent.append(.init(id: album.key, title: album.title, detail: album.artist,
+                recent.append(.init(id: album.key, title: album.shownTitle, detail: album.shownArtist,
                                     cover: await Self.shareCover(album.artwork, in: folder)))
             }
             snapshot.recent = recent
@@ -1076,11 +1233,28 @@ final class Store {
 
     // MARK: - The phone's audio, lock screen, and Control Center
 
+    /// The phone's audio: long music, played in the background.
+    private static func setUpAudio() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
+    }
+
     private func startAudio() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, policy: .longFormAudio)
+        Self.setUpAudio()
         // Made active when music is asked for (see `activateAudio`), not here.
         let center = NotificationCenter.default
+        // The system's sound server restarted (after a Bluetooth or CarPlay crash, say): every
+        // app's audio session is gone. Needle's is made again, and taken again if music was
+        // playing; then the core opens its output again.
+        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                Self.setUpAudio()
+                guard let self else { return }
+                if self.local?.playing == true { self.activateAudio() }
+                // The core opens its sound output again on the new session: playing, it plays
+                // on from the same place; paused, Play opens it.
+                self.core.reopenOutput()
+            }
+        }
         // A call or an alarm pauses the music; it goes on afterwards when the phone says so.
         center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             let info = note.userInfo ?? [:]
@@ -1092,8 +1266,10 @@ final class Store {
                 case .began:
                     if self.local?.playing == true { self.resumeAfterInterruption = true; self.core.toggle() }
                 case .ended:
-                    try? AVAudioSession.sharedInstance().setActive(true)
+                    // The audio is taken again only to play on: taking it after a call that
+                    // was not resumed stopped other apps' sound for nothing.
                     if self.resumeAfterInterruption, options?.contains(.shouldResume) == true, self.local?.playing == false {
+                        self.activateAudio()
                         self.core.toggle()
                     }
                     self.resumeAfterInterruption = false
@@ -1142,8 +1318,11 @@ final class Store {
         }
     }
 
+    @ObservationIgnored private var nowPlayingSent = Date()
+
     private func updateNowPlaying(_ now: Playback) {
         let center = MPNowPlayingInfoCenter.default()
+        let speed = Double(tempo.speed)
         guard let song = now.current else {
             if shownSong != nil { center.nowPlayingInfo = nil; shownSong = nil }
             return
@@ -1161,14 +1340,20 @@ final class Store {
             MPMediaItemPropertyAlbumTitle: song.album,
             MPMediaItemPropertyPlaybackDuration: song.duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: now.position,
-            MPNowPlayingInfoPropertyPlaybackRate: now.playing ? 1.0 : 0.0,
+            // The speed the song plays at (Speed and pitch): the lock screen's bar moves on by
+            // itself at this rate, in the song's own seconds.
+            MPNowPlayingInfoPropertyPlaybackRate: now.playing ? speed : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
         ]
         if let art = shownArtwork { info[MPMediaItemPropertyArtwork] = art }
-        // Only when something the lock screen shows has changed, or the time has drifted.
+        // Only when something the lock screen shows has changed, or the time has drifted from
+        // where the lock screen's own clock has it.
         let old = center.nowPlayingInfo
-        let drift = abs((old?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double ?? -10) - now.position)
         let rate = old?[MPNowPlayingInfoPropertyPlaybackRate] as? Double
-        if old?[MPMediaItemPropertyTitle] as? String != song.title || rate != (now.playing ? 1.0 : 0.0) || drift > 1.5 || (old?[MPMediaItemPropertyArtwork] == nil && shownArtwork != nil) {
+        let expected = (old?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double).map { $0 + nowPlayingSent.distance(to: Date()) * (rate ?? 0) } ?? -10
+        let drift = abs(expected - now.position)
+        if old?[MPMediaItemPropertyTitle] as? String != song.title || rate != (now.playing ? speed : 0.0) || drift > 1.5 || (old?[MPMediaItemPropertyArtwork] == nil && shownArtwork != nil) {
+            nowPlayingSent = Date()
             center.nowPlayingInfo = info
             center.playbackState = now.playing ? .playing : .paused
         }

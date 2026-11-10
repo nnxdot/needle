@@ -16,6 +16,8 @@ struct YearReviewView: View {
     @State private var page = CommandLine.arguments.firstIndex(of: "-year-page").flatMap { i in
         CommandLine.arguments.indices.contains(i + 1) ? Int(CommandLine.arguments[i + 1]) : nil } ?? 0
 
+    @Environment(\.wide) private var wide
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -43,6 +45,10 @@ struct YearReviewView: View {
                 }
             }
             .padding()
+            // A readable width in a wide window (an iPad), not a band across it: the cards'
+            // pages fill their width whatever the safe area.
+            .frame(maxWidth: wide ? 720 : .infinity)
+            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Your year in music")
         .navigationBarTitleDisplayMode(.inline)
@@ -64,31 +70,33 @@ struct YearReviewView: View {
     }
 
     private func buttons(_ review: YearInReview) -> some View {
-        VStack(spacing: 10) {
-            Button {
-                store.play(review.topSongs.prefix(50).map(\.song))
-            } label: {
-                Label("Play top 50", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
-            }
-            .buttonStyle(.glassProminent)
-            .foregroundStyle(store.colors.onAccent)
-            HStack(spacing: 10) {
-                if let picture {
-                    ShareLink(item: picture, preview: SharePreview("Your \(String(review.year)) in music", image: picture)) {
-                        Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4)
+        GlassEffectContainer(spacing: 10) {
+            VStack(spacing: 10) {
+                Button {
+                    store.play(review.topSongs.prefix(50).map(\.song))
+                } label: {
+                    Label("Play top 50", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.glassProminent)
+                .foregroundStyle(store.colors.onAccent)
+                HStack(spacing: 10) {
+                    if let picture {
+                        ShareLink(item: picture, preview: SharePreview("Your \(String(review.year)) in music", image: picture)) {
+                            Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4)
+                        }
+                        .buttonStyle(.glass)
+                    } else {
+                        Button {} label: { Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4) }
+                            .buttonStyle(.glass)
+                            .disabled(true)
+                    }
+                    Button { makePlaylist(review.year) } label: {
+                        Label("Make a playlist", systemImage: "music.note.list").frame(maxWidth: .infinity).padding(.vertical, 4)
                     }
                     .buttonStyle(.glass)
-                } else {
-                    Button {} label: { Label("Save as a picture", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 4) }
-                        .buttonStyle(.glass)
-                        .disabled(true)
                 }
-                Button { makePlaylist(review.year) } label: {
-                    Label("Make a playlist", systemImage: "music.note.list").frame(maxWidth: .infinity).padding(.vertical, 4)
-                }
-                .buttonStyle(.glass)
+                .font(.needle(.subheadline).weight(.semibold))
             }
-            .font(.needle(.subheadline).weight(.semibold))
         }
     }
 

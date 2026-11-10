@@ -644,6 +644,13 @@ where
     }
 
     /// Focus the select input.
+    /// Needle patch: open the list, as a click on the field does (for window pictures in tests).
+    pub fn open_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open = true;
+        self.list.focus_handle(cx).focus(window);
+        cx.notify();
+    }
+
     pub fn focus(&self, window: &mut Window, _: &mut App) {
         self.focus_handle.focus(window);
     }
@@ -787,7 +794,6 @@ where
         let bounds = self.bounds;
         let allow_open = !(self.open || self.options.disabled);
         let outline_visible = self.open || is_focused && !self.options.disabled;
-        let popup_radius = cx.theme().radius.min(px(8.));
 
         self.list
             .update(cx, |list, cx| list.set_searchable(searchable, cx));
@@ -888,11 +894,10 @@ where
                                     v_flex()
                                         .occlude()
                                         .mt_1p5()
-                                        .bg(cx.theme().background)
-                                        .border_1()
-                                        .border_color(cx.theme().border)
-                                        .rounded(popup_radius)
-                                        .shadow_md()
+                                        // Needle patch: the list is a popover pane, as menus
+                                        // are. The window's background is see-through with
+                                        // glass on.
+                                        .popover_style(cx)
                                         .child(
                                             List::new(&self.list)
                                                 .when_some(

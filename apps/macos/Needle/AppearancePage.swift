@@ -8,6 +8,8 @@ struct AppearanceSettings: View {
     private var store: Store { .shared }
     @State private var editing: ThemeFile?
     @State private var newTheme = false
+    /// The film grain's slider is held.
+    @State private var grainHeld = false
 
     var body: some View {
         let s = store.settings
@@ -22,6 +24,7 @@ struct AppearanceSettings: View {
                     ThemeCard(mode: theme.id, name: theme.name, about: theme.readOnly ? "From \(theme.id.dropFirst(7).split(separator: "/").first ?? "")" : theme.author.isEmpty ? "Your theme" : "By \(theme.author)", theme: theme)
                         .contextMenu {
                             Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
+                            Button("Export…") { export(theme) }
                             Button("Show the file") { store.reveal(theme.path) }
                             if !theme.readOnly {
                                 Button("Delete", role: .destructive) { delete(theme) }
@@ -33,6 +36,7 @@ struct AppearanceSettings: View {
             HStack {
                 if let theme = store.customTheme {
                     Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
+                    Button("Export…") { export(theme) }
                 }
                 Button("New theme…") { newTheme = true }
                 Spacer()
@@ -51,8 +55,9 @@ struct AppearanceSettings: View {
                 PickCard(title: "Plain", note: "The look's own colors", chosen: !s.ambient && !glass) {
                     store.set(["ambient": false, "window_material": "solid"])
                 } picture: { BackdropSketch(kind: .plain) }
+                // Each card sets both settings, so a look never depends on the one before it.
                 PickCard(title: "Ambient", note: "The cover, blurred", chosen: s.ambient) {
-                    store.set(["ambient": true])
+                    store.set(["ambient": true, "window_material": "glass"])
                 } picture: { BackdropSketch(kind: .ambient) }
                 PickCard(title: "Glass", note: "Liquid Glass", chosen: glass) {
                     store.set(["ambient": false, "window_material": "glass"])
@@ -84,9 +89,21 @@ struct AppearanceSettings: View {
             }
             SettingRow(title: "Film grain", detail: "A fine texture over the window.", icon: "circle.dotted") {
                 HStack {
-                    Slider(value: Binding(get: { Double(s.grain) }, set: { store.set(["grain": $0]) }), in: 0...1).frame(width: 160)
-                        .accessibilityLabel("Film grain")
-                    Text(s.grain <= 0.001 ? "Off" : "\(Int(s.grain * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing).foregroundStyle(.secondary)
+                    // Shown at once while dragged, saved once when let go (saving at each step
+                    // lagged); a step from the keyboard is saved at once.
+                    let grain = store.grainPreview ?? s.grain
+                    Slider(value: Binding(get: { Double(grain) }, set: { value in
+                        if grainHeld { store.grainPreview = Float(value) } else { store.set(["grain": value]) }
+                    }), in: 0...1) { editing in
+                        grainHeld = editing
+                        if !editing, let value = store.grainPreview {
+                            store.set(["grain": Double(value)])
+                            store.grainPreview = nil
+                        }
+                    }
+                    .frame(width: 160)
+                    .accessibilityLabel("Film grain")
+                    Text(grain <= 0.001 ? "Off" : "\(Int(grain * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing).foregroundStyle(.secondary)
                 }
             }
         } header: {
@@ -136,7 +153,7 @@ struct AppearanceSettings: View {
             SettingRow(title: "Lyrics under the player", detail: "The line being sung, under the player.", icon: "quote.bubble") {
                 SettingSwitch(key: "player_lyrics", on: s.playerLyrics)
             }
-            SettingRow(title: "Mark server songs", detail: "A small server icon beside their title.", icon: "server.rack") {
+            SettingRow(title: "Mark server songs", detail: "A small server icon after their title, and on server playlists.", icon: "server.rack") {
                 SettingSwitch(key: "server_mark", on: s.serverMark)
             }
             SettingRow(title: "Moving covers", detail: "A video, or an animated WebP or GIF, beside the songs.", icon: "play.rectangle") {
@@ -149,7 +166,7 @@ struct AppearanceSettings: View {
             FontRow(titles: true)
             FontRow(titles: false)
             SettingRow(title: "Reduce motion",
-                       detail: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? "Your Mac has animations turned down." : "No fades, slides, or other animations.",
+                       detail: store.systemStill ? "Your Mac has animations turned down." : "No fades, slides, or other animations.",
                        icon: "figure.walk.motion") {
                 SettingSwitch(key: "reduce_motion", on: s.reduceMotion)
             }
@@ -173,6 +190,25 @@ struct AppearanceSettings: View {
         panel.allowedContentTypes = [UTType(filenameExtension: "toml") ?? .plainText]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         store.importTheme(url)
+    }
+
+    /// Saves a theme as a file to share (as on Windows): a friend drops it on Needle to add it.
+    private func export(_ theme: ThemeFile) {
+        let id = theme.id
+        Task {
+            guard let file = await store.ask({ try $0.exportTheme(id: id) }) else { return }
+            let panel = NSSavePanel()
+            panel.nameFieldStringValue = file.fileName
+            panel.allowedContentTypes = [UTType(filenameExtension: "toml") ?? .plainText]
+            panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try file.text.write(to: url, atomically: true, encoding: .utf8)
+                store.notify("Saved \((url.path as NSString).abbreviatingWithTildeInPath). Send it to a friend, or drop it on Needle to add it.")
+            } catch {
+                store.fail("Could not save the theme: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func delete(_ theme: ThemeFile) {
@@ -249,8 +285,8 @@ private struct PickCard<Picture: View>: View {
                 picture
                     .frame(maxWidth: .infinity)
                     .frame(height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.7), lineWidth: chosen ? 2 : 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.7), lineWidth: chosen ? 2 : 1))
                     .overlay(alignment: .topTrailing) { if chosen { CheckBadge().offset(x: 7, y: -7) } }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.needle(.callout).weight(chosen ? .semibold : .regular)).lineLimit(1)
@@ -300,8 +336,8 @@ private struct SketchChoice: View {
             VStack(spacing: 4) {
                 WindowSketch(kind: kind)
                     .frame(width: 76, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.6), lineWidth: chosen ? 2 : 1))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.6), lineWidth: chosen ? 2 : 1))
                 Text(caption).font(.needle(.caption)).foregroundStyle(chosen ? .primary : .secondary)
             }
             .contentShape(Rectangle())

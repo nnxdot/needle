@@ -537,8 +537,24 @@ pub(crate) fn save_theme_file(
         drop(file);
         if id.is_some() {
             std::fs::rename(&temporary, &destination)?;
-        } else {
-            std::fs::hard_link(&temporary, &destination)?;
+        } else if let Err(error) = std::fs::hard_link(&temporary, &destination) {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                return Err(error.into());
+            }
+            // Android lets no app make a hard link, also in its own folder (Permission
+            // denied): the file is then written straight under its name, which must be new.
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&destination)?;
+            let written = file
+                .write_all(text.as_bytes())
+                .and_then(|()| file.sync_all());
+            drop(file);
+            if let Err(error) = written {
+                let _ = std::fs::remove_file(&destination);
+                return Err(error.into());
+            }
         }
         Ok(())
     })();

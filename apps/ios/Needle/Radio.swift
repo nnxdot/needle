@@ -4,9 +4,13 @@ import SwiftUI
 /// the songs played most, and quick mixes of the whole library.
 struct RadioView: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     @State private var seeds: [Ranked]?
     @State private var songs: UInt32 = 0
-    @State private var favourites = 0
+    @State private var favorites = 0
+    /// An album for each quick mix: its cover (or its made-up one) gives the tile its colour
+    /// (the music is the colour).
+    @State private var covers: [String: MixCover] = [:]
 
     var body: some View {
         ScrollView {
@@ -14,10 +18,10 @@ struct RadioView: View {
                 hero
                 mixes
                 if let seeds, !seeds.isEmpty {
-                    SectionTitle(title: "Stations from your favourites")
+                    SectionTitle(title: "Stations from your favorites")
                     Text("Each starts with the song, then plays songs that flow from it.")
                         .font(.needle(.footnote)).foregroundStyle(.secondary)
-                        .padding(.horizontal).padding(.top, 2)
+                        .padding(.horizontal, Tiles.margin(wide)).padding(.top, 2)
                     Shelf {
                         ForEach(Array(seeds.prefix(12).enumerated()), id: \.offset) { _, seed in
                             StationCard(seed: seed)
@@ -44,7 +48,20 @@ struct RadioView: View {
         .task(id: store.libraryVersion) {
             seeds = await store.load { try $0.stats(days: 90).topSongs.filter { $0.songId != nil } } ?? []
             songs = await store.load { try $0.songCount() } ?? 0
-            favourites = await store.load { try $0.favorites().count } ?? 0
+            let loved = await store.load { try $0.favorites() } ?? []
+            favorites = loved.count
+            covers = await store.load { core -> [String: MixCover] in
+                var found: [String: MixCover] = [:]
+                let home = try? core.home()
+                let album = { (a: Album?) in a.map { MixCover(path: $0.artwork, seed: $0.title + $0.artist) } }
+                found["shuffle"] = album(home?.mostPlayed.first ?? home?.recent.first)
+                found["new"] = album(home?.added.first)
+                found["listening"] = (try? core.stats(days: 30))?.topAlbums.first.map { MixCover(path: $0.artwork, seed: $0.album + $0.artist) }
+                    ?? album(home?.recent.dropFirst().first)
+                found["genres"] = (try? core.genres())?.first.map { MixCover(path: $0.artwork, seed: $0.name) }
+                return found
+            } ?? [:]
+            covers["favorites"] = loved.first.map { MixCover(path: $0.artwork, seed: $0.album + $0.artist) }
         }
     }
 
@@ -54,7 +71,7 @@ struct RadioView: View {
         return Button { yourStation() } label: {
             ZStack(alignment: .bottomLeading) {
                 Artwork(path: seed?.artwork, seed: (seed?.album ?? "") + (seed?.artist ?? "Needle"), size: 800)
-                    .frame(height: 220)
+                    .frame(height: wide ? 280 : 220)
                     .frame(maxWidth: .infinity)
                     .clipped()
                     .overlay {
@@ -75,12 +92,13 @@ struct RadioView: View {
                 }
                 .padding(18)
             }
-            .clipShape(.rect(cornerRadius: 24))
+            .clipShape(.soft(Corner.large))
             .shadow(color: .black.opacity(0.3), radius: 14, y: 8)
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
             .padding(.top, 8)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
         .accessibilityLabel(seed.map { "Your station, from \($0.title) by \($0.artist)" } ?? "Your station")
         .accessibilityHint("Starts a radio station")
     }
@@ -89,27 +107,29 @@ struct RadioView: View {
     private var mixes: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle(title: "Quick mixes")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                MixTile(title: "Shuffle all", detail: count(Int(songs), "song"), symbol: "shuffle", tint: .orange) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 180 : 150), spacing: wide ? 16 : 12)], spacing: wide ? 16 : 12) {
+                MixTile(title: "Shuffle all", detail: count(Int(songs), "song"), symbol: "shuffle", cover: covers["shuffle"]) {
                     store.playIDs({ try $0.songs().map(\.id) }, shuffled: true)
                 }
-                MixTile(title: "Favorites", detail: favourites > 0 ? "\(count(favourites, "song")), shuffled" : "Star songs to fill it", symbol: "star.fill", tint: .pink) {
+                MixTile(title: "Favorites", detail: favorites > 0 ? "\(count(favorites, "song")), shuffled" : "Heart songs to fill it", symbol: "heart.fill", cover: covers["favorites"]) {
                     store.playIDs({ try $0.favorites().map(\.id) }, shuffled: true)
                 }
-                .disabled(favourites == 0)
-                MixTile(title: "New to you", detail: "Added lately, shuffled", symbol: "sparkles", tint: .blue) {
+                .disabled(favorites == 0)
+                MixTile(title: "New to you", detail: "Added lately, shuffled", symbol: "sparkles", cover: covers["new"]) {
                     store.playIDs({ core in try core.home().added.prefix(12).flatMap { try core.albumSongs(key: $0.key).map(\.id) } }, shuffled: true)
                 }
                 NavigationLink(value: Route.stats) {
-                    MixTileLabel(title: "Your listening", detail: "Top songs and artists", symbol: "chart.bar.fill", tint: .purple)
+                    MixTileLabel(title: "Your listening", detail: "Top songs and artists", symbol: "chart.bar.fill", cover: covers["listening"])
                 }
                 .buttonStyle(Pressable())
+                .hoverEffect(.lift)
                 NavigationLink(value: Route.genreMap) {
-                    MixTileLabel(title: "Genre map", detail: "Tap a genre to play it", symbol: "circle.hexagongrid.fill", tint: .teal)
+                    MixTileLabel(title: "Genre map", detail: "Tap a genre to play it", symbol: "circle.hexagongrid.fill", cover: covers["genres"])
                 }
                 .buttonStyle(Pressable())
+                .hoverEffect(.lift)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
             .padding(.top, 10)
         }
     }
@@ -129,6 +149,7 @@ struct RadioView: View {
 /// A station from one song: its cover, and a tap starts it.
 private struct StationCard: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let seed: Ranked
 
     var body: some View {
@@ -139,13 +160,15 @@ private struct StationCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 Artwork(path: seed.artwork, seed: seed.album + seed.artist, size: 400)
-                    .frame(width: 150, height: 150)
-                    .clipShape(.rect(cornerRadius: 14))
+                    .frame(width: Tiles.shelf(wide), height: Tiles.shelf(wide))
+                    .clipShape(.soft(Corner.cover))
                     .overlay(alignment: .bottomLeading) {
+                        // A plain label in the page's raised colour: it is part of the cover.
                         Label("Radio", systemImage: "dot.radiowaves.left.and.right")
                             .font(.needle(.caption2).weight(.bold))
+                            .foregroundStyle(store.colors.text)
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .glassEffect(.regular, in: .capsule)
+                            .background(store.colors.card.opacity(0.92), in: .capsule)
                             .padding(8)
                     }
                     .shadow(color: .black.opacity(0.3), radius: 10, y: 6)
@@ -153,12 +176,20 @@ private struct StationCard: View {
                 Text(seed.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
                 Text(seed.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(width: 150)
+            .frame(width: Tiles.shelf(wide))
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
         .accessibilityLabel("\(seed.title) Radio, by \(seed.artist)")
     }
+}
+
+/// The album a quick mix takes its colour from: its cover, or the name its made-up cover is
+/// drawn from.
+struct MixCover: Sendable, Equatable {
+    let path: String?
+    let seed: String
 }
 
 /// A mix to start with one tap.
@@ -166,28 +197,43 @@ private struct MixTile: View {
     let title: String
     let detail: String
     let symbol: String
-    let tint: Color
+    let cover: MixCover?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            MixTileLabel(title: title, detail: detail, symbol: symbol, tint: tint)
+            MixTileLabel(title: title, detail: detail, symbol: symbol, cover: cover)
         }
         .buttonStyle(Pressable())
+        .hoverEffect(.lift)
     }
 }
 
+/// A mix's tile: plain, in the page's raised colour (content, not glass), its sign in the colour
+/// of a cover from the mix (the music is the colour), or the accent before one is known.
 private struct MixTileLabel: View {
+    @Environment(Store.self) private var store
     let title: String
     let detail: String
     let symbol: String
-    let tint: Color
+    let cover: MixCover?
+    @State private var look: PageColors?
+
+    init(title: String, detail: String, symbol: String, cover: MixCover?) {
+        self.title = title
+        self.detail = detail
+        self.symbol = symbol
+        self.cover = cover
+        _look = State(initialValue: cover.flatMap { PageColors.cached($0.path, seed: $0.seed) })
+    }
 
     var body: some View {
+        let colors = store.colors
         VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: symbol).font(.needle(.title3).weight(.semibold)).foregroundStyle(.white)
+            Image(systemName: symbol).font(.needle(.title3).weight(.semibold))
+                .foregroundStyle(look?.ink ?? colors.onAccent)
                 .frame(width: 40, height: 40)
-                .background(tint.gradient, in: .rect(cornerRadius: 11))
+                .background((look?.page ?? colors.accent).gradient, in: .soft(Corner.small))
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.needle(.subheadline).weight(.semibold)).lineLimit(1)
                 Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
@@ -195,7 +241,12 @@ private struct MixTileLabel: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .background(colors.card, in: .soft(Corner.middle))
         .contentShape(.rect)
+        .task(id: cover) {
+            guard let cover else { return }
+            let found = await PageColors.of(cover.path, seed: cover.seed)
+            if !Task.isCancelled, found != look { withFade { look = found } }
+        }
     }
 }

@@ -20,7 +20,54 @@ fn when(timestamp: i64) -> String {
         .unwrap_or_else(|| "—".into())
 }
 
+/// The height of a row in the queue.
+const QUEUE_ROW: f32 = 48.;
+
+/// A song moved up in the queue: its rows slide into place once the player has moved it.
+pub struct QueueMove {
+    serial: u64,
+    /// Where it went.
+    to: usize,
+    /// The song moved.
+    id: String,
+    at: std::time::Instant,
+}
+
 impl AppView {
+    /// The side panel as a pane that moves: just opened, it slides in from the right and
+    /// fades in; closing (`shown` false), it slides out and fades. Still otherwise.
+    pub(super) fn panel_pane(
+        &self,
+        width: f32,
+        shown: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let pane = div()
+            .h_full()
+            .flex_shrink_0()
+            .flex()
+            .child(self.panel(width, window, cx));
+        let (opened, since) = self.panel_opened;
+        match self.panel_closing {
+            Some(closing) if !shown => motion::animate(
+                pane.occlude(),
+                ("panel-out", closing),
+                super::PANEL_OUT_MS,
+                cx,
+                |el, t| el.opacity(1. - t).relative().left(px(28. * t)),
+            ),
+            // Only just after it opened: a panel drawn again later (after the big player)
+            // does not slide in again.
+            _ if opened > 0 && since.elapsed() < std::time::Duration::from_millis(400) => {
+                motion::animate(pane, ("panel-open", opened), 220, cx, |el, t| {
+                    el.opacity(t).relative().left(px(28. * (1. - t)))
+                })
+            }
+            _ => pane.into_any_element(),
+        }
+    }
+
     pub(super) fn panel(
         &self,
         width: f32,
@@ -36,6 +83,15 @@ impl AppView {
         let floating = self.on_glass();
         // Windows and Linux: a frosted pane floating over the page's right side, as on the Mac.
         let frosted = self.floating() && !floating;
+        // The width inside the pane: the frosted pane is 18 px narrower than its column and
+        // has a 1 px edge on each side; the Mac's glass pane is padded 14 px.
+        let inner = if frosted {
+            width - 18. - 2.
+        } else if floating {
+            width - 28.
+        } else {
+            width
+        };
         div()
             .w(px(if frosted { width - 18. } else { width }))
             .flex_shrink_0()
@@ -54,7 +110,12 @@ impl AppView {
                 ))
             })
             .when(frosted, |el| {
-                super::player2::frosted(el, 22., cx)
+                let radius = if cfg!(target_os = "macos") {
+                    22.
+                } else {
+                    super::glass::LARGE
+                };
+                super::player2::frosted(el, radius, cx)
                     .overflow_hidden()
                     .py(px(6.))
             })
@@ -106,7 +167,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .child(match self.panel {
-                        Panel::Details => self.details(width, cx).into_any_element(),
+                        Panel::Details => self.details(inner, cx).into_any_element(),
                         Panel::Queue => self.queue(cx).into_any_element(),
                         Panel::Lyrics => div()
                             .flex_1()
@@ -141,6 +202,7 @@ impl AppView {
             )
     }
 
+    /// The Details tab, `width` the width inside the pane.
     fn details(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let selected = self.selected_tracks();
@@ -242,7 +304,8 @@ impl AppView {
             .flex()
             .flex_col()
             .gap_4()
-            .child(artwork(Some(&track), if self.editing { 96. } else { width - 32. }, cx))
+            // The cover, inset as the text under it (16 px on each side).
+            .child(artwork(Some(&track), if self.editing { 96. } else { (width - 32.).floor() }, cx))
             .child(
                 div()
                     .flex()
@@ -642,7 +705,6 @@ impl AppView {
                     "queue-list",
                     count,
                     cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                        let p = pal(cx);
                         range
                             .map(|index| {
                                 let item = &this.playback.queue[index];
@@ -652,12 +714,12 @@ impl AppView {
                                     .h(px(48.))
                                     .w_full()
                                     .px_2()
-                                    .rounded(px(6.))
+                                    .rounded(px(super::glass::SMALL))
                                     .flex()
                                     .items_center()
                                     .gap_3()
                                     .cursor_pointer()
-                                    .hover(|s| s.bg(p.raised.opacity(0.6)))
+                                    .map(|el| super::glass::hover_row(el, super::glass::SMALL, cx))
                                     .on_click(cx.listener(move |this, event: &ClickEvent, _, _| {
                                         if event.click_count() == 2 {
                                             this.player.send(Command::Jump(index));
@@ -696,10 +758,24 @@ impl AppView {
                                                 // count as a double click on the row (which plays).
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     cx.stop_propagation();
-                                                    this.player.send(Command::Move(
-                                                        index,
-                                                        index.saturating_sub(1),
-                                                    ))
+                                                    let to = index.saturating_sub(1);
+                                                    // The two rows slide past each other once
+                                                    // the player has moved them.
+                                                    if let Some(moved) =
+                                                        this.playback.queue.get(index)
+                                                    {
+                                                        this.queue_move = Some(QueueMove {
+                                                            serial: this
+                                                                .queue_move
+                                                                .as_ref()
+                                                                .map_or(0, |m| m.serial)
+                                                                + 1,
+                                                            to,
+                                                            id: moved.track.id.clone(),
+                                                            at: std::time::Instant::now(),
+                                                        });
+                                                    }
+                                                    this.player.send(Command::Move(index, to))
                                                 })),
                                             )
                                             .child(
@@ -717,7 +793,34 @@ impl AppView {
                                                 })),
                                             ),
                                     );
-                                div().w_full().px_2().child(row)
+                                let row = div().w_full().px_2().child(row);
+                                // After Move up: the song moved comes up from one row lower,
+                                // and the one it passed goes down from one row higher.
+                                let shift = this.queue_move.as_ref().and_then(|m| {
+                                    let landed = this
+                                        .playback
+                                        .queue
+                                        .get(m.to)
+                                        .is_some_and(|i| i.track.id == m.id);
+                                    let fresh =
+                                        m.at.elapsed() < std::time::Duration::from_millis(1500);
+                                    match index {
+                                        _ if !landed || !fresh => None,
+                                        i if i == m.to => Some((m.serial, QUEUE_ROW)),
+                                        i if i == m.to + 1 => Some((m.serial, -QUEUE_ROW)),
+                                        _ => None,
+                                    }
+                                });
+                                match shift {
+                                    Some((serial, from)) => motion::animate(
+                                        row,
+                                        ("queue-move", serial * 2 + (from > 0.) as u64),
+                                        200,
+                                        cx,
+                                        move |el, t| el.relative().top(px(from * (1. - t))),
+                                    ),
+                                    None => row.into_any_element(),
+                                }
                             })
                             .collect::<Vec<_>>()
                     }),

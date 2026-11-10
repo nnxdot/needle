@@ -66,7 +66,9 @@ struct Visualizer: View {
 
     var body: some View {
         let (inner, outer) = Self.lights(tint ?? Self.known[path ?? seed] ?? NSColor(store.colors.accent))
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !store.motion)) { timeline in
+        // At rest while the music is paused, with Reduce motion, and while the window cannot be
+        // seen: the core's spectrum is still then.
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !store.motion || !store.isPlaying || !store.mainVisible)) { timeline in
             Canvas { g, size in
                 // Drawn anew each frame of the timeline.
                 _ = timeline.date
@@ -154,7 +156,7 @@ struct StyledSeekLine: View {
     let dim: Color
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !(moving && style == "wave"))) { context in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !(moving && style == "wave" && Store.shared.mainVisible))) { context in
             Canvas { g, size in
                 let thick: CGFloat = style == "thick" ? 10 : style == "wave" ? 3 : 4
                 let middle = size.height / 2

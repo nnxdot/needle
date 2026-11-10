@@ -60,9 +60,6 @@ impl AppView {
             .max_w_full()
             .p_8()
             .map(|el| super::glass::pane(el, 14., 22., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .gap_5()
@@ -117,7 +114,7 @@ impl AppView {
                     .justify_center()
                     .items_center()
                     .p_6()
-                    .child(card),
+                    .child(super::motion::dialog_in(card, "welcome-card", cx)),
             )
             .with_priority(3),
         )

@@ -20,7 +20,9 @@ struct SettingsWindow: View {
                 ForEach(Self.tabs, id: \.0) { name, icon in
                     // Solid icons, as in the main window's sidebar (SidebarLabel): the glass ones
                     // vanished in Mission Control.
-                    Label(name, systemImage: icon).labelStyle(SidebarLabel(rail: false)).tag(name)
+                    Label(name, systemImage: icon)
+                        .labelStyle(SidebarLabel(rail: false, ink: store.plainColors.ink2, selected: tab == name))
+                        .tag(name)
                 }
             }
             .listItemTint(.fixed(store.playerAccent))
@@ -133,7 +135,7 @@ struct OpenRow<Content: View>: View {
                 Text(value).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             .contentShape(Rectangle())
-            .onTapGesture { withAnimation(.snappy(duration: 0.2)) { open.toggle() } }
+            .onTapGesture { withAnimation(Store.shared.motion ? .snappy(duration: 0.2) : nil) { open.toggle() } }
             .accessibilityElement(children: .combine)
             .accessibilityValue(value)
         }
@@ -300,7 +302,7 @@ struct PlaybackSettingsView: View {
                         Text("Or type this address in the phone's browser. Add it to the home screen to open it like an app.")
                             .font(.needle(.callout)).foregroundStyle(.secondary)
                         Text(address).font(.needle(.callout).monospaced()).textSelection(.enabled)
-                            .padding(6).background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 6))
+                            .padding(6).background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                         HStack {
                             Button("Copy address") { store.copy(address); store.notify("Address copied.") }
                             Button("New address") {
@@ -327,7 +329,7 @@ struct PlaybackSettingsView: View {
                     Text("Give your AI app this address (an MCP server, Streamable HTTP). For Claude Code, run the command below.")
                         .font(.needle(.callout)).foregroundStyle(.secondary)
                     Text(mcpAddress).font(.needle(.callout).monospaced()).textSelection(.enabled)
-                        .padding(6).background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(6).background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                     HStack {
                         Button("Copy address") { store.copy(mcpAddress); store.notify("Address copied.") }
                         Button("Copy for Claude Code") {
@@ -389,7 +391,7 @@ struct QRCode: View {
 
     var body: some View {
         if let image = Self.make(text) {
-            Image(nsImage: image).interpolation(.none).resizable().padding(10).background(.white, in: RoundedRectangle(cornerRadius: 10))
+            Image(nsImage: image).interpolation(.none).resizable().padding(10).background(.white, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         }
     }
 
@@ -565,7 +567,7 @@ struct ThemeCard: View {
                         Capsule().fill(look.ink2).frame(width: 34, height: 4)
                         HStack(spacing: 5) {
                             ForEach([0.3, 0.6, 0.45], id: \.self) { _ in
-                                RoundedRectangle(cornerRadius: 4).fill(LinearGradient(colors: [look.glow.opacity(0.9), look.chrome], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                RoundedRectangle(cornerRadius: Radius.small, style: .continuous).fill(LinearGradient(colors: [look.glow.opacity(0.9), look.chrome], startPoint: .topLeading, endPoint: .bottomTrailing))
                                     .frame(width: 22, height: 22)
                             }
                         }
@@ -574,12 +576,12 @@ struct ThemeCard: View {
                     }
                     .padding(7)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(look.canvas, in: RoundedRectangle(cornerRadius: 6))
+                    .background(look.canvas, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
                 .padding(6)
                 .frame(width: 150, height: 96)
-                .background(look.chrome, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? store.plainColors.accent : store.plainColors.line, lineWidth: 2))
+                .background(look.chrome, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(active ? store.plainColors.accent : store.plainColors.line, lineWidth: 2))
                 .overlay(alignment: .topTrailing) { if active { CheckBadge().offset(x: 7, y: -7) } }
                 Text(name).font(.needle(.callout).weight(active ? .semibold : .regular)).lineLimit(1)
                 Text(about).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
@@ -788,7 +790,7 @@ struct DiscordSettingsView: View {
                 if s.discordCovers, let art = p?.artwork {
                     Cover(path: art, seed: album, side: 64, corner: 8)
                 } else if s.discordLogo {
-                    RoundedRectangle(cornerRadius: 8).fill(Color(hex: "#1e1b18")!).frame(width: 64, height: 64)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(hex: "#1e1b18")!).frame(width: 64, height: 64)
                         .overlay { Image(systemName: "music.note").font(.needle(.title)).foregroundStyle(Color(hex: "#e2b46c")!) }
                 }
                 VStack(alignment: .leading, spacing: 2) {
@@ -800,7 +802,7 @@ struct DiscordSettingsView: View {
         }
         .padding(12)
         .frame(width: 340, alignment: .leading)
-        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 10))
+        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
     }
 }
 
@@ -937,14 +939,17 @@ struct KeyboardSettings: View {
     ]
 
     var body: some View {
+        GlobalShortcutsSection()
         Section {
             ForEach(keys, id: \.1) { key, what in
                 LabeledContent(what) {
                     Text(key).font(.needle(.callout).monospaced())
                         .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 }
             }
+        } header: {
+            GroupHeader(title: "In Needle")
         }
     }
 }

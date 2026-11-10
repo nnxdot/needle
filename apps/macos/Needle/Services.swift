@@ -165,11 +165,11 @@ struct ServicesSettings: View {
                         HStack {
                             Button(busy ? "Checking…" : "Continue") { lastfmContinue() }.buttonStyle(.borderedProminent).disabled(busy)
                             Button("Open the page again") { openWebPage(pending) }
-                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil; connecting.remove("lastfm") }
+                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil; busy = false; connecting.remove("lastfm") }
                         }
                     }
                     .padding(10)
-                    .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 8))
+                    .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 } else {
                     if info?.status.lastfmApp.configured != true {
                         Text("Needle needs a Last.fm API account to sign in. Create one at last.fm/api/account/create, then paste its key and shared secret.")
@@ -308,14 +308,30 @@ struct ServicesSettings: View {
 
     private func lastfmContinue() {
         busy = true
+        let asked = pending
         Task {
-            if let user = await store.ask({ try $0.lastfmContinue() }) {
+            let result = await store.read { try $0.lastfmContinue() }
+            // Cancel pressed meanwhile (or a new sign-in begun): that state is the one shown.
+            let same = pending == asked
+            switch result {
+            case .success(let user):
                 pending = nil
                 connecting.remove("lastfm")
                 store.notify("Signed in to Last.fm as \(user). Scrobbling is on.")
                 store.reloadSettings()
+            case .failure(let failure):
+                // This sign-in no longer waits (cancelled during the answer, none had begun,
+                // or a newer one began): no "signing in" is left behind. After Cancel here the
+                // person needs no word about their own click.
+                let over = ["Start signing in to Last.fm first", "Signing in to Last.fm was cancelled", "A newer sign-in to Last.fm has begun"]
+                    .contains { failure.message.hasPrefix($0) }
+                if over && same {
+                    pending = nil
+                    connecting.remove("lastfm")
+                }
+                if same { store.fail(failure.message) }
             }
-            busy = false
+            if same { busy = false }
             refresh()
         }
     }
@@ -665,8 +681,8 @@ private struct SourceCard: View {
             }
         }
         .padding(14)
-        .background(p.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(p.line.opacity(0.6), lineWidth: 1))
+        .background(p.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.small, style: .continuous).strokeBorder(p.line.opacity(0.6), lineWidth: 1))
     }
 
     private func signIn(_ source: MusicSource) {
@@ -734,7 +750,7 @@ private struct ServerBadge: View {
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
-            .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
             .accessibilityHidden(true)
     }
 }
@@ -754,7 +770,7 @@ private struct Stat: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }
@@ -785,6 +801,8 @@ private struct ScrobbleProblemsButton: View {
     let service: String
     @State private var shown = false
     @State private var problems: ScrobbleProblems?
+    /// They could not be read: why, in words.
+    @State private var error: String?
 
     var body: some View {
         Button("Details…") { shown = true }
@@ -796,14 +814,26 @@ private struct ScrobbleProblemsButton: View {
                     .frame(maxHeight: 460)
                     .task {
                         let service = service
-                        problems = JSON.decode(ScrobbleProblems.self, await store.load { $0.scrobbleProblemsJson(service: service) })
+                        switch await store.read({ try $0.scrobbleProblemsJson(service: service) }) {
+                        case .success(let json):
+                            problems = JSON.decode(ScrobbleProblems.self, json)
+                            error = problems == nil ? "the details were not understood" : nil
+                        case .failure(let failure):
+                            problems = nil
+                            error = failure.message
+                        }
                     }
             }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let p = problems {
+        if let error {
+            Label("Could not read your library: \(error)", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(store.plainColors.danger)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(20)
+        } else if let p = problems {
             if p.reasons.isEmpty {
                 Text("Nothing went wrong lately.").foregroundStyle(.secondary).padding(20)
             } else {

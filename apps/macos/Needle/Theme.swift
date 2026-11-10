@@ -29,7 +29,7 @@ struct Palette: Equatable {
 
     /// The base looks: settings value, name, and a few words.
     static let bases: [(String, String, String)] = [
-        ("dark", "Night", "Charcoal grey"),
+        ("dark", "Night", "Charcoal gray"),
         ("midnight", "Midnight", "True black"),
         ("light", "Day", "Light and airy"),
     ]
@@ -325,9 +325,19 @@ extension Store {
 
 
     /// Liquid Glass on the player, the panels, and the strips over the page (Settings ›
-    /// Appearance › Background: Glass); Plain makes them solid in the look's own colors.
-    var liquidGlass: Bool { settings.windowMaterial != "solid" }
+    /// Appearance › Background: Glass or Ambient); Plain makes them solid in the look's own
+    /// colors. Ambient is always glass over the cover, whatever was chosen before it.
+    var liquidGlass: Bool { settings.ambient || settings.windowMaterial != "solid" }
 
+}
+
+/// Needle's three corner sizes, always continuous: `small` for chips, fields, rows, and small
+/// buttons; `medium` for cards and boxes on a page and small windows; `large` for the panes
+/// that float (the side panel, the palette). Covers keep their own (6 to 8, 12 in the player).
+enum Radius {
+    static let small: CGFloat = 8
+    static let medium: CGFloat = 14
+    static let large: CGFloat = 22
 }
 
 /// How much of the page's right side the open side panel covers: pages that run a picture on
@@ -346,28 +356,46 @@ extension EnvironmentValues {
 extension View {
     /// A pane of Liquid Glass (macOS 26), or the frosted material before it; solid in the
     /// look's own colors with the Plain background.
+    /// - `interactive`: the glass answers a press (macOS 26).
+    /// - `tinted`: a faint wash of the playing cover's colour (Colors from the music), which
+    ///   fades to the next cover's over half a second (see `Store.paneTint`).
+    /// - `id`, `space`: its place in a `GlassEffectContainer`, so it merges with the glass near
+    ///   it and morphs when it comes and goes (macOS 26).
     @MainActor @ViewBuilder
-    func pane<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+    func pane<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, tinted: Bool = false,
+                        id: String? = nil, in space: Namespace.ID? = nil) -> some View {
         if !Store.shared.liquidGlass {
             background(Store.shared.colors.raised, in: shape)
                 .overlay(shape.stroke(Store.shared.colors.line, lineWidth: 1))
         } else if #available(macOS 26, *) {
-            glassEffect(interactive ? Glass.regular.tint(tint).interactive() : Glass.regular.tint(tint), in: shape)
+            background { if tinted { TintWash(shape: shape) } }
+                .glassEffect(interactive ? Glass.regular.tint(tint).interactive() : Glass.regular.tint(tint), in: shape)
+                .modifier(GlassPlace(id: id, space: space))
         } else {
-            background(.regularMaterial, in: shape)
+            background { if tinted { TintWash(shape: shape) } }
+                .background(.regularMaterial, in: shape)
         }
     }
 
-    /// A glass button style on macOS 26, a bordered one before. The button keeps its own size:
-    /// squeezed, the glass control's width kept changing, the layout never settled, and AppKit
-    /// stopped the app.
-    @ViewBuilder
+    /// A glass button style on macOS 26, a bordered one before and with the Plain background.
+    /// The button keeps its own size: squeezed, the glass control's width kept changing, the
+    /// layout never settled, and AppKit stopped the app.
+    @MainActor @ViewBuilder
     func glassButton(prominent: Bool = false) -> some View {
         if #available(macOS 26, *) {
-            if prominent { buttonStyle(.glassProminent).fixedSize() } else { buttonStyle(.glass).fixedSize() }
+            if Store.shared.liquidGlass {
+                if prominent { buttonStyle(.glassProminent).fixedSize() } else { buttonStyle(.glass).fixedSize() }
+            } else {
+                bordered(prominent)
+            }
         } else {
-            if prominent { buttonStyle(.borderedProminent).fixedSize() } else { buttonStyle(.bordered).fixedSize() }
+            bordered(prominent)
         }
+    }
+
+    @ViewBuilder
+    private func bordered(_ prominent: Bool) -> some View {
+        if prominent { buttonStyle(.borderedProminent).fixedSize() } else { buttonStyle(.bordered).fixedSize() }
     }
 }
 
@@ -398,5 +426,54 @@ struct Grain: View {
             .opacity(amount * 0.35)
             .allowsHitTesting(false)
             .ignoresSafeArea()
+    }
+}
+
+/// Labels with only their icons when `narrow`, with their names too otherwise.
+struct IconsWhenNarrow: ViewModifier {
+    let narrow: Bool
+
+    func body(content: Content) -> some View {
+        if narrow { content.labelStyle(.iconOnly) } else { content.labelStyle(.titleAndIcon) }
+    }
+}
+
+/// The playing cover's colour, faint, under a pane's glass: it fades to the next cover's over
+/// half a second (at once with Reduce motion). Only this layer animates, never the pane's words.
+private struct TintWash<S: Shape>: View {
+    let shape: S
+
+    var body: some View {
+        let store = Store.shared
+        shape.fill(store.paneTint ?? .clear)
+            .animation(store.motion ? .easeInOut(duration: 0.5) : nil, value: store.paneTint)
+            .allowsHitTesting(false)
+    }
+}
+
+/// A glass pane's place in its container (macOS 26), when it has one.
+@available(macOS 26, *)
+private struct GlassPlace: ViewModifier {
+    let id: String?
+    let space: Namespace.ID?
+
+    func body(content: Content) -> some View {
+        if let id, let space { content.glassEffectID(id, in: space) } else { content }
+    }
+}
+
+/// Glass that merges and morphs: its panes within `spacing` of each other flow together, and a
+/// pane that comes or goes grows out of, or into, its neighbour (macOS 26). Before that, the
+/// panes as they are.
+struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat = 8
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if #available(macOS 26, *), Store.shared.liquidGlass {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
     }
 }

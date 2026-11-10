@@ -121,7 +121,7 @@ struct NumbersPage: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(store.colors.raised, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
@@ -181,7 +181,7 @@ struct NumbersPage: View {
                 ShelfTitle(title: "\(title) · \(total.formatted())", detail: note, all: nil)
                 PagedRow(tile: 140, spacing: 18, middle: 70) {
                     LazyHStack(alignment: .top, spacing: 18) {
-                        ForEach(albums) { album in AlbumTile(album: album, side: 140) }
+                        ForEach(albums) { album in AlbumTile(album: album, side: 140, place: "numbers") }
                     }
                     .padding(.horizontal, 2)
                     .padding(.bottom, 4)

@@ -16,7 +16,7 @@ pub enum Base {
 impl Base {
     /// Settings value, the name people see, and a few words about it.
     pub const ALL: [(&'static str, &'static str, &'static str); 3] = [
-        ("dark", "Night", "Charcoal grey"),
+        ("dark", "Night", "Charcoal gray"),
         ("midnight", "Midnight", "True black"),
         ("light", "Day", "Light and airy"),
     ];
@@ -55,6 +55,9 @@ pub struct Palette {
     pub success: Hsla,
     /// The music's colour at full strength, for glows and backdrops (never for text).
     pub glow: Hsla,
+    /// Windows and Linux: the glass look is on (window glass, or Ambient). The sidebar and
+    /// the page float as panes, and panes are tinted glass. Never set on macOS.
+    pub glass: bool,
 }
 impl Global for Palette {}
 
@@ -315,6 +318,7 @@ impl Palette {
             danger: if dark { c(0xee8479) } else { c(0xb4382c) },
             success: if dark { c(0x8cc79a) } else { c(0x2f7a45) },
             glow,
+            glass: false,
         }
     }
 
@@ -485,6 +489,7 @@ impl Palette {
             danger: m(a.danger, b.danger),
             success: m(a.success, b.success),
             glow: m(a.glow, b.glow),
+            glass: b.glass,
         }
     }
 }
@@ -518,7 +523,14 @@ pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
     theme.font_family = text_font().into();
     theme.font_size = px(14.);
     theme.radius = RADIUS;
-    theme.radius_lg = px(10.);
+    // Windows and Linux: popovers, tooltips and dialogs take the panes' corner size.
+    if cfg!(target_os = "macos") {
+        theme.radius_lg = px(10.);
+        theme.popover_radius = RADIUS;
+    } else {
+        theme.radius_lg = px(super::glass::MEDIUM);
+        theme.popover_radius = px(super::glass::MEDIUM);
+    }
     theme.shadow = false;
     apply(p, cx);
 }
@@ -555,10 +567,24 @@ pub fn apply(p: Palette, cx: &mut App) {
     // macOS Liquid Glass: tooltips and the toolkit's own popups are panes of glass.
     t.popover = if cfg!(target_os = "macos") && p.back.a < 0.01 {
         gpui::transparent_black()
-    } else if dark {
-        super::motion::mix(p.raised, p.raised_hover, 0.5)
+    } else if cfg!(target_os = "macos") {
+        if dark {
+            super::motion::mix(p.raised, p.raised_hover, 0.5)
+        } else {
+            c(0xffffff)
+        }
     } else {
-        c(0xffffff)
+        // Windows and Linux: tinted glass, but solid. GPUI cannot blur Needle's own content,
+        // so a see-through pane only lets text behind it read through as ghosts (even 3% did:
+        // album names behind the palette, rows behind a dropdown); the tint, the edge light,
+        // and the shadow keep it glass.
+        super::glass::tinted(&p, 1.)
+    };
+    // Windows and Linux: the edge light on popovers, menus and tooltips.
+    (t.popover_edge, t.popover_border) = if cfg!(target_os = "macos") {
+        (gpui::transparent_black(), gpui::transparent_black())
+    } else {
+        super::glass::edge_colors(&p)
     };
     t.popover_foreground = p.ink;
     t.list_hover = p.raised;

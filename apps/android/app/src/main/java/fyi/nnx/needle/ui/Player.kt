@@ -202,7 +202,8 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
             else -> MaterialTheme.colorScheme.surfaceContainerHigh
         },
         contentColor = if (colored && !docked) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(if (docked) 18.dp else 20.dp),
+        // In the dock, its corners follow the dock's (26 dp, 4 dp inside it).
+        shape = RoundedCornerShape(if (docked) 22.dp else 20.dp),
         shadowElevation = if (docked) 0.dp else 8.dp,
         modifier = Modifier
             .fillMaxWidth()
@@ -234,7 +235,7 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
                     onDragCancel = { release() },
                 ) { _, dx -> drag += dx }
             }
-            .clip(RoundedCornerShape(if (docked) 18.dp else 20.dp))
+            .clip(RoundedCornerShape(if (docked) 22.dp else 20.dp))
             .clickable(onClickLabel = "Open the player", onClick = onOpen),
     ) {
         // The line being sung (Settings › Appearance › Lyrics in the mini player): on a wide
@@ -630,7 +631,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
             val controls: @Composable () -> Unit = {
                 val shape = rememberShape(song)
-                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape) }
+                val app by NeedleApp.instance.app.collectAsState()
+                // The format between the times (Settings › Appearance › Player › Song format).
+                val format = if (app.formatChip) song.quality.ifEmpty { song.format } else ""
+                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape, format = format) }
                 androidx.compose.animation.AnimatedVisibility(stopped != null) {
                     Text(
                         stopped.orEmpty(),
@@ -640,7 +644,6 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
                     )
                 }
-                val app by NeedleApp.instance.app.collectAsState()
                 val more by NeedleApp.instance.more.collectAsState()
                 val buttons = chosenButtons(more.playerButtons)
                 PlayerControls(buttons.take(MainButtons), playing, position, song.duration, haptics, repeat, panel, { panel = if (panel == it) Panel.Cover else it }, favorite.takeIf { !song.onComputer() }, toggleFavorite)
@@ -808,16 +811,25 @@ fun SidePane(kind: SideKind, open: (Route) -> Unit, modifier: Modifier = Modifie
     val song = remember(current) { current } ?: return
     val position = { playbackState.value?.position ?: 0.0 }
     val shape = RoundedCornerShape(22.dp)
+    // Glass over the page where it can blur it (Glass.kt); elsewhere the player's backdrop, solid.
+    val glassy = LocalHaze.current != null && blurAllowed(large = true)
     CoverTheme(song.artwork) {
         Box(
             modifier
                 .width(320.dp)
                 .fillMaxHeight()
-                .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
-                .clip(shape)
-                .border(0.5.dp, Color.White.copy(alpha = 0.1f), shape),
+                .then(
+                    if (glassy) {
+                        Modifier.coverGlass(shape, coverColor(song.artwork))
+                    } else {
+                        Modifier
+                            .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
+                            .clip(shape)
+                            .edgeLight(shape, dark = true)
+                    },
+                ),
         ) {
-            PlayerBackdrop(song, reading = true)
+            if (!glassy) PlayerBackdrop(song, reading = true)
             CompositionLocalProvider(LocalContentColor provides Color.White) {
                 Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1055,7 +1067,7 @@ private fun PlayerSearch(computer: Boolean, onDismiss: () -> Unit) {
             }.onFailure { showMessage(it.message ?: "It did not work") }
         }
     }
-    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    GlassSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(horizontal = 16.dp)) {
             Text(
                 if (computer) "Add from your computer" else "Add songs",
@@ -1412,7 +1424,7 @@ private fun SmallNowPlaying(song: Song) {
  * the song moves only when it lets go.
  */
 @Composable
-private fun SeekBar(position: Double, duration: Double, playing: Boolean, heights: List<Float> = emptyList()) {
+private fun SeekBar(position: Double, duration: Double, playing: Boolean, heights: List<Float> = emptyList(), format: String = "") {
     var held by remember { mutableStateOf<Float?>(null) }
     val length = duration.coerceAtLeast(1.0).toFloat()
     // Where it was just sent: shown until the player is there (a moment later, at its next
@@ -1477,9 +1489,28 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean, height
                 Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White))
             }
         }
-        Row(Modifier.fillMaxWidth()) {
+        // With the format's pill between the times, a little room above and below it: the pill
+        // sits right over the large Play button, and looked pressed against it and the bar.
+        Row(
+            Modifier.fillMaxWidth().padding(top = if (format.isNotBlank()) 4.dp else 0.dp, bottom = if (format.isNotBlank()) 10.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(time((shown * length).toDouble()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
             Spacer(Modifier.weight(1f))
+            // The song's format ("FLAC 24/48"), between the times in a thin pill, as on the iPhone.
+            if (format.isNotBlank()) {
+                Text(
+                    format,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    modifier = Modifier
+                        .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+                Spacer(Modifier.weight(1f))
+            }
             // A song whose length is not known has no time left to show.
             if (duration > 0) Text("-" + time(length.toDouble() - shown * length), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
         }
@@ -1667,7 +1698,8 @@ private fun UpNextPanel(version: ULong, titled: Boolean = true) {
                     if (dismiss.currentValue != SwipeToDismissBoxValue.Settled && !song.onComputer()) remove(i)
                 }
                 SwipeToDismissBox(
-                    modifier = if (onComputer) Modifier else Modifier.reorderRow(reorder, i),
+                    // The rows slide when one goes or moves (Reorder.kt).
+                    modifier = Modifier.movingRow(this, reorder).then(if (onComputer) Modifier else Modifier.reorderRow(reorder, i)),
                     state = dismiss,
                     // The computer's queue cannot be changed from here, so its rows do not swipe.
                     enableDismissFromStartToEnd = !onComputer,
@@ -1713,7 +1745,7 @@ private fun UpNextPanel(version: ULong, titled: Boolean = true) {
                         }
                         if (!onComputer) DragHandle(reorder, i, tint = Color.White.copy(alpha = 0.7f))
                     }
-                    androidx.compose.material3.DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(20.dp)) {
+                    GlassMenu(menu, { menu = false }) {
                         if (i > 0) androidx.compose.material3.DropdownMenuItem(text = { Text("Move up") }, onClick = { menu = false; moveTo(i - 1) })
                         if (i < list.size - 1) androidx.compose.material3.DropdownMenuItem(text = { Text("Move down") }, onClick = { menu = false; moveTo(i + 1) })
                         androidx.compose.material3.DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; remove(i) })

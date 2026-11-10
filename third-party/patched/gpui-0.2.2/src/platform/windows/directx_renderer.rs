@@ -312,6 +312,11 @@ impl DirectXRenderer {
                     scene.polychrome_sprites.len(),
                     scene.surfaces.len(),))?;
         }
+        frame_dump::maybe_write(
+            &self.devices.device,
+            &self.devices.device_context,
+            &self.resources.render_target,
+        );
         self.present()
     }
 
@@ -1757,5 +1762,85 @@ mod dxgi {
             (number >> 16) & 0xFFFF,
             number & 0xFFFF
         ))
+    }
+}
+
+/// Needle patch: with `NEEDLE_FRAME_DUMP` set to a `.png` path, the frame as drawn (before
+/// Windows puts it over the window's backdrop) is written there, at most twice a second, so
+/// tests can check its see-through pixels. Window pictures cannot: they come back composed,
+/// and GDI+ turns one colour (RGB 13, 11, 12) see-through. Off by default; for tests only.
+mod frame_dump {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    fn target() -> Option<&'static (std::path::PathBuf, Mutex<Option<Instant>>)> {
+        static TARGET: OnceLock<Option<(std::path::PathBuf, Mutex<Option<Instant>>)>> =
+            OnceLock::new();
+        TARGET
+            .get_or_init(|| {
+                let path = std::env::var_os("NEEDLE_FRAME_DUMP")?;
+                Some((path.into(), Mutex::new(None)))
+            })
+            .as_ref()
+    }
+
+    pub(super) fn maybe_write(
+        device: &ID3D11Device,
+        context: &ID3D11DeviceContext,
+        render_target: &ID3D11Texture2D,
+    ) {
+        let Some((path, last)) = target() else {
+            return;
+        };
+        {
+            let mut last = last.lock().unwrap();
+            if last.is_some_and(|t| t.elapsed() < Duration::from_millis(500)) {
+                return;
+            }
+            *last = Some(Instant::now());
+        }
+        if let Err(error) = write(device, context, render_target, path) {
+            log::error!("frame dump: {error:?}");
+        }
+    }
+
+    fn write(
+        device: &ID3D11Device,
+        context: &ID3D11DeviceContext,
+        render_target: &ID3D11Texture2D,
+        path: &std::path::Path,
+    ) -> Result<()> {
+        unsafe {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            render_target.GetDesc(&mut desc);
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.BindFlags = 0;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+            desc.MiscFlags = 0;
+            let mut staging = None;
+            device.CreateTexture2D(&desc, None, Some(&mut staging))?;
+            let staging = staging.context("no staging texture")?;
+            context.CopyResource(&staging, render_target);
+            let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+            context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))?;
+            let (width, height) = (desc.Width as usize, desc.Height as usize);
+            let mut rgba = Vec::with_capacity(width * height * 4);
+            for y in 0..height {
+                let row = std::slice::from_raw_parts(
+                    (mapped.pData as *const u8).add(y * mapped.RowPitch as usize),
+                    width * 4,
+                );
+                // BGRA, premultiplied, to RGBA as it is.
+                for px in row.chunks_exact(4) {
+                    rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+                }
+            }
+            context.Unmap(&staging, 0);
+            image::RgbaImage::from_raw(desc.Width, desc.Height, rgba)
+                .context("frame size")?
+                .save(path)?;
+        }
+        Ok(())
     }
 }

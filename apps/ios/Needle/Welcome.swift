@@ -30,7 +30,7 @@ struct WelcomeView: View {
                         .frame(width: 72, height: 72).clipShape(.rect(cornerRadius: 17))
                         .accessibilityHidden(true)
                         Text("Welcome to Needle").font(.needle(.largeTitle).bold())
-                        Text("Your music, from this iPhone, your server, and your computer.")
+                        Text("Your music, from this \(Device.name), your server, and your computer.")
                             .font(.needle(.title3))
                         Text("No account. Nothing leaves your phone unless you ask.")
                             .font(.needle(.subheadline)).foregroundStyle(.secondary)
@@ -41,13 +41,13 @@ struct WelcomeView: View {
                         Text("Where is your music?").font(.needle(.footnote).weight(.semibold)).foregroundStyle(.secondary)
                             .textCase(.uppercase).padding(.leading, 16)
                         VStack(spacing: 0) {
-                            choice("folder.fill", .orange, "Import from Files", "Songs on this iPhone or in iCloud Drive.") { importing = true }
+                            choice("folder.fill", .orange, "Import from Files", "Songs on this \(Device.name) or in iCloud Drive.") { importing = true }
                             Divider().padding(.leading, 58)
                             choice("server.rack", .cyan, "Connect a music server", "Navidrome or another Subsonic server.") { finish(.home, .server("subsonic")) }
                             Divider().padding(.leading, 58)
                             choice("laptopcomputer", .indigo, "Connect your computer", "Play its music here, and move what plays.") { finish(.home, .computer) }
                         }
-                        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                        .glassEffect(.regular, in: .soft(Corner.large))
                     }
 
                     Button { finish(.home, nil) } label: {
@@ -61,7 +61,7 @@ struct WelcomeView: View {
                                      icon: "exclamationmark.triangle.fill", tint: .orange)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .glassEffect(.regular, in: .soft(Corner.large))
                     .onChange(of: crashReports) { _, on in store.run { try $0.setCrashReports(on: on) } }
                 }
                 .padding(.horizontal, 20)
@@ -69,6 +69,11 @@ struct WelcomeView: View {
             }
         }
         .preferredColorScheme(.dark)
+        // Seen again from Settings: the switch shows the choice already made, so closing the
+        // guide never turns crash reports off.
+        .task {
+            if store.app.welcomed { crashReports = await store.load { $0.crashReports() } ?? false }
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .folder], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { store.importFiles(urls) }
             finish(.home, nil)
@@ -81,7 +86,7 @@ struct WelcomeView: View {
             HStack(spacing: 14) {
                 Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 30, height: 30)
-                    .background(tint.gradient, in: .rect(cornerRadius: 8))
+                    .background(tint.gradient, in: .soft(Corner.small))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.needle(.body).weight(.semibold))

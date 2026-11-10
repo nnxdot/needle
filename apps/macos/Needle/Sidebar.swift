@@ -12,6 +12,7 @@ struct Sidebar: View {
         List(selection: Binding<Route?>(get: { store.route.sidebarRoute }, set: { if let to = $0 { store.navigate(to) } })) {
             Section {
                 item("Home", "house", .home)
+                item("Radio", "dot.radiowaves.left.and.right", .radio)
                 item("Songs", "music.note", .songs)
                 item("Albums", "square.stack", .albums)
                 item("Artists", "music.mic", .artists)
@@ -97,7 +98,8 @@ struct Sidebar: View {
 
     private func item(_ name: String, _ icon: String, _ route: Route) -> some View {
         Label(name, systemImage: icon)
-            .labelStyle(SidebarLabel(rail: store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar))
+            .labelStyle(SidebarLabel(rail: store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar,
+                                     ink: store.colors.ink2, selected: store.route.sidebarRoute == route))
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .tag(route)
@@ -131,7 +133,7 @@ struct Sidebar: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .pane(RoundedRectangle(cornerRadius: 10))
+                .pane(RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 .padding(.bottom, 4)
             }
             footerButton("Add music folder", "folder.badge.plus", rail) { store.addFolder() }
@@ -178,15 +180,22 @@ private func footerLabel(_ name: String, _ icon: String, _ rail: Bool) -> some V
 /// A sidebar label, or its icon alone on the folded strip.
 struct SidebarLabel: LabelStyle {
     let rail: Bool
+    /// The icon's colour: the window's own second ink (the main window's look, or the Settings
+    /// window's, which never takes an album's colours).
+    let ink: Color
+    /// The chosen row: its icon takes the colour the row's words take when chosen.
+    var selected = false
+
     func makeBody(configuration: Configuration) -> some View {
         // The icons in a solid colour of the theme's, not the sidebar's see-through glass
         // (vibrancy): in Mission Control's picture of the window that glass is dropped, and the
-        // icons vanished and flickered while the words stayed.
-        let ink = Store.shared.colors.ink2
+        // icons vanished and flickered while the words stayed. The chosen row's in the words'
+        // own style, which the list changes for the chosen row.
+        let style = selected ? AnyShapeStyle(.primary) : AnyShapeStyle(ink)
         if rail {
-            configuration.icon.font(.needle(.title3)).foregroundStyle(ink).frame(maxWidth: .infinity)
+            configuration.icon.font(.needle(.title3)).foregroundStyle(style).frame(maxWidth: .infinity)
         } else {
-            Label { configuration.title } icon: { configuration.icon.foregroundStyle(ink) }
+            Label { configuration.title } icon: { configuration.icon.foregroundStyle(style) }
         }
     }
 }
@@ -203,6 +212,12 @@ struct PlaylistRow: View {
             PlaylistArt(playlist: playlist, side: rail ? 28 : 20)
             if !rail {
                 Text(playlist.name).lineLimit(1)
+                // A playlist on a music server, marked as its songs are.
+                if playlist.server && store.settings.serverMark {
+                    let words = playlist.readOnly ? "Read-only on the server" : "On your music server"
+                    Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
+                        .help(words).accessibilityLabel(words)
+                }
                 if playlist.smart {
                     Spacer()
                     Image(systemName: "sparkles").font(.needle(.caption2)).foregroundStyle(.secondary)
@@ -212,7 +227,8 @@ struct PlaylistRow: View {
         .frame(maxWidth: .infinity, alignment: rail ? .center : .leading)
         .help(playlist.name)
         .dropDestination(for: String.self) { ids, _ in
-            guard !playlist.smart else { return false }
+            // A read-only server playlist takes no songs: not a place to drop.
+            guard !playlist.smart, !playlist.readOnly else { return false }
             store.addToPlaylist(playlist, ids)
             return true
         }
@@ -221,29 +237,29 @@ struct PlaylistRow: View {
             Button("Shuffle") { playAll(shuffle: true) }
             Button("Add to Queue") { enqueue() }
             Divider()
-            Button(playlist.smart ? "Edit Playlist or Rules…" : "Edit Playlist…") {
-                store.editor = store.playlistModel(playlist.id)
+            if !playlist.readOnly {
+                Button(playlist.smart ? "Edit Playlist or Rules…" : "Edit Playlist…") {
+                    store.editor = store.playlistModel(playlist.id)
+                }
             }
             Button("Export as M3U8…") { export() }
-            Divider()
-            Button("Delete Playlist…", role: .destructive) { confirmDelete = true }
+            if !playlist.readOnly {
+                Divider()
+                Button("Delete Playlist…", role: .destructive) { confirmDelete = true }
+            }
         }
         .confirmationDialog("Delete “\(playlist.name)”?", isPresented: $confirmDelete) {
-            Button("Delete Playlist", role: .destructive) {
-                let id = playlist.id
-                store.run { try $0.deletePlaylist(id: id) }
-                if store.route == .playlist(id) { store.navigate(.songs) }
-                store.notify("Playlist deleted. Your music files are untouched.")
-                Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadPlaylists() }
-            }
+            Button("Delete Playlist", role: .destructive) { store.deletePlaylist(playlist.id) }
         } message: {
-            Text("Your music files are untouched.")
+            Text(playlist.server ? "It is deleted on your music server too. Your music files are untouched." : "Your music files are untouched.")
         }
     }
 
     private func playAll(shuffle: Bool) {
         let id = playlist.id
-        let rule = store.playlistModel(id)?.query ?? ""
+        // Gone meanwhile: never an empty rule, which plays the whole library.
+        guard let model = store.playlistModel(id) else { store.playlistGone(id); return }
+        let rule = model.query ?? ""
         let reason = "From your playlist \(playlist.name)"
         Task {
             _ = await store.ask { try $0.playView(query: rule, playlist: rule.isEmpty ? id : nil, filter: "", start: 0, shuffle: shuffle, reason: reason) }
@@ -281,6 +297,7 @@ struct Rail: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 4) {
                     page("Home", "house", .home)
+                    page("Radio", "dot.radiowaves.left.and.right", .radio)
                     page("Songs", "music.note", .songs)
                     page("Albums", "square.stack", .albums)
                     page("Artists", "music.mic", .artists)
@@ -312,7 +329,7 @@ struct Rail: View {
                             .accessibilityLabel(playlist.name)
                             .accessibilityAddTraits(store.route == .playlist(playlist.id) ? .isSelected : [])
                             .dropDestination(for: String.self) { ids, _ in
-                                guard !playlist.smart else { return false }
+                                guard !playlist.smart, !playlist.readOnly else { return false }
                                 store.addToPlaylist(playlist, ids)
                                 return true
                             }
@@ -332,7 +349,7 @@ struct Rail: View {
         .padding(.vertical, 10)
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
-        .overlay(alignment: .trailing) { Rectangle().fill(store.colors.line.opacity(0.5)).frame(width: 1) }
+        // No line beside it: the look has no lines between the parts of the window.
     }
 
     private func page(_ name: String, _ symbol: String, _ route: Route) -> some View {
@@ -356,8 +373,9 @@ struct Rail: View {
             .contentShape(Rectangle())
     }
 
+    /// The chosen icon's light capsule, as the open sidebar's chosen row.
     private func selectedBackground(_ selected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(selected ? store.colors.accent.opacity(0.18) : .clear)
+        Capsule().fill(selected ? store.colors.ink.opacity(store.colors.dark ? 0.12 : 0.08) : .clear)
     }
 }
 
@@ -370,7 +388,7 @@ private struct HeaderPlus: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(hovering ? .primary : .secondary)
             .frame(width: 20, height: 20)
-            .background(hovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }

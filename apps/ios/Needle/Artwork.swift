@@ -8,7 +8,10 @@ import UIKit
 @Observable
 final class PictureChanges {
     nonisolated(unsafe) static let shared = PictureChanges()
-    var count = 0
+    var count = 0 {
+        // The files' change times are read again: one of them was just saved anew.
+        didSet { Covers.forgetStamps() }
+    }
 }
 
 /// Covers, read from their files away from the screen, made small for the size they show at,
@@ -22,11 +25,32 @@ enum Covers {
 
     /// The picture's path with its file's change time. An artist's own photo, wide picture,
     /// and logo are saved again at the same path when another is chosen: with the time in the
-    /// key, the new one is read, never the old one from a cache.
+    /// key, the new one is read, never the old one from a cache. The time is read once per path
+    /// (a file's details are slow to ask for while a list is drawn), and again after
+    /// `PictureChanges` says a picture changed.
     nonisolated static func stamp(_ path: String) -> String {
-        guard !path.hasPrefix("http://"), !path.hasPrefix("https://"),
-              let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return path }
-        return "\(path)#\(date.timeIntervalSince1970)"
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://") else { return path }
+        if let known = stampLock.withLock({ stamps[path] }) { return known }
+        let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        let stamp = date.map { "\(path)#\($0.timeIntervalSince1970)" } ?? path
+        // A file not there yet (a cover still coming) is asked again next time.
+        if date != nil { stampLock.withLock { stamps[path] = stamp } }
+        return stamp
+    }
+
+    nonisolated(unsafe) private static var stamps: [String: String] = [:]
+    private static let stampLock = NSLock()
+
+    /// The stamp already known for a path, without asking the file system (for what is
+    /// drawn: a view's body never waits on a file); nil when it was not read yet.
+    nonisolated static func knownStamp(_ path: String) -> String? {
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://") else { return path }
+        return stampLock.withLock { stamps[path] }
+    }
+
+    /// Reads the files' change times again (a picture was saved anew at the same path).
+    nonisolated static func forgetStamps() {
+        stampLock.withLock { stamps.removeAll() }
     }
 
     nonisolated static func stamp(_ path: String?) -> String? { path.map { stamp($0) } }
@@ -51,12 +75,17 @@ enum Covers {
         return weight > 0 && light / weight < 0.4
     }
 
+    /// A cover already read at this size, without touching the file (nil if it is not here).
     static func cached(_ path: String, size: Int) -> UIImage? {
-        cache.object(forKey: "\(size)@\(stamp(path))" as NSString)
+        guard let stamp = knownStamp(path) else { return nil }
+        return cache.object(forKey: "\(size)@\(stamp)" as NSString)
     }
 
     static func load(_ path: String, size: Int) async -> UIImage? {
         if let hit = cached(path, size: size) { return hit }
+        // The file's change time, read away from the screen; the picture may already be kept.
+        let key = await Task.detached(priority: .userInitiated) { "\(size)@\(stamp(path))" }.value
+        if let hit = cache.object(forKey: key as NSString) { return hit }
         // Covers of songs on the computer come over the home network.
         var data: Data?
         if path.hasPrefix("http://") || path.hasPrefix("https://") {
@@ -79,38 +108,64 @@ enum Covers {
             ]
             guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
             let image = UIImage(cgImage: cg)
-            cache.setObject(image, forKey: "\(size)@\(stamp(path))" as NSString, cost: cg.bytesPerRow * cg.height)
+            cache.setObject(image, forKey: key as NSString, cost: cg.bytesPerRow * cg.height)
             return image
         }.value
     }
 }
 
 /// A cover, or, when there is none, a picture made from the name: colours and a shape that
-/// stay the same for the same album.
+/// stay the same for the same album. A cover already read shows at once; one read now fades in
+/// over a quiet fill (the made-up picture showed for a moment before the real one), and a new
+/// cover in the same place (the next song) fades in over the last one.
 struct Artwork: View {
     let path: String?
     let seed: String
     var size: Int = 600
     @State private var image: UIImage?
+    /// The picture could not be read, or there is none: the made-up one shows.
+    @State private var missing: Bool
+
+    init(path: String?, seed: String, size: Int = 600) {
+        self.path = path
+        self.seed = seed
+        self.size = size
+        let hit = path.flatMap { Covers.cached($0, size: size) }
+        _image = State(initialValue: hit)
+        _missing = State(initialValue: path == nil)
+    }
 
     var body: some View {
         // The space the page gives sets the size, never the picture: a cover that is not square
         // (a Blu-ray's, say) fills it, its edges cut off, instead of making its tile taller.
         Color.clear
             .overlay {
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
-                } else {
-                    Placeholder(seed: seed)
+                ZStack {
+                    if let image {
+                        Image(uiImage: image).resizable().scaledToFill()
+                            .id(ObjectIdentifier(image))
+                            .transition(.opacity)
+                    } else if missing {
+                        Placeholder(seed: seed).transition(.opacity)
+                    } else {
+                        Rectangle().fill(.quaternary)
+                    }
                 }
             }
             .clipped()
-        .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
-            guard let path else { image = nil; return }
-            if let hit = Covers.cached(path, size: size) { image = hit; return }
+        .task(id: "\(path ?? "")|\(PictureChanges.shared.count)") {
+            guard let path else {
+                if image != nil || !missing { withFade { image = nil; missing = true } }
+                return
+            }
+            if let hit = Covers.cached(path, size: size) {
+                if hit !== image { withFade { image = hit; missing = false } }
+                return
+            }
             let found = await Covers.load(path, size: size)
             // Moved on to another cover while this one loaded: not this one.
-            if !Task.isCancelled { image = found }
+            guard !Task.isCancelled else { return }
+            withFade { image = found; missing = found == nil }
         }
     }
 }
@@ -143,9 +198,11 @@ struct PageColors: Equatable {
         lock.withLock { known[key] = colors }
     }
 
-    /// Already found for this picture (or made-up cover), or kept under `key`, without waiting.
+    /// Already found for this picture (or made-up cover), or kept under `key`, without waiting
+    /// (and without touching the file).
     static func cached(_ path: String?, seed: String) -> PageColors? {
-        kept(Covers.stamp(path) ?? "seed:" + seed)
+        guard let path else { return kept("seed:" + seed) }
+        return Covers.knownStamp(path).flatMap(kept)
     }
 
     static func cached(key: String) -> PageColors? {
@@ -154,7 +211,7 @@ struct PageColors: Equatable {
 
     /// For the picture at `path`, or the made-up cover of `seed` when there is none.
     static func of(_ path: String?, seed: String) async -> PageColors {
-        let key = Covers.stamp(path) ?? "seed:" + seed
+        let key = await Task.detached { Covers.stamp(path) ?? "seed:" + seed }.value
         if let hit = kept(key) { return hit }
         var rgb: (Double, Double, Double)?
         if let path, let image = await Covers.load(path, size: 64), let cg = image.cgImage {
@@ -232,7 +289,50 @@ extension View {
             .tint(colors.ink)
             .environment(\.colorScheme, colors.dark ? .dark : .light)
             .toolbarColorScheme(colors.dark ? .dark : .light, for: .navigationBar)
-            .animation(.easeOut(duration: 0.35), value: colors)
+            .animation(Motion.fade(.easeOut(duration: 0.35)), value: colors)
+            // For the sidebar beside it (`PageSlot`).
+            .preference(key: PageDarkKey.self, value: colors.dark)
+    }
+}
+
+/// A page in its picture's colours is dark or light (nil: the theme's own page).
+struct PageDarkKey: PreferenceKey {
+    static let defaultValue: Bool? = nil
+
+    static func reduce(value: inout Bool?, nextValue: () -> Bool?) {
+        value = value ?? nextValue()
+    }
+}
+
+extension EnvironmentValues {
+    /// The window's place (a tab, or an entry of an iPad's sidebar) a page is in.
+    @Entry var place: Place?
+}
+
+/// A page of a place's stack: while it is the one on top, the window knows whether it is in a
+/// dark or light picture's colours (or the theme's), for the sidebar beside it.
+struct PageSlot: ViewModifier {
+    @Environment(\.place) private var place
+    @Environment(WindowState.self) private var window: WindowState?
+    @State private var dark: Bool?
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .onPreferenceChange(PageDarkKey.self) { now in
+                dark = now
+                if shown { report() }
+            }
+            .onAppear {
+                shown = true
+                report()
+            }
+            .onDisappear { shown = false }
+    }
+
+    private func report() {
+        guard let place, let window, window.pageDark[place] != dark else { return }
+        window.pageDark[place] = dark
     }
 }
 
@@ -264,7 +364,7 @@ struct Logo: View {
                 Color.clear
             }
         }
-        .task(id: "\(Covers.stamp(path))|\(PictureChanges.shared.count)") {
+        .task(id: "\(path)|\(PictureChanges.shared.count)") {
             let found = await Covers.load(path, size: 900)
             let cg = found?.cgImage
             let isDark = cg.map(Covers.isDark) ?? false
@@ -351,7 +451,8 @@ struct CoverBackdrop: View {
         self.blur = blur
         self.moving = moving
         // The one made before, so a new backdrop (the lyrics opened) never starts black.
-        _soft = State(initialValue: Self.made.object(forKey: (Covers.stamp(path) ?? seed) as NSString)?.image)
+        let known = path.map { Covers.knownStamp($0) } ?? seed
+        _soft = State(initialValue: known.flatMap { Self.made.object(forKey: $0 as NSString)?.image })
     }
 
     /// The blurred picture's side, in pixels.
@@ -369,7 +470,7 @@ struct CoverBackdrop: View {
         cache.countLimit = 12
         return cache
     }()
-    nonisolated(unsafe) private static let context = CIContext()
+    nonisolated private static let context = CIContext()
 
     var body: some View {
         GeometryReader { geo in
@@ -383,8 +484,9 @@ struct CoverBackdrop: View {
                 .frame(width: side, height: side)
             }
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
-            .task(id: "\(Covers.stamp(path) ?? seed)|\(Int(radius))|\(PictureChanges.shared.count)") {
-                let key = (Covers.stamp(path) ?? seed) as NSString
+            .task(id: "\(path ?? seed)|\(Int(radius))|\(PictureChanges.shared.count)") {
+                let path = path
+                let key = await Task.detached { Covers.stamp(path) ?? seed }.value as NSString
                 if let kept = Self.made.object(forKey: key), kept.radius == Int(radius) {
                     soft = kept.image
                     return
@@ -399,7 +501,7 @@ struct CoverBackdrop: View {
                 let made = await Task.detached(priority: .userInitiated) { Self.soften(source, radius: radius) }.value
                 guard !Task.isCancelled, let made else { return }
                 if real { Self.made.setObject(Made(made, Int(radius)), forKey: key) }
-                withAnimation(.easeInOut(duration: 0.4)) { soft = made }
+                withFade(.easeInOut(duration: 0.4)) { soft = made }
             }
         }
         .overlay(LinearGradient(colors: [.black.opacity(0.05), .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))

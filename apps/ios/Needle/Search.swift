@@ -5,6 +5,8 @@ import SwiftUI
 /// the words, songs from your server, and rules to try. Genres to browse while it is empty.
 struct SearchView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
+    @Environment(\.wide) private var wide
     @State private var query = ""
     @State private var kind = Kind.all
     @State private var found: SearchFound?
@@ -15,6 +17,10 @@ struct SearchView: View {
     @State private var hints: [Suggestion] = []
     @State private var server: [Song] = []
     @State private var generation: UInt64 = 0
+    /// The rules to try, read once (name, rule, name, rule…).
+    @State private var examples: [String] = []
+    /// The lit glass glides from the chip chosen before to the one chosen now.
+    @Namespace private var chipGlass
 
     enum Kind: String, CaseIterable { case all = "All", songs = "Songs", albums = "Albums", artists = "Artists", lyrics = "Lyrics" }
 
@@ -59,7 +65,10 @@ struct SearchView: View {
             if let chip = UserDefaults.standard.string(forKey: "search-kind"), let chosen = Kind(rawValue: chip.capitalized) { kind = chosen }
         }
         #endif
-        .task(id: store.libraryVersion) { genres = await store.load { try $0.genres() } ?? [] }
+        .task(id: store.libraryVersion) {
+            genres = await store.load { try $0.genres() } ?? []
+            if examples.isEmpty { examples = await store.load { $0.ruleExamples() } ?? [] }
+        }
         .task(id: "\(query)|\(kind)|\(store.ratingVersion)|\(store.libraryVersion)") {
             let typed = query
             hints = await store.load { $0.suggest(input: typed, cursor: UInt32(typed.utf16.count)) } ?? []
@@ -67,16 +76,29 @@ struct SearchView: View {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
             let limit: UInt32 = kind == .lyrics ? 50 : kind == .all ? 12 : 60
-            let next = await store.load { try $0.find(query: words, limit: limit) }
-            // A rule that does not read: its error, as the Songs page shows it.
-            let problem: String? = await store.load { core -> String? in
-                do { _ = try core.search(query: words); return nil } catch { return Store.words(error) }
-            } ?? nil
-            let every = kind == .songs ? (await store.load { try $0.search(query: words) } ?? []) : []
+            // One search for each query: the Songs chip asks for every song that matches, the
+            // others for what Search shows. A rule that does not read gives its error here, as
+            // the Songs page shows it.
+            let (core, chip) = (store.core, kind)
+            let outcome = await Task.detached { () -> Result<(SearchFound, [Song]), Error> in
+                Result {
+                    if chip == .songs {
+                        return (SearchFound(best: nil, songs: [], albums: [], artists: [], lyrics: []), try core.search(query: words))
+                    }
+                    return (try core.find(query: words, limit: limit), [])
+                }
+            }.value
             guard !Task.isCancelled else { return }
-            found = next
-            songs = every
-            error = (next.map(nothing) ?? true) ? problem : nil
+            switch outcome {
+            case .success(let (next, every)):
+                found = next
+                songs = every
+                error = nil
+            case .failure(let problem):
+                found = nil
+                songs = []
+                error = Store.words(problem)
+            }
             guard kind == .all else { server = []; return }
             // Music servers that search as you type (an experimental switch on the server).
             let asked = await store.load { $0.searchServers(query: words) } ?? 0
@@ -105,18 +127,20 @@ struct SearchView: View {
 
     private var suggestions: some View {
         ScrollView(.horizontal) {
-            HStack {
-                ForEach(Array(hints.prefix(10).enumerated()), id: \.offset) { _, hint in
-                    Button { query = apply(hint, to: query) } label: {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(hint.label).font(.needle(.subheadline).weight(.medium))
-                            if !hint.detail.isEmpty { Text(hint.detail).font(.needle(.caption2)).foregroundStyle(.secondary) }
+            GlassEffectContainer(spacing: 4) {
+                HStack {
+                    ForEach(Array(hints.prefix(10).enumerated()), id: \.offset) { _, hint in
+                        Button { query = apply(hint, to: query) } label: {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(hint.label).font(.needle(.subheadline).weight(.medium))
+                                if !hint.detail.isEmpty { Text(hint.detail).font(.needle(.caption2)).foregroundStyle(.secondary) }
+                            }
                         }
+                        .buttonStyle(.glass)
                     }
-                    .buttonStyle(.glass)
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
         }
         .scrollIndicators(.hidden)
         .padding(.top, 8)
@@ -124,23 +148,32 @@ struct SearchView: View {
 
     private var chips: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(Kind.allCases, id: \.self) { chip in
-                    let on = kind == chip
-                    Button { kind = chip } label: {
-                        Text(chip.rawValue)
-                            .font(.needle(.subheadline).weight(.semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 7)
-                            .foregroundStyle(on ? store.colors.onAccent : .primary)
-                            .background(on ? AnyShapeStyle(store.colors.accent) : AnyShapeStyle(.white.opacity(0.1)), in: .capsule)
+            // Glass chips, the chosen one in the accent; the lit glass glides to the chip chosen.
+            // The container's spacing is under the gap, so the chips stay apart.
+            GlassEffectContainer(spacing: 4) {
+                HStack(spacing: 8) {
+                    ForEach(Kind.allCases, id: \.self) { chip in
+                        let on = kind == chip
+                        Button { withMotion(.smooth(duration: 0.35)) { kind = chip } } label: {
+                            Text(chip.rawValue)
+                                .font(.needle(.subheadline).weight(.semibold))
+                                .padding(.horizontal, 14).padding(.vertical, 7)
+                                .foregroundStyle(on ? store.colors.onAccent : .primary)
+                                .glassEffect(on ? .regular.tint(store.colors.accent).interactive() : .regular.interactive(), in: .capsule)
+                                .glassEffectID(on ? "chosen" : chip.rawValue, in: chipGlass)
+                                .contentShape(.capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
             }
-            .padding(.horizontal)
+            .padding(.horizontal, Tiles.margin(wide))
+            // Room for the glass's edge and its spring when pressed.
+            .padding(.vertical, 2)
         }
         .scrollIndicators(.hidden)
+        // A chip is only ever chosen by a press.
         .sensoryFeedback(.selection, trigger: kind) { _, _ in store.app.haptics }
     }
 
@@ -148,10 +181,33 @@ struct SearchView: View {
     private func results(_ found: SearchFound, words: String) -> some View {
         switch kind {
         case .all:
-            if let best = found.best { bestMatch(best).padding(.horizontal).padding(.top, 14) }
-            if !found.songs.isEmpty {
-                SectionTitle(title: "Songs")
-                songRows(Array(found.songs.prefix(5)))
+            if wide, let best = found.best, !found.songs.isEmpty {
+                // In a wide window, as Apple Music's: the best match at the left, the songs
+                // beside it.
+                HStack(alignment: .top, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Top Result").font(.needleTitle(size: 22)).accessibilityAddTraits(.isHeader)
+                        bestMatch(best)
+                    }
+                    .frame(width: 380)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Songs").font(.needleTitle(size: 22)).accessibilityAddTraits(.isHeader)
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(found.songs.prefix(5).enumerated()), id: \.element.id) { i, song in
+                                SongRow(song: song) { store.play(Array(found.songs.prefix(5)), from: i) }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .padding(.horizontal, Tiles.margin(wide))
+                .padding(.top, 18)
+            } else {
+                if let best = found.best { bestMatch(best).padding(.horizontal, Tiles.margin(wide)).padding(.top, 14) }
+                if !found.songs.isEmpty {
+                    SectionTitle(title: "Songs")
+                    songRows(Array(found.songs.prefix(5)))
+                }
             }
             albumShelf(found.albums)
             artistShelf(found.artists)
@@ -166,7 +222,7 @@ struct SearchView: View {
                         SongRow(song: song) { let g = generation; store.core.playServerSongs(generation: g, start: UInt32(i)); store.played() }
                     }
                 }
-                .padding(.horizontal).padding(.top, 8)
+                .padding(.horizontal, Tiles.margin(wide)).padding(.top, 8)
             }
             rules
         case .songs: songRows(songs.isEmpty ? found.songs : Array(songs.prefix(200)))
@@ -189,7 +245,7 @@ struct SearchView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal).padding(.top, 12)
+            .padding(.horizontal, Tiles.margin(wide)).padding(.top, 12)
         case .lyrics:
             lyricRows(found.lyrics, words: words).padding(.top, 8)
         }
@@ -198,29 +254,31 @@ struct SearchView: View {
     /// The best match, large: its cover or photo, what it is, its name, and Play.
     private func bestMatch(_ best: SearchBest) -> some View {
         let (name, detail, label, artwork): (String, String, String, String?) = switch best.kind {
-        case "album": (best.album?.title ?? "", best.album?.artist ?? "", "Album", best.album?.artwork)
+        case "album": (best.album?.shownTitle ?? "", best.album?.shownArtist ?? "", "Album", best.album?.artwork)
         case "artist": (best.artist?.name ?? "", count(Int(best.artist?.songs ?? 0), "song"), "Artist", best.artist?.artwork)
         default: (best.song?.title ?? "", best.song?.artist ?? "", "Song", best.song?.artwork)
         }
         return HStack(spacing: 16) {
             Artwork(path: artwork, seed: name + detail, size: 300)
                 .frame(width: 104, height: 104)
-                .clipShape(best.kind == "artist" ? AnyShape(.circle) : AnyShape(.rect(cornerRadius: 10)))
+                .clipShape(best.kind == "artist" ? AnyShape(.circle) : AnyShape(.soft(Corner.cover)))
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
             VStack(alignment: .leading, spacing: 6) {
                 Text(label.uppercased()).font(.needle(.caption2).weight(.bold)).kerning(0.6).foregroundStyle(.secondary)
                 Text(name).font(.needleTitle(size: 22)).lineLimit(2)
                 Text(detail).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                // Plain, in the accent: the card is the one glass here.
                 Button { play(best) } label: {
                     Label("Play", systemImage: "play.fill").font(.needle(.subheadline).weight(.semibold)).padding(.horizontal, 6)
                 }
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
                 .foregroundStyle(store.colors.onAccent)
             }
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(.white.opacity(0.06), in: .rect(cornerRadius: 18))
+        .glassEffect(.regular, in: .soft(Corner.large))
         .contentShape(.rect)
         .onTapGesture { open(best) }
         .accessibilityElement(children: .combine)
@@ -235,14 +293,14 @@ struct SearchView: View {
                 SongRow(song: song) { store.play(list, from: i) }
             }
         }
-        .padding(.horizontal).padding(.top, 8)
+        .padding(.horizontal, Tiles.margin(wide)).padding(.top, 8)
     }
 
     @ViewBuilder
     private func albumShelf(_ albums: [Album]) -> some View {
         if !albums.isEmpty {
             SectionTitle(title: "Albums")
-            Shelf { ForEach(albums) { AlbumTile(album: $0) } }
+            Shelf { ForEach(albums) { AlbumTile(album: $0, shelf: "albums") } }
         }
     }
 
@@ -271,7 +329,7 @@ struct SearchView: View {
                 .accessibilityLabel("\(hit.line), from \(hit.song.title) by \(hit.song.artist)")
             }
         }
-        .padding(.horizontal).padding(.top, 6)
+        .padding(.horizontal, Tiles.margin(wide)).padding(.top, 6)
     }
 
     /// The line, with each place it holds the words lit in the accent.
@@ -292,21 +350,22 @@ struct SearchView: View {
 
     /// Try a rule: a tap puts it in the search field.
     private var rules: some View {
-        let examples = store.core.ruleExamples()
         let pairs = stride(from: 0, to: examples.count - 1, by: 2).map { (examples[$0], examples[$0 + 1]) }
         return VStack(alignment: .leading, spacing: 0) {
             SectionTitle(title: "Try a rule")
             ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(pairs, id: \.1) { name, rule in
-                        Button { query = rule; kind = .all } label: {
-                            Text(name).font(.needle(.subheadline).weight(.medium))
+                GlassEffectContainer(spacing: 4) {
+                    HStack(spacing: 8) {
+                        ForEach(pairs, id: \.1) { name, rule in
+                            Button { query = rule; kind = .all } label: {
+                                Text(name).font(.needle(.subheadline).weight(.medium))
+                            }
+                            .buttonStyle(.glass)
+                            .accessibilityHint("Searches for \(rule)")
                         }
-                        .buttonStyle(.glass)
-                        .accessibilityHint("Searches for \(rule)")
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, Tiles.margin(wide))
             }
             .scrollIndicators(.hidden)
             .padding(.top, 10)
@@ -317,8 +376,8 @@ struct SearchView: View {
 
     private func open(_ best: SearchBest) {
         switch best.kind {
-        case "album": if let album = best.album { store.opening = .album(album) }
-        case "artist": if let artist = best.artist { store.opening = .artist(artist.name) }
+        case "album": if let album = best.album { window.opening = .album(album) }
+        case "artist": if let artist = best.artist { window.opening = .artist(artist.name) }
         default: if let song = best.song { store.play([song]) }
         }
     }

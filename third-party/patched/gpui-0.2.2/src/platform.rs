@@ -483,6 +483,16 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn is_hovered(&self) -> bool;
     fn set_title(&mut self, title: &str);
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance);
+    /// Whether the system blurs what is behind a `Blurred` window: on Linux, only where the
+    /// compositor offers the blur protocol. Needle patch.
+    fn system_blur_available(&self) -> bool {
+        true
+    }
+    /// Whether see-through parts of the window show what is behind it: on X11, only with a
+    /// compositing manager running (else they show black). Needle patch.
+    fn transparency_available(&self) -> bool {
+        true
+    }
     /// Shows the system's glass under these parts of the window (Liquid Glass on macOS 26 and
     /// newer, vibrancy on older macOS), over `backdrop`, or the blurred desktop when `None`.
     /// Empty removes it all. Other platforms do nothing. Needle patch.

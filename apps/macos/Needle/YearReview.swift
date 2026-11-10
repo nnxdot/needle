@@ -142,7 +142,7 @@ struct YearCards: View {
         .background {
             LinearGradient(colors: [Color(red: 0.16, green: 0.11, blue: 0.2), Color(red: 0.2, green: 0.14, blue: 0.13), Color(red: 0.33, green: 0.2, blue: 0.11)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
         }
     }
 
@@ -150,7 +150,7 @@ struct YearCards: View {
         VStack(alignment: .leading, spacing: 0) { content() }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
     }
 
     private var hours: some View {
@@ -297,7 +297,7 @@ struct YearHomeCard: View {
             .padding(20)
             .background {
                 LinearGradient(colors: [Color(red: 0.16, green: 0.11, blue: 0.2), Color(red: 0.33, green: 0.2, blue: 0.11)], startPoint: .leading, endPoint: .trailing)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
             }
         }
         .buttonStyle(.plain)

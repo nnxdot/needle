@@ -38,7 +38,9 @@ struct SongTable: View {
 
     private var albumView: Bool { if case .album = route { true } else { false } }
     /// A playlist of picked songs in its own order: songs can be moved about and taken out.
-    private var arrangeable: Bool { model.playlistID != nil && store.sort == nil && store.search.isEmpty }
+    private var arrangeable: Bool {
+        model.playlistID != nil && model.playlist?.readOnly != true && store.sort == nil && store.search.isEmpty
+    }
     private var compact: Bool { store.compactRows }
 
     private var rows: [SongRow] {
@@ -68,8 +70,10 @@ struct SongTable: View {
             .dropDestination(for: String.self) { index, ids in
                 guard arrangeable, let playlist = model.playlistID else { return }
                 let before = index < rows.count ? rows[index].track.id : nil
-                store.run { try $0.placeInPlaylist(id: playlist, ids: ids, before: before) }
-                Task { try? await Task.sleep(for: .milliseconds(150)); store.libraryChanged() }
+                Task {
+                    guard let saved = await store.ask({ try $0.placeInPlaylist(id: playlist, ids: ids, before: before) }) else { return }
+                    store.playlistSaved(saved, from: playlist, follow: true, done: nil)
+                }
             }
         }
         .tableStyle(.inset(alternatesRowBackgrounds: false))
@@ -121,7 +125,7 @@ struct SongTable: View {
         }
     }
 
-    private var playing: String? { store.playback?.current }
+    private var playing: String? { store.playingID }
 
     private var colors: Palette { store.colors }
 
@@ -243,10 +247,10 @@ struct SongTable: View {
 
     private func removeFromPlaylist(_ playlist: String, _ ids: [String]) {
         Task {
-            guard let n = await store.ask({ try $0.removeSongsFromPlaylist(id: playlist, ids: ids) }) else { return }
+            guard let saved = await store.ask({ try $0.removeSongsFromPlaylist(id: playlist, ids: ids) }) else { return }
             selection = []
-            store.notify("Took \(count(Int(n), "song")) out of “\(model.playlist?.name ?? "the playlist")”.")
-            store.libraryChanged()
+            store.playlistSaved(saved, from: playlist, follow: true,
+                                done: "Took \(count(Int(saved.changed), "song")) out of “\(model.playlist?.name ?? "the playlist")”.")
         }
     }
 
@@ -284,7 +288,7 @@ struct TitleCell: View {
                 }
                 if track.missing {
                     Text("Missing file").font(.needle(.caption2)).padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(colors.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
+                        .background(colors.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                         .foregroundStyle(colors.danger)
                 }
             }
@@ -316,7 +320,7 @@ struct NumberCell: View {
         let label = trackNumbers && row.number > 0 ? String(row.number) : (row.index + 1).formatted()
         ZStack(alignment: .trailing) {
             if playing {
-                Equalizer(color: store.colors.accent, playing: store.playback?.playing == true).frame(width: 14, height: 12)
+                Equalizer(color: store.colors.accent, playing: store.isPlaying).frame(width: 14, height: 12)
             } else {
                 Text(label).foregroundStyle(store.colors.ink3).monospacedDigit()
             }
@@ -331,20 +335,18 @@ struct Heart: View {
     let on: Bool
     var size: CGFloat = 12
     let action: () -> Void
-    @State private var pop = false
+    /// Clicks, for the heart's bounce (at the click, not when the library says so).
+    @State private var clicks = 0
 
     var body: some View {
         Button {
-            if !on && store.motion {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.45)) { pop = true }
-                Task { try? await Task.sleep(for: .milliseconds(260)); pop = false }
-            }
+            clicks += 1
             action()
         } label: {
             Image(systemName: on ? "heart.fill" : "heart")
                 .font(.system(size: size))
                 .foregroundStyle(on ? store.colors.accent : store.colors.ink3)
-                .scaleEffect(pop ? 1.35 : 1)
+                .bounce(on: clicks)
         }
         .buttonStyle(.borderless)
         .help(on ? "Remove from favorites" : "Add to favorites")
@@ -376,17 +378,20 @@ struct Stars: View {
     }
 }
 
-/// Bouncing bars for the song playing.
+/// Bouncing bars for the song playing: still bars while paused, with Reduce motion, and while
+/// the window cannot be seen.
 struct Equalizer: View {
     let color: Color
     let playing: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 12, paused: !playing)) { context in
+        let store = Store.shared
+        let moving = playing && store.motion && store.mainVisible
+        TimelineView(.animation(minimumInterval: 1 / 12, paused: !moving)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             HStack(alignment: .bottom, spacing: 2) {
                 ForEach(0..<3, id: \.self) { i in
-                    let level = playing ? 0.35 + 0.65 * abs(sin(t * (3.1 + Double(i) * 1.7) + Double(i))) : 0.3
+                    let level = moving ? 0.35 + 0.65 * abs(sin(t * (3.1 + Double(i) * 1.7) + Double(i))) : playing ? [0.55, 0.9, 0.7][i] : 0.3
                     Capsule().fill(color).frame(width: 3).frame(height: 12 * level)
                 }
             }

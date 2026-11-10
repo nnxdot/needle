@@ -154,6 +154,8 @@ impl AppView {
                 p.name.clone(),
                 if p.query.is_some() {
                     "Smart playlist"
+                } else if super::playlist_saves::read_only(p) {
+                    "Read-only on the server"
                 } else {
                     "Playlist"
                 },
@@ -235,6 +237,14 @@ impl AppView {
                 "Formats, hi-res, decades, genres, and albums to fix",
                 None,
                 |this, window, cx| this.navigate(Page::Numbers, window, cx),
+            ),
+            item(
+                "Go to",
+                "radio",
+                "Radio",
+                "Your station, quick mixes, and stations from your songs",
+                None,
+                |this, window, cx| this.navigate(Page::Radio, window, cx),
             ),
             item(
                 "Go to",
@@ -609,13 +619,13 @@ impl AppView {
                     .h(px(40.))
                     .mx_1()
                     .px_2()
-                    .rounded(px(7.))
+                    .rounded(px(super::glass::ROW_IN_PANE))
                     .flex()
                     .items_center()
                     .gap_3()
                     .cursor_pointer()
-                    .when(is_active, |el| el.bg(p.raised_hover))
-                    .hover(|s| s.bg(p.raised))
+                    .when(is_active, |el| el.bg(super::glass::active_fill(&p)))
+                    .map(|el| super::glass::hover_row(el, super::glass::ROW_IN_PANE, cx))
                     .child(match &entry.track {
                         Some(track) => artwork(Some(track), 28., cx),
                         None => div()
@@ -675,10 +685,7 @@ impl AppView {
             .id("palette")
             .occlude()
             .w(px(640.))
-            .map(|el| super::glass::pane(el, 12., 22., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
+            .map(|el| super::glass::pane(el, 14., 22., cx.theme().popover, cx))
             .flex()
             .flex_col()
             .overflow_hidden()

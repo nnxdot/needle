@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Radio
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Person
@@ -48,16 +50,19 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import fyi.nnx.needle.NeedleApp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -89,12 +94,15 @@ private val Open = 240.dp
 /** The side bar folded to its icons (a TV until the focus moves to it; a narrow tablet). */
 private val Folded = 64.dp
 
+/** The side bar's glass corners. */
+private val SideBarShape = RoundedCornerShape(20.dp)
+
 /** A row's corners, and its soft highlight's. */
 private val RowCorners = RoundedCornerShape(8.dp)
 
 /**
  * The side bar on tablets and TVs, as on the Mac and the computer: the search field at the top;
- * Home, Songs, Albums, Artists, and Folders; a grey "Collections" label with Favorites,
+ * Home, Radio, Songs, Albums, Artists, and Folders; a grey "Collections" label with Favorites,
  * Recently added, and Listening history; a grey "Playlists" label with a + and the playlists
  * with small covers; and the library's tools and Settings at the foot. Small rows, grey
  * icons; the row open has a soft highlight and an amber icon. On a TV it is folded to its
@@ -115,6 +123,7 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
     )
     val words by animateFloatAsState(if (unfolded) 1f else 0f, tween(if (reduce) 0 else 180), label = "side bar words")
     val playlists by rememberLoaded { playlists() }
+    val serverMark = NeedleApp.instance.app.collectAsState().value.serverMark
     val inSettings = page == Route.Settings || page is Route.SettingsPage
     val colors = MaterialTheme.colorScheme
     // A place in the library opens as the Library tab's page; one open already is left be.
@@ -124,8 +133,6 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
     Column(
         Modifier
             .fillMaxHeight()
-            // Over the page on a TV: the bar's own colour.
-            .then(if (tv) Modifier.background(colors.surfaceContainerLowest) else Modifier)
             // Clear of the bars and a camera cut-out on its own side only.
             .windowInsetsPadding(
                 androidx.compose.foundation.layout.WindowInsets.systemBars
@@ -134,7 +141,13 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
             )
             .width(width)
             .onFocusChanged { focused = it.hasFocus }
-            .padding(horizontal = 10.dp),
+            // A pane of glass floating on the window, as the Mac's side bar (Glass.kt): inset a
+            // little, round corners, the edge light. Nothing but the window is under it on a
+            // tablet, and a TV does not blur so big a pane, so its fill is solid: a shade between
+            // the window's colour and the page's.
+            .padding(6.dp)
+            .glass(SideBarShape, large = true, shadow = 8.dp, solid = colors.surfaceContainerLow)
+            .padding(horizontal = 4.dp),
     ) {
         // The search field (folded: its icon), and the fold button on a tablet.
         Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -149,6 +162,8 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
         val list = rememberLazyListState()
         LazyColumn(Modifier.weight(1f).fadeCut(list.canScrollBackward, list.canScrollForward), list) {
             item { SideRow("Home", Icons.Outlined.Home, tab == Tab.Home && page == Route.Home, words) { show(Tab.Home, Route.Home) } }
+            // The iPhone's Radio tab: your station and quick mixes.
+            item { SideRow("Radio", Icons.Outlined.Radio, page == Route.Radio, words) { library(Route.Radio) } }
             item { SideRow("Songs", Icons.Outlined.MusicNote, page == Route.Songs, words) { library(Route.Songs) } }
             item { SideRow("Albums", Icons.Outlined.Album, page == Route.Albums, words) { library(Route.Albums) } }
             item { SideRow("Artists", Icons.Outlined.Person, page == Route.Artists, words) { library(Route.Artists) } }
@@ -172,7 +187,14 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
             items(mine, key = { "p" + it.id }) { p ->
                 // By its id: a page opened before a rename still has the old name.
                 val here = page is Route.Playlist && page.id == p.id
-                SideRow(p.name, null, here, words, lead = { PlaylistCover(p, Modifier.size(18.dp), RoundedCornerShape(4.dp)) }) {
+                SideRow(
+                    p.name, null, here, words,
+                    lead = { PlaylistCover(p, Modifier.size(18.dp), RoundedCornerShape(4.dp)) },
+                    // A playlist on a music server, marked as its songs are; always one the server
+                    // lets you only read.
+                    server = (p.server && serverMark) || p.readOnly,
+                    readOnly = p.readOnly,
+                ) {
                     if (!here) library(Route.Playlist(p.id, p.name))
                 }
             }
@@ -234,14 +256,22 @@ internal val Tab.outline: ImageVector
 private fun SearchField(here: Boolean, words: Float, modifier: Modifier, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
-    Row(
+    // A 36 dp field, in a 48 dp place to touch.
+    Box(
         modifier
+            .height(48.dp)
+            .selectable(here, interactionSource = interaction, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Search" },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+    Row(
+        Modifier
+            .fillMaxWidth()
             .height(36.dp)
             .softRing(interaction, 10.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(colors.onSurface.copy(alpha = if (here) 0.12f else 0.07f))
-            .selectable(here, interactionSource = interaction, indication = ripple(), role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Search" }
+            .indication(interaction, ripple())
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -257,22 +287,26 @@ private fun SearchField(here: Boolean, words: Float, modifier: Modifier, onClick
             )
         }
     }
+    }
 }
 
 /** A small icon button beside the search field. */
 @Composable
-private fun SmallButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun SmallButton(icon: ImageVector, label: String, touch: androidx.compose.ui.unit.Dp = 48.dp, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
+    // A 36 dp button, in a 48 dp place to touch (where its row has the room).
     Box(
         Modifier
-            .padding(start = 6.dp)
-            .size(36.dp)
-            .softRing(interaction, 8.dp)
-            .clip(RowCorners)
-            .selectable(false, interactionSource = interaction, indication = ripple(), role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .size(touch)
+            .selectable(false, interactionSource = interaction, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
+    ) {
+        Box(
+            Modifier.size(36.dp).softRing(interaction, 8.dp).clip(RowCorners).indication(interaction, ripple()),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }
+    }
 }
 
 /**
@@ -286,6 +320,8 @@ private fun SideRow(
     selected: Boolean,
     words: Float,
     lead: (@Composable () -> Unit)? = null,
+    server: Boolean = false,
+    readOnly: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -321,6 +357,14 @@ private fun SideRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(start = 12.dp).graphicsLayer { alpha = words },
             )
+            if (server) {
+                Icon(
+                    Icons.Rounded.Dns,
+                    contentDescription = if (readOnly) "Read-only on the server" else "On your music server",
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp).size(14.dp).graphicsLayer { alpha = words },
+                )
+            }
         }
     }
 }
@@ -345,7 +389,8 @@ private fun SideLabel(title: String, words: Float, onAdd: (() -> Unit)? = null) 
             softWrap = false,
             modifier = Modifier.weight(1f).semantics { heading() },
         )
-        if (onAdd != null) SmallButton(Icons.Rounded.Add, "New playlist", onAdd)
+        // In a short label row: no taller than the row.
+        if (onAdd != null) SmallButton(Icons.Rounded.Add, "New playlist", touch = 36.dp, onClick = onAdd)
     }
 }
 

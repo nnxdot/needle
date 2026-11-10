@@ -192,7 +192,7 @@ struct HistoryPage: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .pane(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .pane(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
     }
 
     /// A ranked row opened: its page, or its song played.

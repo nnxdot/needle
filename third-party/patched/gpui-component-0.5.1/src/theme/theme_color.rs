@@ -91,6 +91,14 @@ pub struct ThemeColor {
     pub popover: Hsla,
     /// Text color for Popover.
     pub popover_foreground: Hsla,
+    /// Needle patch: the outline of popovers, menus and tooltips; the border colour when
+    /// see-through.
+    #[serde(default)]
+    pub popover_border: Hsla,
+    /// Needle patch: a 1 px light along the top edge of popovers, menus and tooltips; none
+    /// when see-through.
+    #[serde(default)]
+    pub popover_edge: Hsla,
     /// Primary background color.
     pub primary: Hsla,
     /// Active primary background color.

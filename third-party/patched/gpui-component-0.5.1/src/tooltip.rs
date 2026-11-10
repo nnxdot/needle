@@ -93,12 +93,22 @@ impl Render for Tooltip {
                 .m_3()
                 .bg(cx.theme().popover)
                 .text_color(cx.theme().popover_foreground)
-                .bg(cx.theme().popover)
                 .when(cx.theme().popover.a < 0.01, |el| el.glass())
                 .border_1()
-                .border_color(cx.theme().border)
-                .shadow_md()
-                .rounded(px(6.))
+                .border_color(crate::styled::popover_border(cx))
+                // Needle patch: the popovers' corners and edge light.
+                .map(|el| {
+                    if cx.theme().popover_edge.a > 0. {
+                        crate::styled::popover_shadow(el, cx)
+                    } else {
+                        el.shadow_md()
+                    }
+                })
+                .rounded(if cx.theme().popover_edge.a > 0. {
+                    cx.theme().popover_radius
+                } else {
+                    px(6.)
+                })
                 .justify_between()
                 .py_0p5()
                 .px_2()

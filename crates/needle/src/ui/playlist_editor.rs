@@ -61,6 +61,29 @@ impl PlaylistEditor {
     pub fn set_name(&self, name: String, window: &mut Window, cx: &mut App) {
         self.name.update(cx, |s, cx| s.set_value(name, window, cx));
     }
+
+    /// For window pictures: a smart playlist's editor with its first rule's field list open.
+    pub fn show_field_list(&mut self, window: &mut Window, cx: &mut App) {
+        self.smart = true;
+        if let Some(row) = self.rows.first() {
+            row.field.update(cx, |s, cx| s.open_list(window, cx));
+        }
+    }
+
+    /// A save elsewhere moved the playlist this editor edits (`old`) under another id, or
+    /// put the change in a copy: the editor now edits `now`, the playlist as stored there, so
+    /// its own save goes there too and does not make one more copy. What was typed stays.
+    pub fn follow(&mut self, old: &str, now: Option<Playlist>) {
+        let Some(now) = now else {
+            return;
+        };
+        if self.editing.as_ref().is_some_and(|p| p.id == old) {
+            if now.query.is_none() {
+                self.track_ids = now.track_ids.clone();
+            }
+            self.editing = Some(now);
+        }
+    }
 }
 
 fn choice(
@@ -362,7 +385,7 @@ impl AppView {
         .detach();
     }
 
-    fn save_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn save_editor(&mut self, cx: &mut Context<Self>) {
         let query = self.editor_query(cx);
         let set = self.editor_rules(cx);
         let Some(editor) = self.editor.as_ref() else {
@@ -411,20 +434,41 @@ impl AppView {
             }
         }
         let new = editor.editing.is_none();
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.editor = None;
-                self.notify(if new {
-                    format!("Made “{}”.", playlist.name)
-                } else {
-                    format!("Saved “{}”.", playlist.name)
-                });
-                self.navigate(Page::Playlist(playlist.id.clone()), window, cx);
-                self.refresh(cx);
-            }
-            Err(error) => self.fail(error.to_string()),
-        }
+        // A server playlist saved after it left Needle comes back under an id of its own.
+        // Only what the editor changed is saved onto the playlist as it is now: a sync may have
+        // changed it while the editor was open.
+        // The editor stays open until it is saved: a mistake (no name, a rule that does not
+        // read) shows with it still there to fix.
+        let (old, name) = (playlist.id.clone(), playlist.name.clone());
+        self.save_playlist_later(
+            editor.editing.clone(),
+            playlist,
+            move |this, saved, window, cx| match saved {
+                Ok(saved) => {
+                    this.editor = None;
+                    // Said with where it went, when that is not just as asked.
+                    let landed = super::playlist_saves::landed_name(&saved, &name);
+                    this.notify(super::playlist_saves::with_note(
+                        if new {
+                            format!("Made “{landed}”.")
+                        } else {
+                            format!("Saved “{landed}”.")
+                        },
+                        &saved,
+                    ));
+                    let id = this.follow_saved_playlist(&old, &saved, window, cx);
+                    if this.page != Page::Playlist(id.clone()) {
+                        this.navigate(Page::Playlist(id), window, cx);
+                    }
+                    this.refresh(cx);
+                    cx.notify();
+                }
+                Err(error) => {
+                    this.fail(error);
+                    cx.notify();
+                }
+            },
+        );
         cx.notify();
     }
 
@@ -762,9 +806,6 @@ impl AppView {
                 .w(px(card_w))
                 .max_h(px(card_h))
                 .map(|el| super::glass::pane(el, 16., 24., cx.theme().popover, cx))
-                .border_1()
-                .border_color(p.line)
-                .shadow_lg()
                 .overflow_hidden()
                 .flex()
                 .flex_col()
@@ -805,9 +846,7 @@ impl AppView {
                                 .primary()
                                 .label(if new { "Make playlist" } else { "Save" })
                                 .px_5()
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.save_editor(window, cx)),
-                                ),
+                                .on_click(cx.listener(|this, _, _, cx| this.save_editor(cx))),
                         ),
                 );
         Some(
@@ -821,7 +860,7 @@ impl AppView {
                     .flex()
                     .justify_center()
                     .items_center()
-                    .child(card),
+                    .child(super::motion::dialog_in(card, "playlist-editor-card", cx)),
             )
             .with_priority(2),
         )
@@ -967,9 +1006,6 @@ impl AppView {
             .w(px(card_w))
             .h(px(card_h))
             .map(|el| super::glass::pane(el, 16., 24., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .overflow_hidden()
             .flex()
             .flex_col()
@@ -1045,7 +1081,7 @@ impl AppView {
                             cx.notify();
                         }),
                     )
-                    .child(card),
+                    .child(super::motion::dialog_in(card, "add-songs-card", cx)),
             )
             .with_priority(2),
         )

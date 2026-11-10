@@ -486,13 +486,9 @@ impl RenderOnce for ColorPicker {
                                     })
                                     .w_72()
                                     .overflow_hidden()
-                                    .rounded(cx.theme().radius)
                                     .p_3()
-                                    .border_1()
-                                    .border_color(cx.theme().border)
-                                    .shadow_lg()
-                                    .bg(cx.theme().popover).when(cx.theme().popover.a < 0.01, |el| el.glass())
-                                    .text_color(cx.theme().popover_foreground)
+                                    // Needle patch: a popover pane, as menus are.
+                                    .popover_style(cx)
                                     .child(self.render_colors(window, cx))
                                     .on_mouse_up_out(
                                         MouseButton::Left,

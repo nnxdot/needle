@@ -176,6 +176,8 @@ impl AppView {
     ) -> Stateful<Div> {
         let p = pal(cx);
         let glass = p.back.a < 1.;
+        // Windows and Linux glass: the chosen and hovered rows are light capsules.
+        let capsule = p.glass;
         let active = self.page == page
             || matches!(
                 (&self.page, &page),
@@ -189,29 +191,37 @@ impl AppView {
                 cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
             );
         }
+        // The rows' corners: capsules on glass, else the small size.
+        let radius = if capsule { 17. } else { super::glass::SMALL };
         div()
             .id(id)
             .flex_shrink_0()
             .h(px(34.))
             .mx_2()
             .px(px(10.))
-            .rounded(px(6.))
+            .rounded(px(radius))
             .flex()
             .items_center()
             .gap(px(10.))
             .cursor_pointer()
             .text_size(px(13.5))
             .when(active, |el| {
-                el.bg(p.accent_soft)
-                    .text_color(p.ink)
-                    .font_weight(FontWeight::MEDIUM)
+                el.bg(if capsule {
+                    super::glass::capsule(&p, false)
+                } else {
+                    p.accent_soft
+                })
+                .text_color(p.ink)
+                .font_weight(FontWeight::MEDIUM)
             })
             .when(!active, |el| {
                 // On glass, grey text over a see-through layer loses its edges: use full ink
-                // and a touch more weight there so labels stay crisp.
+                // and a touch more weight there so labels stay crisp. The hover capsule
+                // fades in.
                 el.text_color(if glass { p.ink } else { p.ink_2 })
                     .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
-                    .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                    .hover(move |s| s.text_color(p.ink))
+                    .map(|el| super::glass::hover_row(el, radius, cx))
             })
             .child(picture.unwrap_or_else(|| {
                 glyph(glyph_name)
@@ -263,14 +273,14 @@ impl AppView {
                 div()
                     .id("add-collection")
                     .size(px(20.))
-                    .rounded(px(5.))
+                    .rounded_full()
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
                     .opacity(0.)
                     .group_hover("collections-head", |s| s.opacity(1.))
-                    .hover(|s| s.bg(p.raised_hover))
+                    .map(|el| super::glass::hover_row(el, 10., cx))
                     .child(glyph("plus").size(px(13.)).text_color(p.ink_2))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new("Add a collection").build(window, cx)
@@ -294,13 +304,37 @@ impl AppView {
         let p = pal(cx);
         let rail = self.settings.layout.sidebar_hidden;
         let floating = self.on_glass();
-        div()
+        // Windows and Linux glass: the sidebar floats as a pane, 8 px in from the window's
+        // edges, with round corners and a soft shadow, as on the Mac.
+        let pane = self.floating_glass();
+        let width = if pane {
+            width - super::SIDEBAR_INSET
+        } else {
+            width
+        };
+        // Folding or unfolding (Ctrl+B), it moves from the width it had to the new one.
+        let (fold, from, since) = self.sidebar_fold;
+        self.sidebar_drawn.set(width);
+        let element = div()
             .w(px(width))
             .flex_shrink_0()
-            .h_full()
+            // As a pane it stretches to the row's height, less its margin.
+            .when(!pane, |el| el.h_full())
             .relative()
             .flex()
             .flex_col()
+            .when(pane, |el| {
+                super::glass::edge(
+                    el.ml(px(super::SIDEBAR_INSET))
+                        .mb(px(super::SIDEBAR_INSET))
+                        .pt(px(6.))
+                        .rounded(px(super::glass::LARGE))
+                        .bg(super::glass::sidebar_fill(&p))
+                        .overflow_hidden(),
+                    super::glass::Lift::Mid,
+                    cx,
+                )
+            })
             // macOS: the sidebar floats on glass from the window's top to its foot, the window
             // buttons in it.
             // Its rows keep clear of the glass's edges.
@@ -363,6 +397,7 @@ impl AppView {
                     .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
                     .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
                     .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
+                    .child(self.nav_item("nav-radio", "Radio", "radio", Page::Radio, cx))
                     .child(self.collections_section(cx))
                     .child(
                         self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
@@ -475,14 +510,28 @@ impl AppView {
                                     Page::Playlist(playlist.id.clone()),
                                     cx,
                                 )
+                                // A music server's playlist: a small server icon, as its songs have.
+                                .when(
+                                    playlist.server.is_some() && self.settings.server_mark && !rail,
+                                    |el| {
+                                        el.child(
+                                            glyph("server")
+                                                .flex_shrink_0()
+                                                .size(px(11.))
+                                                .text_color(p.ink_3),
+                                        )
+                                    },
+                                )
                                 .on_mouse_down(MouseButton::Right, {
                                     let id = playlist.id.clone();
                                     cx.listener(move |this, event: &MouseDownEvent, _, cx| {
                                         this.open_playlist_menu(id.clone(), event.position, cx)
                                     })
                                 })
+                                // Songs dropped on it are added; not on a smart playlist, nor
+                                // one read-only on its server.
                                 .when(
-                                    playlist.query.is_none(),
+                                    super::playlist_saves::takes_songs(playlist),
                                     |el| {
                                         let id = playlist.id.clone();
                                         el.drag_over::<super::flow::DraggedTracks>(
@@ -533,8 +582,18 @@ impl AppView {
                                 .mb_1()
                                 .px(px(10.))
                                 .py_2()
-                                .rounded(px(6.))
-                                .bg(p.raised)
+                                // On glass a soft capsule, as the rows; the pane's corners
+                                // less its inset.
+                                .rounded(px(if p.glass {
+                                    super::glass::LARGE - 8.
+                                } else {
+                                    super::glass::SMALL
+                                }))
+                                .bg(if p.glass {
+                                    super::glass::capsule(&p, false)
+                                } else {
+                                    p.raised
+                                })
                                 .flex()
                                 .items_center()
                                 .gap_2()
@@ -587,14 +646,21 @@ impl AppView {
                                 .h(px(34.))
                                 .mx_2()
                                 .px(px(10.))
-                                .rounded(px(6.))
+                                .rounded(px(if p.glass { 17. } else { super::glass::SMALL }))
                                 .flex()
                                 .items_center()
                                 .gap(px(10.))
                                 .cursor_pointer()
                                 .text_size(px(13.5))
                                 .text_color(p.ink_2)
-                                .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                                .hover(|s| s.text_color(p.ink))
+                                .map(|el| {
+                                    super::glass::hover_row(
+                                        el,
+                                        if p.glass { 17. } else { super::glass::SMALL },
+                                        cx,
+                                    )
+                                })
                                 .child(glyph("folder").size(px(17.)).text_color(p.ink_3))
                                 .child("Add music folder")
                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -617,7 +683,15 @@ impl AppView {
                         Page::Settings,
                         cx,
                     )),
-            )
+            );
+        // Only just after the fold: a sidebar drawn again later (after the big player) does
+        // not move again.
+        if fold == 0 || since.elapsed() > std::time::Duration::from_millis(300) {
+            return element.into_any_element();
+        }
+        super::motion::animate(element, ("sidebar-fold", fold), 220, cx, move |el, t| {
+            el.w(px(from + (width - from) * t))
+        })
     }
 
     pub(super) fn signal_path(&self, cx: &App) -> (String, String, bool) {
@@ -1626,11 +1700,8 @@ impl AppView {
                                 if self.on_glass() {
                                     el.rounded(px(16.)).glass()
                                 } else {
-                                    el.rounded(px(8.)).bg(p.raised.opacity(if p.back.a < 1. {
-                                        0.75
-                                    } else {
-                                        1.
-                                    }))
+                                    el.rounded(px(super::glass::MEDIUM))
+                                        .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
                                 }
                             })
                             .flex()
@@ -1834,13 +1905,7 @@ impl AppView {
                         .pr_2()
                         .py_2()
                         .map(|el| super::glass::pane(el, 10., 18., cx.theme().popover, cx))
-                        .border_1()
-                        .border_color(if toast.error {
-                            p.danger.opacity(0.5)
-                        } else {
-                            p.line
-                        })
-                        .shadow_lg()
+                        .when(toast.error, |el| el.border_color(p.danger.opacity(0.5)))
                         .flex()
                         .items_center()
                         .gap_3()
@@ -1863,16 +1928,27 @@ impl AppView {
                             icon_button("dismiss-toast", "close", "Dismiss")
                                 .xsmall()
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toast = None;
+                                    this.dismiss_toast(cx);
                                     cx.notify();
                                 })),
                         )
-                        .with_animation(
-                            ElementId::Name(format!("toast-{:?}", toast.shown).into()),
-                            Animation::new(std::time::Duration::from_millis(180))
-                                .with_easing(ease_out_quint()),
-                            |el, t| el.opacity(t).mt(px(8. * (1. - t))),
-                        ),
+                        .map(|el| match toast.leaving {
+                            // It fades out where it is.
+                            Some(_) => super::motion::animate(
+                                el,
+                                ElementId::Name(format!("toast-out-{:?}", toast.shown).into()),
+                                super::TOAST_OUT_MS,
+                                cx,
+                                |el, t| el.opacity(1. - t),
+                            ),
+                            None => super::motion::animate(
+                                el,
+                                ElementId::Name(format!("toast-{:?}", toast.shown).into()),
+                                180,
+                                cx,
+                                |el, t| el.opacity(t).mt(px(8. * (1. - t))),
+                            ),
+                        }),
                 ),
         )
     }
@@ -1906,24 +1982,34 @@ fn rail_item(
         .flex_shrink_0()
         .size(px(40.))
         .mx_auto()
-        .rounded(px(8.))
         .flex()
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .when(active, |el| {
-            el.bg(p.accent_soft).child(
-                div()
-                    .absolute()
-                    .left(px(-(RAIL - 40.) / 2.))
-                    .top(px(11.))
-                    .w(px(3.))
-                    .h(px(18.))
-                    .rounded(px(2.))
-                    .bg(p.accent),
-            )
+        // Windows and Linux glass: a light capsule marks the page, as in the sidebar's rows.
+        .when(p.glass, |el| {
+            el.rounded_full()
+                .when(active, |el| el.bg(super::glass::capsule(&p, false)))
+                .when(!active, |el| {
+                    el.map(|el| super::glass::hover_row(el, 20., cx))
+                })
         })
-        .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
+        .when(!p.glass, |el| {
+            el.rounded(px(8.))
+                .when(active, |el| {
+                    el.bg(p.accent_soft).child(
+                        div()
+                            .absolute()
+                            .left(px(-(RAIL - 40.) / 2.))
+                            .top(px(11.))
+                            .w(px(3.))
+                            .h(px(18.))
+                            .rounded(px(2.))
+                            .bg(p.accent),
+                    )
+                })
+                .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
+        })
         .child(picture.unwrap_or_else(|| {
             glyph(glyph_name)
                 .size(px(18.))

@@ -20,8 +20,18 @@ func isPlaceholderArtist(_ name: String) -> Bool {
     name.trimmingCharacters(in: .whitespaces).isEmpty || name == unknownArtist
 }
 
+extension Album {
+    /// Its name as shown: "Unknown album" when its songs have none, as on the Mac (and in the
+    /// core's own words), never an empty line.
+    var shownTitle: String { title.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : title }
+    /// Its artist as shown: the core's name for none when it has none.
+    var shownArtist: String { artist.trimmingCharacters(in: .whitespaces).isEmpty ? unknownArtist : artist }
+}
+
 enum Route: Hashable {
     case album(Album)
+    /// An album opened from its tile: the page grows out of that tile's cover (its zoom id).
+    case albumFrom(Album, String)
     case albumOf(String)
     case artist(String)
     case playlist(Playlist)
@@ -41,8 +51,16 @@ extension View {
     /// Opens the screens of [`Route`] from any navigation stack.
     func routes() -> some View {
         navigationDestination(for: Route.self) { route in
+            Self.page(route).modifier(ZoomScope()).modifier(PageSlot())
+        }
+    }
+
+    @ViewBuilder
+    fileprivate static func page(_ route: Route) -> some View {
             switch route {
-            case .album(let album): AlbumView(album: album).modifier(CoverZoom(id: "album:" + album.key))
+            // Opened another way (Search, a menu, a link): it simply comes in.
+            case .album(let album): AlbumView(album: album)
+            case .albumFrom(let album, let source): AlbumView(album: album).modifier(CoverZoom(id: source))
             case .albumOf(let id): AlbumOfView(songId: id)
             case .artist(let name): ArtistView(name: name)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
@@ -88,7 +106,16 @@ extension View {
             case .importing: ImportView()
             case .themeEditor(let id): ThemeEditorView(id: id)
             }
-        }
+    }
+}
+
+/// The page a route opens, as the root of a stack (an iPad sidebar's entry, a column of
+/// Settings).
+struct RoutePage: View {
+    let route: Route
+
+    var body: some View {
+        EmptyView.page(route)
     }
 }
 
@@ -104,6 +131,7 @@ func count(_ n: Int, _ one: String, _ many: String? = nil) -> String {
 
 /// A section's title, with an arrow when it opens a full list.
 struct SectionTitle: View {
+    @Environment(\.wide) private var wide
     let title: String
     var route: Route?
     /// A short grey line under the title.
@@ -131,38 +159,77 @@ struct SectionTitle: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal)
-        .padding(.top, 22)
+        .padding(.horizontal, Tiles.margin(wide))
+        .padding(.top, wide ? 28 : 22)
     }
 }
 
-/// An album as a square cover with its name under it.
+/// An album as a square cover with its name under it; its page grows out of this cover.
 struct AlbumTile: View {
+    @Environment(Store.self) private var store
+    @Environment(\.zoomScope) private var scope
+    @Environment(\.wide) private var wide
     let album: Album
-    var width: CGFloat? = 150
+    /// Its width on a shelf (nil in a grid, where the grid sizes it); wider in a wide window.
+    var width: CGFloat? = Tiles.phoneShelf
+    /// Which shelf or grid on the page holds it: an album can be on two shelves at once.
+    var shelf = "grid"
+    /// The pointer is over the tile (an iPad's): Play shows on its cover, as on the Mac.
+    @State private var hovered = false
 
     var body: some View {
-        NavigationLink(value: Route.album(album)) {
+        let source = CoverSource.id(album, shelf: shelf, in: scope)
+        NavigationLink(value: Route.albumFrom(album, source)) {
             VStack(alignment: .leading, spacing: 3) {
                 Artwork(path: album.artwork, seed: album.title + album.artist, size: 400)
                     .aspectRatio(1, contentMode: .fit)
-                    .clipShape(.rect(cornerRadius: 14))
-                    .modifier(CoverSource(id: "album:" + album.key))
+                    .clipShape(.soft(Corner.cover))
+                    .modifier(CoverSource(id: source))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
                     .padding(.bottom, 5)
-                Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
-                Text(album.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.shownTitle).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(album.shownArtist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
-            .frame(width: width)
+            // Its own height, whatever the others on the row: a lazy row measured by a shorter
+            // tile made the rest smaller.
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: width == Tiles.phoneShelf ? Tiles.shelf(wide) : width)
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
+        // Play on the cover's corner while the pointer is over the tile: a button of its own
+        // beside the link (inside it, it was part of the link's one button).
+        .overlay(alignment: .topLeading) {
+            if hovered {
+                GeometryReader { geo in
+                    Button { store.playAlbum(album) } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(store.colors.onAccent)
+                            .offset(x: 1)
+                            .frame(width: 40, height: 40)
+                            .background(store.colors.accent, in: .circle)
+                            .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+                    }
+                    .buttonStyle(Pressable())
+                    .padding(10)
+                    .accessibilityLabel("Play \(album.shownTitle)")
+                    // The cover is the tile's width, square, at its top.
+                    .frame(width: geo.size.width, height: geo.size.width, alignment: .bottomTrailing)
+                }
+                .transition(.opacity)
+            }
+        }
+        .hoverEffect(.lift)
+        .onHover { over in withFade(.easeOut(duration: 0.15)) { hovered = over } }
         .contextMenu { AlbumMenu(album: album) }
+        .draggableAlbum(album)
     }
 }
 
 struct AlbumMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let album: Album
 
     var body: some View {
@@ -170,15 +237,15 @@ struct AlbumMenu: View {
         Button("Shuffle", systemImage: "shuffle") { store.playAlbum(album, shuffled: true) }
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { withSongs(store.playNext) }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { withSongs(store.enqueue) }
-        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
+        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { window.sheet = .addToPlaylist($0) } }
         Button("Edit Tags", systemImage: "tag") {
             withSongs { songs in
                 let own = songs.filter { !$0.fromServer }.map(\.id)
-                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { store.sheet = .tags(own) }
+                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { window.sheet = .tags(own) }
             }
         }
         Divider()
-        Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(album.artist) }
+        Button("Go to Artist", systemImage: "music.microphone") { window.opening = .artist(album.artist) }
             .disabled(isPlaceholderArtist(album.artist))
     }
 
@@ -188,16 +255,91 @@ struct AlbumMenu: View {
     }
 }
 
-/// A song in a list: its cover (or its number on an album), its name, and a menu.
+/// A song in a list: its cover (or its number on an album), its name, and a menu. In a wide
+/// window, a row of a table, as on the Mac: the number or cover, the title, the artist and the
+/// album in columns, the time, and the heart.
 struct SongRow: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let song: Song
     var number: Int?
     var showCover = true
+    /// On an album's page: the album's artist, so a song's own artist shows only where it
+    /// differs (in a wide window's table).
+    var albumArtist: String?
     let play: () -> Void
 
     var body: some View {
+        if wide { tableRow } else { phoneRow }
+    }
+
+    /// A row of the wide window's table.
+    private var tableRow: some View {
         let playing = store.playingID == song.id
+        let lit = AnyShapeStyle(store.colors.accent)
+        let onAlbum = number != nil
+        return Button(action: play) {
+            HStack(spacing: 14) {
+                if let number {
+                    Group {
+                        if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.isPlaying) }
+                        else { Text("\(number)") }
+                    }
+                    .font(.needle(.subheadline).monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
+                    .frame(width: 28)
+                } else if showCover {
+                    Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
+                        .frame(width: 40, height: 40)
+                        .clipShape(.soft(Corner.smallCover))
+                }
+                HStack(spacing: 5) {
+                    Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
+                    if song.fromServer && store.app.serverMark {
+                        Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
+                            .accessibilityLabel("On your music server")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The artist: always in a list, on an album only where it is not the album's.
+                if !onAlbum || albumArtist != nil {
+                    Text(onAlbum && song.artist == albumArtist ? "" : song.artist)
+                        .foregroundStyle(.secondary).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !onAlbum {
+                    // As the Mac's table: a song with no album says so.
+                    Text(song.album.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : song.album).foregroundStyle(.secondary).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Text(clock(song.duration)).font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(width: 56, alignment: .trailing)
+                if !song.onComputer { HeartButton(song: song) }
+                Menu {
+                    SongMenu(song: song)
+                } label: {
+                    Image(systemName: "ellipsis").frame(width: 36, height: 36).contentShape(.rect)
+                }
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("More for \(song.title)")
+            }
+            .font(.needle(.subheadline))
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        // One line under each row, from the row's own edge, whatever its first column holds.
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        .pageRow()
+        .hoverEffect(.highlight)
+        .contextMenu { SongMenu(song: song) }
+        .draggableSongs([song])
+    }
+
+    @ViewBuilder
+    private var phoneRow: some View {
+        let playing = store.playingID == song.id
+        // Settings › Appearance › Song rows: Compact fits more on the screen.
+        let compact = store.app.density == "compact"
         // The app's accent, not the tint: on a page in its cover's colours the tint is the
         // text's own colour, and the playing song did not stand out.
         let lit = AnyShapeStyle(store.colors.accent)
@@ -212,10 +354,10 @@ struct SongRow: View {
                     .frame(width: 24)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
-                        .frame(width: 48, height: 48)
-                        .clipShape(.rect(cornerRadius: 8))
+                        .frame(width: compact ? 36 : 48, height: compact ? 36 : 48)
+                        .clipShape(.soft(compact ? Corner.smallCover : Corner.cover))
                 }
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: compact ? 0 : 2) {
                     Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
@@ -229,9 +371,10 @@ struct SongRow: View {
                 Menu {
                     SongMenu(song: song)
                 } label: {
-                    Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(.rect)
+                    Image(systemName: "ellipsis").frame(width: 44, height: compact ? 36 : 44).contentShape(.rect)
                 }
                 .foregroundStyle(.secondary)
+                .accessibilityLabel("More for \(song.title)")
             }
             .contentShape(.rect)
         }
@@ -240,8 +383,46 @@ struct SongRow: View {
     }
 }
 
+/// The heart of a song's row in a wide window: a favourite or not, at one press.
+struct HeartButton: View {
+    @Environment(Store.self) private var store
+    let song: Song
+    /// Pressed here, before the list is read again.
+    @State private var chosen: Bool?
+    @State private var presses = 0
+
+    var body: some View {
+        let on = chosen ?? (song.rating >= 4)
+        Button {
+            let id = song.id
+            chosen = !on
+            if !on { presses += 1 }
+            Task {
+                if let now = await store.ask({ try $0.toggleFavorite(id: id) }) {
+                    chosen = now
+                    store.ratingsChanged()
+                } else {
+                    chosen = nil
+                }
+            }
+        } label: {
+            Image(systemName: on ? "heart.fill" : "heart")
+                .foregroundStyle(on ? AnyShapeStyle(store.colors.accent) : AnyShapeStyle(.tertiary))
+                .contentTransition(.symbolEffect(.replace))
+                .pressBounce(presses)
+                .frame(width: 36, height: 36)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .accessibilityLabel(on ? "Remove from Favorites" : "Add to Favorites")
+        .onChange(of: song.rating) { _, _ in chosen = nil }
+    }
+}
+
 struct SongMenu: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     let song: Song
     var inPlayer = false
 
@@ -251,7 +432,7 @@ struct SongMenu: View {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext([song]) }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue([song]) }
             }
-            Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist([song]) }
+            Button("Add to Playlist", systemImage: "music.note.list") { window.sheet = .addToPlaylist([song]) }
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
@@ -272,18 +453,18 @@ struct SongMenu: View {
                 Label("Rate", systemImage: "star")
             }
             Divider()
-            Button("Go to Album", systemImage: "square.stack") { store.opening = .albumOf(song.id) }
-            Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(song.artist) }
+            Button("Go to Album", systemImage: "square.stack") { window.opening = .albumOf(song.id) }
+            Button("Go to Artist", systemImage: "music.microphone") { window.opening = .artist(song.artist) }
                 .disabled(isPlaceholderArtist(song.artist))
             Divider()
             if song.fromServer {
                 Button("Keep Offline", systemImage: "arrow.down.circle") { store.keepOffline([song], keep: true) }
-                Button("Save to This iPhone", systemImage: "square.and.arrow.down") { store.saveToPhone([song]) }
+                Button("Save to This \(Device.name)", systemImage: "square.and.arrow.down") { store.saveToPhone([song]) }
             } else {
-                Button("Edit Tags", systemImage: "tag") { store.sheet = .tags([song.id]) }
-                Button("Identify by Sound", systemImage: "waveform.badge.magnifyingglass") { store.sheet = .identify(song.id) }
+                Button("Edit Tags", systemImage: "tag") { window.sheet = .tags([song.id]) }
+                Button("Identify by Sound", systemImage: "waveform.badge.magnifyingglass") { window.sheet = .identify(song.id) }
             }
-            Button("Time the Lyrics", systemImage: "text.badge.checkmark") { store.sheet = .timing(song) }
+            Button("Time the Lyrics", systemImage: "text.badge.checkmark") { window.sheet = .timing(song) }
             if !store.songCommands.isEmpty {
                 Menu {
                     ForEach(store.songCommands) { command in
@@ -341,6 +522,7 @@ struct SongList: View {
             }
         }
         .listStyle(.plain)
+        .readableWidth(1180)
         .navigationTitle(title)
         .themed()
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
@@ -379,6 +561,7 @@ struct SelectToolbar: ToolbarContent {
 /// libraries.
 struct PagedSongs: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let title: String
     let query: String
     @State private var songs: [Song] = []
@@ -390,16 +573,21 @@ struct PagedSongs: View {
     var body: some View {
         List(selection: selecting ? $selected : nil) {
             if !songs.isEmpty {
-                HStack(spacing: 12) {
-                    Button { playAll(shuffled: false) } label: {
-                        Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                // The container's spacing under the gap: Play and Shuffle never melt together.
+                GlassEffectContainer(spacing: 4) {
+                    HStack(spacing: 12) {
+                        // Two pills of their own size at the left in a wide window.
+                        Button { playAll(shuffled: false) } label: {
+                            Label("Play", systemImage: "play.fill").frame(maxWidth: wide ? nil : .infinity).padding(.vertical, 6).padding(.horizontal, wide ? 14 : 0)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .foregroundStyle(store.colors.onAccent)
+                        Button { playAll(shuffled: true) } label: {
+                            Label("Shuffle", systemImage: "shuffle").frame(maxWidth: wide ? nil : .infinity).padding(.vertical, 6).padding(.horizontal, wide ? 14 : 0)
+                        }
+                        .buttonStyle(.glass)
+                        if wide { Spacer(minLength: 0) }
                     }
-                    .buttonStyle(.glassProminent)
-                    .foregroundStyle(store.colors.onAccent)
-                    Button { playAll(shuffled: true) } label: {
-                        Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glass)
                 }
                 .font(.needle(.headline))
                 .listRowSeparator(.hidden).listRowBackground(Color.clear).selectionDisabled()
@@ -411,6 +599,7 @@ struct PagedSongs: View {
             }
         }
         .listStyle(.plain)
+        .readableWidth(1180)
         .navigationTitle(title)
         .themed()
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
@@ -450,23 +639,29 @@ struct PagedSongs: View {
 /// Play and Shuffle, side by side, as glass buttons.
 struct PlayButtons: View {
     @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
     let songs: [Song]
     /// On a page in its picture's colours: Play in the page's ink, its words in the page's colour.
     var look: PageColors?
 
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
+        // In a wide window two pills of their own size, at the left, as on the Mac; on a phone
+        // two halves of the row.
+        let most: CGFloat? = wide ? nil : .infinity
+        // The container's spacing under the gap: Play and Shuffle never melt together.
+        GlassEffectContainer(spacing: 4) {
             HStack(spacing: 12) {
                 Button { store.play(songs) } label: {
-                    Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                    Label("Play", systemImage: "play.fill").frame(maxWidth: most).padding(.vertical, 6).padding(.horizontal, wide ? 14 : 0)
                         .foregroundStyle(look?.page ?? .white)
                 }
                 .buttonStyle(.glassProminent)
                 .tint(look?.ink)
                 Button { store.shufflePlay(songs) } label: {
-                    Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
+                    Label("Shuffle", systemImage: "shuffle").frame(maxWidth: most).padding(.vertical, 6).padding(.horizontal, wide ? 14 : 0)
                 }
                 .buttonStyle(.glass)
+                if wide { Spacer(minLength: 0) }
             }
         }
         .font(.needle(.headline))
@@ -474,12 +669,33 @@ struct PlayButtons: View {
     }
 }
 
-/// Springs down a little while held, as Liquid Glass controls do.
+/// Springs down a little while held, as Liquid Glass controls do; with Reduce motion it only
+/// dims a little.
+/// A page (or a part of one) that could not be read: what went wrong, in Needle's words, and
+/// Try Again. Shown instead of an empty page.
+struct LoadProblem: View {
+    let title: String
+    let words: String
+    let retry: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(words)
+        } actions: {
+            Button("Try Again", action: retry)
+        }
+    }
+}
+
 struct Pressable: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
+        let reduced = Motion.reduced
+        return configuration.label
+            .scaleEffect(configuration.isPressed && !reduced ? 0.96 : 1)
+            .opacity(configuration.isPressed && reduced ? 0.7 : 1)
+            .animation(reduced ? .easeOut(duration: 0.1) : .spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
@@ -494,10 +710,10 @@ struct Toast: View {
                 .padding(.horizontal, 18).padding(.vertical, 12)
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
                 .task(id: store.messageCount) {
                     try? await Task.sleep(for: .seconds(2.5))
-                    withAnimation { store.message = nil }
+                    withFade { store.message = nil }
                 }
         }
     }
@@ -508,10 +724,37 @@ private struct CoverSpaceKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// Album covers zoom from their tile into the album's page in this namespace.
+    /// Album covers zoom from their tile into the album's page in this namespace: one for each
+    /// tab (see `TabStack`).
     var coverSpace: Namespace.ID? {
         get { self[CoverSpaceKey.self] }
         set { self[CoverSpaceKey.self] = newValue }
+    }
+
+    /// The page a tile is on, made up when the page opens: the same album on two pages of one
+    /// tab (an artist, its album, the artist again) are two sources, never one.
+    @Entry var zoomScope = "root"
+}
+
+/// Gives a page opened in a tab a place of its own in the tab's zoom namespace.
+struct ZoomScope: ViewModifier {
+    @State private var scope = UUID().uuidString
+
+    func body(content: Content) -> some View {
+        content.environment(\.zoomScope, scope)
+    }
+}
+
+/// A tab's navigation stack, with its own namespace for covers that zoom into their album's
+/// page (a namespace shared by the tabs zoomed from a tile of another tab).
+struct TabStack<Root: View>: View {
+    @Binding var path: NavigationPath
+    @ViewBuilder let root: () -> Root
+    @Namespace private var covers
+
+    var body: some View {
+        NavigationStack(path: $path) { root().modifier(PageSlot()).routes() }
+            .environment(\.coverSpace, covers)
     }
 }
 
@@ -519,6 +762,11 @@ extension EnvironmentValues {
 struct CoverSource: ViewModifier {
     @Environment(\.coverSpace) private var space
     let id: String
+
+    /// The zoom id of an album's cover on a shelf (or grid) of a page.
+    static func id(_ album: Album, shelf: String, in scope: String = "root") -> String {
+        "\(scope)|\(shelf)|\(album.key)"
+    }
 
     func body(content: Content) -> some View {
         if let space { content.matchedTransitionSource(id: id, in: space) } else { content }

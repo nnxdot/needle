@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -50,10 +53,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -94,6 +100,7 @@ sealed interface Route {
     data object Favorites : Route
     data object RecentlyAdded : Route
     data object History : Route
+    data object Radio : Route
     /** A music folder or a folder in one; `null` lists the music folders. */
     data class Folder(val path: String?) : Route
     data class Wrapped(val year: Int?) : Route
@@ -127,8 +134,9 @@ enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
 @Composable
 fun NeedleRoot() {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
-    // Each tab keeps its own pages, as in Apple Music.
-    val stacks = remember { mutableStateMapOf<Tab, List<Route>>() }
+    // Each tab keeps its own pages, as in Apple Music; kept too when Android stops Needle in the
+    // background and starts it again (StacksSaver).
+    val stacks = rememberSaveable(saver = StacksSaver) { mutableStateMapOf<Tab, List<Route>>() }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     // Only whether a song is there, and its cover: the whole playback changes five times a
     // second as it plays, and would redraw every page with it.
@@ -180,9 +188,15 @@ fun NeedleRoot() {
     // while the page is under another, so Back finds it as it was; dropped once the page is.
     val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val kept = remember { HashSet<String>() }
+    // Which pages have scrolled from their top (by their key in the stack), for the soft edge at
+    // the top (Glass.kt TopEdge): it blurs only once there is something under it. Told by the
+    // lists' own scrolling, seen on its way up (see pageScroll).
+    val scrolledPages = remember { mutableStateMapOf<String, Boolean>() }
+    val shownKey = pageKey(tab, stack.lastIndex, stack.last())
+    val pageScroll = remember(shownKey) { topWatch { scrolledPages[shownKey] = it } }
     androidx.compose.runtime.SideEffect {
         val live = Tab.entries.flatMap { t -> (stacks[t] ?: listOf(t.root)).mapIndexed { i, r -> pageKey(t, i, r) } }.toSet()
-        (kept - live).forEach(pageStates::removeState)
+        (kept - live).forEach { pageStates.removeState(it); scrolledPages.remove(it) }
         kept.clear()
         kept += live
     }
@@ -198,6 +212,21 @@ fun NeedleRoot() {
 
     LaunchedEffect(Unit) { Ui.showPlayer.collect { if (hasSong) playerOpen = true } }
     LaunchedEffect(Unit) { Ui.openRoute.collect { open(it) } }
+    // A change that went to a copy of a playlist: its page, where it shows, becomes the copy's.
+    LaunchedEffect(Unit) {
+        Ui.toCopy.collect { (from, copy) ->
+            val pages = stacks[tab] ?: return@collect
+            val top = pages.last()
+            if (top is Route.Playlist && top.id == from) stacks[tab] = pages.dropLast(1) + copy
+        }
+    }
+    LaunchedEffect(Unit) {
+        Ui.leavePlaylist.collect { id ->
+            val pages = stacks[tab] ?: return@collect
+            val top = pages.last()
+            if (top is Route.Playlist && top.id == id) stacks[tab] = pages.dropLast(1).ifEmpty { listOf(tab.root) }
+        }
+    }
     LaunchedEffect(Unit) {
         NeedleApp.instance.openPlayer.collect {
             if (NeedleApp.instance.app.value.openPlayerOnPlay) playerOpen = true
@@ -214,8 +243,30 @@ fun NeedleRoot() {
     val holds = listOf(hasSong, playerOpen, choosing.isNotEmpty(), wide, book)
     // Not while the player covers the bar of chosen songs: Back closes the player first.
     BackHandler(enabled = choosing.isNotEmpty() && !playerOpen) { Selection.clear() }
-    BackHandler(enabled = playerOpen || (choosing.isEmpty() && stack.size > 1)) {
-        if (playerOpen) playerOpen = false else stacks[tab] = stack.dropLast(1)
+    BackHandler(enabled = playerOpen) { playerOpen = false }
+    // The pages: Android's predictive back. The back swipe shows the page behind sliding in as the
+    // finger moves (the same motion as Back, held at the swipe's place), and goes there on release;
+    // let go early, it slides back. Back pressed (a remote, a key) plays it whole.
+    val pageTarget = tab to stack
+    val pageMotion = remember { androidx.compose.animation.core.SeekableTransitionState(pageTarget) }
+    val backScope = androidx.compose.runtime.rememberCoroutineScope()
+    var swiping by remember { mutableStateOf(false) }
+    LaunchedEffect(pageTarget) { if (!swiping) pageMotion.animateTo(pageTarget) }
+    androidx.activity.compose.PredictiveBackHandler(enabled = !playerOpen && choosing.isEmpty() && stack.size > 1) { progress ->
+        val from = tab to stack
+        val behind = tab to stack.dropLast(1)
+        try {
+            swiping = true
+            progress.collect { event -> pageMotion.seekTo(event.progress, behind) }
+            swiping = false
+            // The page behind is the page now: the effect above plays the rest of the motion.
+            stacks[tab] = behind.second
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            // Let go before it went: the page slides back where it was.
+            swiping = false
+            backScope.launch { pageMotion.animateTo(from) }
+            throw e
+        }
     }
 
     val app by NeedleApp.instance.app.collectAsState()
@@ -256,7 +307,7 @@ fun NeedleRoot() {
             kotlinx.coroutines.delay(50)
         }
     }
-    // Settings › Appearance › Colours from what is playing: every page in the song's colours.
+    // Settings › Appearance › Colours from the music: every page in the song's colours.
     CoverTheme(if (app.ambientColors) playingArt else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this, LocalHinge provides hinge) {
@@ -319,15 +370,19 @@ fun NeedleRoot() {
                     contentWindowInsets = androidx.compose.material3.ScaffoldDefaults.contentWindowInsets.only(
                         androidx.compose.foundation.layout.WindowInsetsSides.Horizontal,
                     ),
-                    modifier = Modifier.then(aboveCrease).hazeSource(haze),
+                    modifier = Modifier.then(aboveCrease).then(if (wide) Modifier.paneSheet() else Modifier).nestedScroll(pageScroll).hazeSource(haze),
                 ) { padding ->
-                    AnimatedContent(
-                        targetState = tab to stack,
+                    androidx.compose.animation.core.rememberTransition(pageMotion, label = "page").AnimatedContent(
                         transitionSpec = {
                             val (fromTab, from) = initialState
                             val (toTab, to) = targetState
                             when {
                                 reduce -> fadeIn(tween(120)) togetherWith fadeOut(tween(120))
+                                // A back swipe: the page slides off to the right, solid, over the
+                                // page behind, which comes in from a little to the left.
+                                swiping && fromTab == toTab && to.size < from.size ->
+                                    ((slideInHorizontally(tween(300)) { -it / 10 } + fadeIn(tween(300))) togetherWith
+                                        slideOutHorizontally(tween(300)) { it }).apply { targetContentZIndex = -1f }
                                 // Deeper pages slide in from the side, as Android's shared axis.
                                 fromTab == toTab && to.size > from.size ->
                                     (slideInHorizontally(tween(300)) { it / 5 } + fadeIn(tween(250))) togetherWith
@@ -339,7 +394,6 @@ fun NeedleRoot() {
                                 else -> fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120))
                             }
                         },
-                        label = "page",
                     ) { (pageTab, pages) ->
                         val opened = remember { android.os.SystemClock.uptimeMillis() }
                         CompositionLocalProvider(
@@ -354,24 +408,27 @@ fun NeedleRoot() {
                             val fullBleed = route is Route.AlbumPage || route is Route.AlbumOf || route is Route.Artist || route is Route.Playlist
                             // Every page runs on behind the dock; its list leaves room at the foot.
                             CompositionLocalProvider(LocalBottomInset provides dockRoom) {
-                                Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
-                                    Page(route, open)
-                                    // What scrolls up fades into the page below the status bar,
-                                    // rather than stopping at a hard edge.
-                                    if (!fullBleed) {
-                                        val page = MaterialTheme.colorScheme.background
-                                        Box(
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .height(20.dp)
-                                                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(page, page.copy(alpha = 0f)))),
-                                        )
+                                // On the page's colour, so a page sliding off over another hides it.
+                                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                                    Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
+                                        Page(route, open)
                                     }
                                 }
                             }
                             }
                         }
                     }
+                }
+                // Glass over the pages blurs them (Glass.kt): the top edge, the side pane, the dock.
+                CompositionLocalProvider(LocalHaze provides haze) {
+                // What scrolls up blurs and fades into the page under the status bar (on a tablet,
+                // under the top of the sheet), rather than stopping at a hard edge. Not on the
+                // album, artist, and playlist pages, which run their cover up under it.
+                val bleeds = stack.last().let { it is Route.AlbumPage || it is Route.AlbumOf || it is Route.Artist || it is Route.Playlist }
+                val edge by androidx.compose.animation.core.animateFloatAsState(if (bleeds) 0f else 1f, tween(200), label = "top edge")
+                if (edge > 0f) {
+                    val status = if (wide) 0.dp else with(LocalDensity.current) { androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(this).toDp() }
+                    TopEdge(status, 20.dp, scrolledPages[shownKey] == true, Modifier.align(androidx.compose.ui.Alignment.TopStart).then(if (wide) Modifier.paneSheet() else Modifier).then(Modifier.alpha(edge)))
                 }
                 // A tablet's side pane, floating over the page's right side above the player.
                 if (wide) {
@@ -380,8 +437,9 @@ fun NeedleRoot() {
                     Column(Modifier.align(androidx.compose.ui.Alignment.TopEnd)) {
                     AnimatedVisibility(
                         visible = shown != null && hasSong && !playerOpen,
-                        enter = fadeIn(tween(200)) + slideInHorizontally(tween(260)) { it / 3 },
-                        exit = fadeOut(tween(150)) + slideOutHorizontally(tween(200)) { it / 3 },
+                        // Reduce motion: a fade alone (Motion.kt).
+                        enter = if (reduce) fadeIn(tween(150)) else fadeIn(tween(200)) + slideInHorizontally(tween(260)) { it / 3 },
+                        exit = if (reduce) fadeOut(tween(150)) else fadeOut(tween(150)) + slideOutHorizontally(tween(200)) { it / 3 },
                     ) {
                         val bars = with(LocalDensity.current) { barHeight.toDp() }
                         // The last kind shown stays while the pane slides away.
@@ -394,7 +452,6 @@ fun NeedleRoot() {
                 // The bar of chosen songs, and under it the dock: the mini player and the tabs as
                 // one floating glass bar on a phone; on a tablet or TV, the player alone.
                 val typing = androidx.compose.foundation.layout.WindowInsets.isImeVisible
-                CompositionLocalProvider(LocalHaze provides haze) {
                     Column(
                         Modifier
                             .align(androidx.compose.ui.Alignment.BottomCenter)
@@ -407,6 +464,7 @@ fun NeedleRoot() {
                             .padding(horizontal = if (wide) 20.dp else 10.dp)
                             .padding(bottom = FootGap),
                     ) {
+                        if (!typing) LoadErrorBar(Modifier.padding(bottom = 8.dp))
                         if (!typing) SelectionBar()
                         if (!typing) {
                             if (!wide) {
@@ -415,7 +473,7 @@ fun NeedleRoot() {
                             } else {
                                 AnimatedVisibility(
                                     visible = hasSong && !playerOpen,
-                                    enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
+                                    enter = if (reduce) fadeIn(tween(150)) else fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
                                     exit = fadeOut(tween(150)),
                                 ) {
                                     CompositionLocalProvider(LocalAnimated provides this) {
@@ -485,10 +543,16 @@ fun NeedleRoot() {
                         if (swipe.currentValue != androidx.compose.material3.SwipeToDismissBoxValue.Settled) data.dismiss()
                     }
                     androidx.compose.material3.SwipeToDismissBox(swipe, backgroundContent = {}) {
-                        androidx.compose.material3.Snackbar(
-                            data,
-                            modifier = Modifier.clickable(onClickLabel = "Dismiss") { data.dismiss() },
-                        )
+                        // On glass, over the page it blurs; over the player (not what the glass
+                        // blurs), its solid fill.
+                        CompositionLocalProvider(LocalHaze provides if (playerOpen && hasSong) null else haze) {
+                            GlassMessage(
+                                data.visuals.message,
+                                action = data.visuals.actionLabel?.let { label -> label to { data.performAction() } },
+                                modifier = Modifier.padding(horizontal = if (wide) 20.dp else 10.dp),
+                                onClick = { data.dismiss() },
+                            )
+                        }
                     }
                 }
                 // The visualizer full screen, over everything, while a song is there.
@@ -524,6 +588,7 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         Route.Favorites -> FavoritesScreen(open)
         Route.RecentlyAdded -> RecentlyAddedScreen(open)
         Route.History -> HistoryScreen(open)
+        Route.Radio -> RadioScreen(open)
         is Route.Folder -> FoldersScreen(route.path, open)
         is Route.Wrapped -> WrappedScreen(route.year, open)
         is Route.YearReview -> YearReviewScreen(route.year, open)
@@ -545,6 +610,203 @@ private fun Page(route: Route, open: (Route) -> Unit) {
             ThemeEditorScreen(route.id) { back?.onBackPressedDispatcher?.onBackPressed() }
         }
     }
+}
+
+/**
+ * A short message on glass in the dock's shape (a snackbar, a page that could not load): its
+ * words, and a button at its right when there is something to do.
+ */
+@Composable
+fun GlassMessage(
+    text: String,
+    action: Pair<String, () -> Unit>?,
+    modifier: Modifier = Modifier,
+    error: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    Box(modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+    Row(
+        Modifier
+            .widthIn(max = 640.dp)
+            .fillMaxWidth()
+            .glass(DockShape, shadow = 12.dp)
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = "Dismiss", onClick = onClick) else Modifier)
+            .heightIn(min = 52.dp)
+            .padding(start = 20.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+        )
+        if (action != null) androidx.compose.material3.TextButton(onClick = action.second) { Text(action.first) }
+    }
+    }
+}
+
+/**
+ * The loads on the page that failed, told once, above the dock (inside the page, which it does not
+ * cover): the first one's words and Retry, which tries them all again. A remote reaches Retry by
+ * moving down from the page.
+ */
+@Composable
+private fun LoadErrorBar(modifier: Modifier = Modifier) {
+    val failure = LoadErrors.list.firstOrNull()
+    var last by remember { mutableStateOf("") }
+    if (failure != null) last = failure.message
+    AnimatedVisibility(failure != null, enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
+        GlassMessage(last, action = "Retry" to { LoadErrors.retry() }, modifier = modifier, error = true)
+    }
+}
+
+/**
+ * Watches a page's lists scroll, to tell whether the page is away from its top: a list that moves
+ * its content up has scrolled; a pull down that the list could not take all of (it is at its top)
+ * means it is back. Sideways scrolling (a shelf) says nothing.
+ */
+private fun topWatch(scrolled: (Boolean) -> Unit) = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+    override fun onPostScroll(
+        consumed: androidx.compose.ui.geometry.Offset,
+        available: androidx.compose.ui.geometry.Offset,
+        source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+    ): androidx.compose.ui.geometry.Offset {
+        when {
+            available.y > 0.5f -> scrolled(false)
+            consumed.y < -0.5f -> scrolled(true)
+        }
+        return androidx.compose.ui.geometry.Offset.Zero
+    }
+}
+
+/**
+ * The tabs' pages as text, to be kept while Android stops Needle in the background: each page by
+ * its kind and what it shows. A page that cannot be read back (a theme or a section gone in a
+ * new version) is left out, with the pages above it.
+ */
+private val StacksSaver = androidx.compose.runtime.saveable.Saver<androidx.compose.runtime.snapshots.SnapshotStateMap<Tab, List<Route>>, String>(
+    save = { stacks ->
+        org.json.JSONObject().apply {
+            stacks.forEach { (tab, pages) -> put(tab.name, org.json.JSONArray(pages.map { routeJson(it) })) }
+        }.toString()
+    },
+    restore = { text ->
+        val stacks = mutableStateMapOf<Tab, List<Route>>()
+        runCatching {
+            val o = org.json.JSONObject(text)
+            Tab.entries.forEach { tab ->
+                val pages = o.optJSONArray(tab.name) ?: return@forEach
+                val read = (0 until pages.length()).map { routeFrom(pages.optJSONObject(it)) }
+                val kept = read.takeWhile { it != null }.filterNotNull()
+                if (kept.isNotEmpty()) stacks[tab] = kept
+            }
+        }
+        stacks
+    },
+)
+
+private fun routeJson(route: Route): org.json.JSONObject {
+    val o = org.json.JSONObject()
+    fun kind(k: String, vararg fields: Pair<String, Any?>) {
+        o.put("k", k)
+        fields.forEach { (name, value) -> if (value != null) o.put(name, value) }
+    }
+    when (route) {
+        Route.Home -> kind("home")
+        Route.Library -> kind("library")
+        Route.Search -> kind("search")
+        Route.Settings -> kind("settings")
+        Route.Playlists -> kind("playlists")
+        Route.Artists -> kind("artists")
+        Route.Albums -> kind("albums")
+        Route.Songs -> kind("songs")
+        Route.Genres -> kind("genres")
+        is Route.AlbumPage -> route.album.let {
+            kind("album", "key" to it.key, "title" to it.title, "artist" to it.artist, "year" to it.year, "songs" to it.songs.toLong(), "duration" to it.duration, "artwork" to it.artwork, "added" to it.addedAt)
+        }
+        is Route.AlbumOf -> kind("albumOf", "title" to route.title, "song" to route.songId)
+        is Route.Artist -> kind("artist", "name" to route.name)
+        is Route.Playlist -> kind("playlist", "id" to route.id, "name" to route.name)
+        is Route.Genre -> kind("genre", "name" to route.name)
+        is Route.Rule -> kind("rule", "title" to route.title, "query" to route.query)
+        is Route.SettingsPage -> kind("settingsPage", "section" to route.section.name)
+        Route.Favorites -> kind("favorites")
+        Route.RecentlyAdded -> kind("recent")
+        Route.History -> kind("history")
+        Route.Radio -> kind("radio")
+        is Route.Folder -> kind("folder", "path" to route.path)
+        is Route.Wrapped -> kind("wrapped", "year" to route.year)
+        is Route.YearReview -> kind("yearReview", "year" to route.year)
+        Route.Alarm -> kind("alarm")
+        Route.Numbers -> kind("numbers")
+        Route.MoodMap -> kind("moodMap")
+        Route.Crate -> kind("crate")
+        Route.Plugins -> kind("plugins")
+        is Route.Plugin -> kind("plugin", "id" to route.id)
+        Route.Connect -> kind("connect")
+        Route.Sync -> kind("sync")
+        Route.WhatsNew -> kind("whatsNew")
+        is Route.Timing -> kind("timing", "song" to route.songId)
+        is Route.Document -> kind("doc", "doc" to route.doc.name)
+        Route.FixLibrary -> kind("fix")
+        Route.Import -> kind("import")
+        is Route.ThemeEditor -> kind("theme", "id" to route.id)
+    }
+    return o
+}
+
+private fun routeFrom(o: org.json.JSONObject?): Route? {
+    o ?: return null
+    fun str(name: String) = if (o.has(name) && !o.isNull(name)) o.getString(name) else null
+    fun int(name: String) = if (o.has(name) && !o.isNull(name)) o.getInt(name) else null
+    return runCatching {
+        when (o.getString("k")) {
+            "home" -> Route.Home
+            "library" -> Route.Library
+            "search" -> Route.Search
+            "settings" -> Route.Settings
+            "playlists" -> Route.Playlists
+            "artists" -> Route.Artists
+            "albums" -> Route.Albums
+            "songs" -> Route.Songs
+            "genres" -> Route.Genres
+            "album" -> Route.AlbumPage(
+                Album(
+                    o.getString("key"), o.getString("title"), o.getString("artist"), o.getLong("year"),
+                    o.getLong("songs").toUInt(), o.getDouble("duration"), str("artwork"), o.getLong("added"),
+                ),
+            )
+            "albumOf" -> Route.AlbumOf(o.getString("title"), o.getString("song"))
+            "artist" -> Route.Artist(o.getString("name"))
+            "playlist" -> Route.Playlist(o.getString("id"), o.getString("name"))
+            "genre" -> Route.Genre(o.getString("name"))
+            "rule" -> Route.Rule(o.getString("title"), o.getString("query"))
+            "settingsPage" -> Route.SettingsPage(SettingsSection.valueOf(o.getString("section")))
+            "favorites" -> Route.Favorites
+            "recent" -> Route.RecentlyAdded
+            "history" -> Route.History
+            "radio" -> Route.Radio
+            "folder" -> Route.Folder(str("path"))
+            "wrapped" -> Route.Wrapped(int("year"))
+            "yearReview" -> Route.YearReview(int("year"))
+            "alarm" -> Route.Alarm
+            "numbers" -> Route.Numbers
+            "moodMap" -> Route.MoodMap
+            "crate" -> Route.Crate
+            "plugins" -> Route.Plugins
+            "plugin" -> Route.Plugin(o.getString("id"))
+            "connect" -> Route.Connect
+            "sync" -> Route.Sync
+            "whatsNew" -> Route.WhatsNew
+            "timing" -> Route.Timing(o.getString("song"))
+            "doc" -> Route.Document(Doc.valueOf(o.getString("doc")))
+            "fix" -> Route.FixLibrary
+            "import" -> Route.Import
+            "theme" -> Route.ThemeEditor(str("id"))
+            else -> null
+        }
+    }.getOrNull()
 }
 
 /** A page's place in its tab's stack, the key its kept state is held under. */

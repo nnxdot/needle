@@ -6,6 +6,7 @@ import VisionKit
 /// other.
 struct ComputerView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @State private var connected = false
     @State private var link = ""
     @State private var busy = false
@@ -20,7 +21,7 @@ struct ComputerView: View {
             } else {
                 player
                 Section {
-                    Button("Play here", systemImage: "iphone") {
+                    Button("Play here", systemImage: Device.symbol) {
                         Task {
                             if let moved = await store.ask({ try $0.moveFromPc() }) {
                                 store.message = moved ? "Playing here now" : "Nothing plays on the computer"
@@ -96,7 +97,7 @@ struct ComputerView: View {
             Section(pc.playing ? "Playing on the computer" : "Paused on the computer") {
                 HStack(spacing: 14) {
                     Artwork(path: song.cover, seed: song.album + song.artist, size: 200)
-                        .frame(width: 64, height: 64).clipShape(.rect(cornerRadius: 10))
+                        .frame(width: 64, height: 64).clipShape(.soft(Corner.cover))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(song.title).font(.needle(.headline)).lineLimit(1)
                         Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
@@ -125,10 +126,10 @@ struct ComputerView: View {
                 ComputerVolume()
             }
             Section {
-                Button("Show it in the player", systemImage: "play.rectangle") { store.showPlayer = true }
+                Button("Show it in the player", systemImage: "play.rectangle") { window.showPlayer = true }
                     .disabled(!store.onComputer)
             } footer: {
-                Text("While nothing plays on this iPhone, its player works the computer's.")
+                Text("While nothing plays on this \(Device.name), its player works the computer's.")
             }
         } else {
             Section { Text("Nothing plays on the computer.").foregroundStyle(.secondary) }
@@ -145,7 +146,7 @@ struct ComputerView: View {
                     Button("Play next there", systemImage: "text.line.first.and.arrowtriangle.forward") { let id = song.id; store.run { try $0.pcPlayNext(ids: [id]) } }
                     Button("Add to the queue there", systemImage: "text.line.last.and.arrowtriangle.forward") { let id = song.id; store.run { try $0.pcEnqueue(ids: [id]) } }
                     Divider()
-                    Button("Play here", systemImage: "iphone") {
+                    Button("Play here", systemImage: Device.symbol) {
                         let songs = Array(found.prefix(50))
                         store.core.playFromPc(songs: songs, start: UInt32(i), at: 0)
                         store.played()
@@ -158,7 +159,7 @@ struct ComputerView: View {
     private func pcRow(_ song: PcSong) -> some View {
         HStack(spacing: 12) {
             Artwork(path: song.cover, seed: song.album + song.artist, size: 120)
-                .frame(width: 40, height: 40).clipShape(.rect(cornerRadius: 6))
+                .frame(width: 40, height: 40).clipShape(.soft(Corner.smallCover))
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title).foregroundStyle(.primary).lineLimit(1)
                 Text(song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)

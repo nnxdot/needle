@@ -5,6 +5,7 @@ import SwiftUI
 /// to it; the front one opens its album.
 struct RecordCrateView: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
     @State private var albums: [Album]?
     @State private var index = 0
     /// How far the finger has pulled, in points (down flips forward).
@@ -56,7 +57,7 @@ struct RecordCrateView: View {
             ForEach(low...high, id: \.self) { i in
                 record(albums[i], at: Double(i) - progress, side: side)
                     .onTapGesture {
-                        if i == index { store.opening = .album(albums[i]) } else { flip(to: i, count: albums.count) }
+                        if i == index { window.opening = .album(albums[i]) } else { flip(to: i, count: albums.count) }
                     }
             }
             // No box front, as on Windows: it showed as a pale bar under the front cover.
@@ -73,7 +74,7 @@ struct RecordCrateView: View {
         )
         .accessibilityElement()
         .accessibilityLabel("Record crate")
-        .accessibilityValue("\(albums[index].title), by \(albums[index].artist), \(index + 1) of \(albums.count)")
+        .accessibilityValue("\(albums[index].shownTitle), by \(albums[index].shownArtist), \(index + 1) of \(albums.count)")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: flip(to: index + 1, count: albums.count)
@@ -81,7 +82,7 @@ struct RecordCrateView: View {
             @unknown default: break
             }
         }
-        .accessibilityAction { store.opening = .album(albums[index]) }
+        .accessibilityAction { window.opening = .album(albums[index]) }
     }
 
     /// One record at `d` places from the front: behind it (d > 0) it sits higher and smaller;
@@ -91,7 +92,7 @@ struct RecordCrateView: View {
         let behind = max(0, d)
         return Artwork(path: album.artwork, seed: album.title + album.artist, size: 600)
             .frame(width: side, height: side)
-            .clipShape(.rect(cornerRadius: 6))
+            .clipShape(.soft(Corner.cover))
             .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
             .brightness(-min(behind, 5) * 0.07)
             .scaleEffect(1 - min(behind, 6) * 0.045, anchor: .bottom)
@@ -104,20 +105,22 @@ struct RecordCrateView: View {
     private func info(_ album: Album) -> some View {
         VStack(spacing: 12) {
             VStack(spacing: 3) {
-                Text(album.title).font(.needle(.title3).bold()).lineLimit(1)
-                Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.shownTitle).font(.needle(.title3).bold()).lineLimit(1)
+                Text(album.shownArtist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(.horizontal)
-            HStack(spacing: 12) {
-                Button { play(album) } label: {
-                    Label("Play", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 4)
+            GlassEffectContainer(spacing: 4) {
+                HStack(spacing: 12) {
+                    Button { play(album) } label: {
+                        Label("Play", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 4)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .foregroundStyle(store.colors.onAccent)
+                    Button { window.opening = .album(album) } label: {
+                        Label("Open", systemImage: "square.stack").padding(.horizontal, 10).padding(.vertical, 4)
+                    }
+                    .buttonStyle(.glass)
                 }
-                .buttonStyle(.glassProminent)
-                .foregroundStyle(store.colors.onAccent)
-                Button { store.opening = .album(album) } label: {
-                    Label("Open", systemImage: "square.stack").padding(.horizontal, 10).padding(.vertical, 4)
-                }
-                .buttonStyle(.glass)
             }
         }
         .animation(nil, value: index)
@@ -125,14 +128,15 @@ struct RecordCrateView: View {
 
     private func flip(to target: Int, count: Int) {
         let next = min(max(0, target), count - 1)
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+        // The records flip; with Reduce motion the next one is simply there.
+        withMotion(.spring(response: 0.45, dampingFraction: 0.82)) {
             index = next
             drag = 0
         }
     }
 
     private func shuffle() {
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withFade(.easeInOut(duration: 0.3)) {
             albums?.shuffle()
             index = 0
             drag = 0

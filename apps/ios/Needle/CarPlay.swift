@@ -7,7 +7,8 @@ import UIKit
 @MainActor
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var interface: CPInterfaceController?
-    private var store: Store { Store.main }
+    /// None while the library cannot be opened: the car's lists stay empty then.
+    private var store: Store? { Store.shared }
 
     func templateApplicationScene(_ scene: CPTemplateApplicationScene, didConnect interface: CPInterfaceController) {
         self.interface = interface
@@ -33,7 +34,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     /// The Mac's Home shelves, as lists.
     private func fillHome(_ template: CPListTemplate) async {
-        guard let home = await store.load({ try $0.home() }) else { return }
+        guard let store, let home = await store.load({ try $0.home() }) else { return }
         let favorites = await store.load { try $0.homeShelves(limit: 20).favorites } ?? []
         let room = CPListTemplate.maximumItemCount
         let shelves: [(String, [Album])] = [
@@ -47,14 +48,14 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func fillPlaylists(_ template: CPListTemplate) async {
-        let playlists = await store.load { try $0.playlists() } ?? []
+        let playlists = await store?.load { try $0.playlists() } ?? []
         let items = playlists.prefix(CPListTemplate.maximumItemCount).map { playlist in
             let item = CPListItem(text: playlist.name, detailText: nil, image: UIImage(systemName: "music.note.list"))
             item.accessoryType = .disclosureIndicator
             item.handler = { [weak self] _, done in
                 Task { @MainActor in
                     let id = playlist.id
-                    let songs = await self?.store.load { try $0.playlistSongs(id: id) } ?? []
+                    let songs = await self?.store?.load { try $0.playlistSongs(id: id) } ?? []
                     self?.showSongs(songs, title: playlist.name)
                     done()
                 }
@@ -65,7 +66,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     }
 
     private func fillAlbums(_ template: CPListTemplate) async {
-        let albums = await store.load { try $0.albums() } ?? []
+        let albums = await store?.load { try $0.albums() } ?? []
         template.updateSections([CPListSection(items: albums.prefix(CPListTemplate.maximumItemCount).map(albumItem))])
     }
 
@@ -73,7 +74,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
     /// An album: its cover, name, and artist; chosen, its songs.
     private func albumItem(_ album: Album) -> CPListItem {
-        let item = CPListItem(text: album.title, detailText: album.artist, image: nil)
+        let item = CPListItem(text: album.shownTitle, detailText: album.shownArtist, image: nil)
         item.accessoryType = .disclosureIndicator
         if let path = album.artwork {
             Task { @MainActor in
@@ -83,8 +84,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         item.handler = { [weak self] _, done in
             Task { @MainActor in
                 let key = album.key
-                let songs = await self?.store.load { try $0.albumSongs(key: key) } ?? []
-                self?.showSongs(songs, title: album.title)
+                let songs = await self?.store?.load { try $0.albumSongs(key: key) } ?? []
+                self?.showSongs(songs, title: album.shownTitle)
                 done()
             }
         }
@@ -96,7 +97,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let items = songs.prefix(CPListTemplate.maximumItemCount).enumerated().map { index, song in
             let item = CPListItem(text: song.title, detailText: song.artist, image: nil)
             item.handler = { [weak self] _, done in
-                self?.store.play(songs, from: index)
+                self?.store?.play(songs, from: index)
                 self?.showPlayer()
                 done()
             }

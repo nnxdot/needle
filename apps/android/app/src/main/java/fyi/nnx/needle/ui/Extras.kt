@@ -125,10 +125,17 @@ fun UpdatesRow() {
     var progress by remember { mutableStateOf<fyi.nnx.needle.core.UpdateProgress?>(null) }
     LaunchedEffect(downloading) {
         while (downloading != null) {
-            progress = runCatching { core.updateProgress() }.getOrNull()
+            // Off the main thread: the core may be busy with the download's file meanwhile.
+            progress = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.updateProgress() }.getOrNull() }
             kotlinx.coroutines.delay(250)
         }
         progress = null
+    }
+    // Whether the network is metered, asked off the main thread once an update is found.
+    var metered by remember { mutableStateOf(false) }
+    LaunchedEffect(found) {
+        metered = found?.installable == true &&
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.metered() }.getOrDefault(false) }
     }
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         val version = downloading
@@ -142,7 +149,7 @@ fun UpdatesRow() {
             }
         }
         // A hotspot or mobile data: the download is big, so say so first.
-        if (found?.installable == true && version == null && runCatching { core.metered() }.getOrDefault(false)) {
+        if (found?.installable == true && version == null && metered) {
             Text("You are on mobile data or a hotspot: the update downloads tens of MB.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -67,6 +67,19 @@ pub fn animate<E: IntoElement + 'static>(
         .into_any_element()
 }
 
+/// A dialog opening: it fades in and rises a little into place, once each time it appears
+/// (GPUI forgets an animation's state when its element is not drawn, so `id` can stay the
+/// same).
+pub fn dialog_in<E: IntoElement + Styled + 'static>(
+    card: E,
+    id: &'static str,
+    cx: &App,
+) -> AnyElement {
+    animate(card, id, 220, cx, |el, t| {
+        el.opacity(t).mt(px(12. * (1. - t)))
+    })
+}
+
 /// A looping animation (0 → 1 → 0 …); drawn still at `rest` when motion is reduced.
 pub fn repeat<E: IntoElement + 'static>(
     element: E,

@@ -41,6 +41,29 @@ struct ThemeColors {
     ]
 }
 
+/// Needle's corners, as on the Mac (NEEDLE-2.0.md, rule 6): soft covers of 6 to 8 points, 12 in
+/// the player, and three sizes for panes and cards. All are continuous, as the system's own.
+enum Corner {
+    /// A cover in a list, a grid, or on a card.
+    static let cover: CGFloat = 8
+    /// A small cover (the mini player's, a row's thumbnail, 44 points or less).
+    static let smallCover: CGFloat = 6
+    /// The player's own cover.
+    static let player: CGFloat = 12
+    /// Panes and cards: small (a chip's box, a tile), middle (a tile, a card), and large (a
+    /// group of rows, a pane).
+    static let small: CGFloat = 8
+    static let middle: CGFloat = 14
+    static let large: CGFloat = 22
+}
+
+extension Shape where Self == RoundedRectangle {
+    /// A continuous rounded rectangle, for Needle's covers and panes (see `Corner`).
+    static func soft(_ radius: CGFloat) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+    }
+}
+
 extension Store {
     var colors: ThemeColors {
         let custom = ["night", "midnight", "day"].contains(app.theme) ? nil : themes.first { $0.id == app.theme }
@@ -92,7 +115,45 @@ struct PageBackground: View {
     }
 }
 
+/// Film grain over the whole app (Settings › Appearance › Film grain), as on the Mac and
+/// Android: a fixed noise tile, blended softly over everything, never in the way of a touch.
+struct Grain: View {
+    /// 0 to 1.
+    let amount: Double
+
+    private static let tile: UIImage = {
+        let side = 128
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            let v = UInt8(truncatingIfNeeded: seed >> 56)
+            pixels[i] = v; pixels[i + 1] = v; pixels[i + 2] = v; pixels[i + 3] = 255
+        }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let cg = CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
+                         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        return UIImage(cgImage: cg, scale: 2, orientation: .up)
+    }()
+
+    var body: some View {
+        Image(uiImage: Self.tile)
+            .resizable(resizingMode: .tile)
+            .blendMode(.overlay)
+            .opacity(min(max(amount, 0), 1) * 0.35)
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+    }
+}
+
 extension View {
+    /// Film grain over this, when Settings › Appearance › Film grain is on.
+    func grain(_ amount: Float) -> some View {
+        overlay { if amount > 0.001 { Grain(amount: Double(amount)) } }
+    }
+
     /// The theme's page, text, and accent on a screen.
     func themed() -> some View {
         modifier(Themed())
@@ -120,6 +181,8 @@ struct ThemeEditorView: View {
     @State private var name = ""
     @State private var base = "dark"
     @State private var colors: [String: Color] = [:]
+    /// The theme as a file to share (its saved version), once it is written out.
+    @State private var file: URL?
 
     var body: some View {
         Form {
@@ -144,12 +207,17 @@ struct ThemeEditorView: View {
                     }
                 }
             } header: {
-                Text("Colours")
+                Text("Colors")
             } footer: {
-                Text("Colours you leave are the base's own. The same themes work in Needle on the desktop.")
+                Text("Colors you leave are the base's own. The same themes work in Needle on the desktop.")
             }
             if let id {
                 Section {
+                    // As on the Mac: the theme's file, to send to a friend or open in Needle
+                    // on a computer.
+                    if let file {
+                        ShareLink(item: file) { Label("Export…", systemImage: "square.and.arrow.up") }
+                    }
                     Button("Delete theme", role: .destructive) {
                         if store.app.theme == id { store.updateApp { $0.theme = "night" } }
                         Task {
@@ -173,6 +241,14 @@ struct ThemeEditorView: View {
             name = theme.name
             base = theme.base
             colors = theme.colors.compactMapValues(Color.init(hex:))
+        }
+        .task(id: store.themes.first { $0.id == id }) {
+            guard let id, let export = await store.load({ try $0.exportTheme(id: id) }) else { file = nil; return }
+            // In a folder of its own, so it is shared under the theme's own file name.
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("theme-export", isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = folder.appendingPathComponent(export.fileName)
+            file = (try? export.text.write(to: url, atomically: true, encoding: .utf8)) != nil ? url : nil
         }
     }
 

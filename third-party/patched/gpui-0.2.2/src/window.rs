@@ -1859,6 +1859,18 @@ impl Window {
             .set_background_appearance(background_appearance);
     }
 
+    /// Whether the system blurs what is behind a `Blurred` window, asked of the compositor now
+    /// (on Linux, KWin's blur protocol). Needle patch.
+    pub fn system_blur_available(&self) -> bool {
+        self.platform_window.system_blur_available()
+    }
+
+    /// Whether see-through parts of the window show what is behind it (on X11, only with a
+    /// compositing manager running). Needle patch.
+    pub fn transparency_available(&self) -> bool {
+        self.platform_window.transparency_available()
+    }
+
     /// Shows (or with `None`, takes away) the system's glass under a named part of the window.
     /// Regions stay until changed, so set them while painting (a `canvas` knows its bounds)
     /// and clear them when the part goes. On macOS this is Liquid Glass (macOS 26 and newer)
@@ -2223,7 +2235,8 @@ impl Window {
         let mut sorted_deferred_draws =
             (0..self.next_frame.deferred_draws.len()).collect::<SmallVec<[_; 8]>>();
         sorted_deferred_draws.sort_by_key(|ix| self.next_frame.deferred_draws[*ix].priority);
-        self.prepaint_deferred_draws(&sorted_deferred_draws, cx);
+        // Needle patch: the order also holds deferred draws made inside deferred ones.
+        let sorted_deferred_draws = self.prepaint_deferred_draws(&sorted_deferred_draws, cx);
 
         let mut prompt_element = None;
         let mut active_drag_element = None;
@@ -2335,11 +2348,24 @@ impl Window {
         None
     }
 
-    fn prepaint_deferred_draws(&mut self, deferred_draw_indices: &[usize], cx: &mut App) {
+    /// Needle patch: returns the order to paint them in. A deferred draw made while drawing
+    /// a deferred one (a dropdown's list in a dialog, which is deferred itself) no longer
+    /// panics ("cannot call defer_draw during deferred drawing"): it is prepainted and painted
+    /// right after the one that made it, above it, with others made there in priority order.
+    /// Such a draw is never reused from an earlier frame (its parent is drawn anew each frame
+    /// in Needle, which caches no views).
+    fn prepaint_deferred_draws(
+        &mut self,
+        deferred_draw_indices: &[usize],
+        cx: &mut App,
+    ) -> SmallVec<[usize; 8]> {
         assert_eq!(self.element_id_stack.len(), 0);
 
         let mut deferred_draws = mem::take(&mut self.next_frame.deferred_draws);
-        for deferred_draw_ix in deferred_draw_indices {
+        let mut order: SmallVec<[usize; 8]> = deferred_draw_indices.iter().copied().collect();
+        let mut at = 0;
+        while at < order.len() {
+            let deferred_draw_ix = &order[at];
             let deferred_draw = &mut deferred_draws[*deferred_draw_ix];
             self.element_id_stack
                 .clone_from(&deferred_draw.element_id_stack);
@@ -2361,15 +2387,20 @@ impl Window {
             }
             let prepaint_end = self.prepaint_index();
             deferred_draw.prepaint_range = prepaint_start..prepaint_end;
+            let nested = mem::take(&mut self.next_frame.deferred_draws);
+            if !nested.is_empty() {
+                let first = deferred_draws.len();
+                deferred_draws.extend(nested);
+                let mut made: SmallVec<[usize; 8]> = (first..deferred_draws.len()).collect();
+                made.sort_by_key(|ix| deferred_draws[*ix].priority);
+                order.insert_many(at + 1, made);
+            }
+            at += 1;
         }
-        assert_eq!(
-            self.next_frame.deferred_draws.len(),
-            0,
-            "cannot call defer_draw during deferred drawing"
-        );
         self.next_frame.deferred_draws = deferred_draws;
         self.element_id_stack.clear();
         self.text_style_stack.clear();
+        order
     }
 
     fn paint_deferred_draws(&mut self, deferred_draw_indices: &[usize], cx: &mut App) {

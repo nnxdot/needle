@@ -52,12 +52,12 @@ import androidx.compose.ui.unit.dp
  * kept for what is chosen: a thin accent line and a check.
  */
 
-/** A row's small icon, on a quiet rounded square. */
+/** A row's small icon, on a quiet circle (DESIGN.md › Shapes: icons in a shape are circles). */
 @Composable
 internal fun SettingIcon(icon: ImageVector?, tint: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     if (icon == null) return
     Box(
-        Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        Modifier.size(36.dp).clip(iconShape()).background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp)) }
 }
@@ -269,7 +269,7 @@ internal fun LookCards(cards: List<LookCard>, current: String, onChoose: (String
 
 /** Needle's three looks, as cards. */
 internal val BuiltInLooks = listOf(
-    LookCard("night", "Night", "Charcoal grey", Color(0xFF141312), Color(0xFF2B2927), Color(0xFFF1EFED), Color(0xFFE2B46C)),
+    LookCard("night", "Night", "Charcoal gray", Color(0xFF141312), Color(0xFF2B2927), Color(0xFFF1EFED), Color(0xFFE2B46C)),
     LookCard("midnight", "Midnight", "True black", Color.Black, Color(0xFF1E1E1E), Color(0xFFF1EFED), Color(0xFFE2B46C)),
     LookCard("day", "Day", "Light and airy", Color(0xFFFBFAF8), Color(0xFFE8E4DF), Color(0xFF1C1B1A), Color(0xFF8A5A12)),
 )

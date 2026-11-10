@@ -269,6 +269,26 @@ impl Dsp {
     pub fn parametric_mode(&self) -> bool {
         self.mode == "parametric"
     }
+    /// The equalizer as an Equalizer APO file ("ParametricEQ.txt", which AutoEq and other
+    /// players read): the parametric filters, or the graphic bands that are not flat as peaks.
+    pub fn eq_file(&self) -> String {
+        let bands: Vec<ParamBand> = if self.parametric_mode() {
+            self.parametric.clone()
+        } else {
+            BANDS
+                .iter()
+                .zip(self.bands)
+                .filter(|(_, gain)| *gain != 0.)
+                .map(|(frequency, gain)| ParamBand {
+                    frequency: *frequency as f32,
+                    gain,
+                    q: 1.41,
+                    ..Default::default()
+                })
+                .collect()
+        };
+        format_parametric(self.preamp_db, &bands)
+    }
     /// The preamp that keeps the loudest boosted band from clipping.
     pub fn suggested_preamp(&self) -> f32 {
         if self.parametric_mode() {
@@ -567,6 +587,18 @@ impl<S: Source> Source for Processed<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_graphic_equalizer_saves_as_peaks() {
+        let mut dsp = Dsp::default();
+        dsp.bands[3] = 4.;
+        let text = dsp.eq_file();
+        assert!(
+            text.contains("Filter 1: ON PK Fc 250 Hz Gain 4.0 dB Q 1.41"),
+            "{text}"
+        );
+        assert!(!text.contains("Filter 2"));
+    }
 
     fn sine(frequency: f64, rate: f64, frames: usize) -> Vec<f32> {
         (0..frames)

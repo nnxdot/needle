@@ -62,8 +62,8 @@ struct PreviousSongIntent: AudioPlaybackIntent {
 }
 
 struct PlayFavouritesIntent: AudioPlaybackIntent {
-    static let title: LocalizedStringResource = "Play My Favourites"
-    static let description = IntentDescription("Plays your favourite songs in Needle, shuffled.")
+    static let title: LocalizedStringResource = "Play My Favorites"
+    static let description = IntentDescription("Plays your favorite songs in Needle, shuffled.")
 
     @MainActor
     func perform() async throws -> some IntentResult {

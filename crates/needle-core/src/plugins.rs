@@ -30,7 +30,7 @@ use crossbeam_channel::{Receiver, Sender};
 use rhai::{AST, Array, Dynamic, Engine, EvalAltResult, Map, Scope};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -304,6 +304,9 @@ pub enum PluginEvent {
         fields: std::collections::BTreeMap<String, String>,
     },
     SourceSignOut(String),
+    /// The rest of signing out, once the source's playlist changes went to the server (sent
+    /// by the plugin thread to itself).
+    SourceSignedOut(String),
     /// Turn one of a source's switches on or off.
     SourceSwitch {
         plugin: String,
@@ -321,6 +324,12 @@ pub enum PluginEvent {
     /// Refresh everything: the whole list, every cover again, and songs no longer on the
     /// server leave the library (see `sources::apply_with`).
     SourceRefresh(String),
+    /// Bring a source's playlists in step with the server's (see `server_playlists`); with
+    /// `only_edited`, only send the changes made in Needle.
+    SourcePlaylists {
+        plugin: String,
+        only_edited: bool,
+    },
     /// One page of a sync (sent by the plugin thread to itself, so streams are not held up).
     SourceSyncPage {
         plugin: String,
@@ -477,6 +486,32 @@ impl PluginHost {
             let host = host.clone();
             crate::sources::set_resolver(move |plugin, id| host.stream_link(plugin, id));
         }
+        {
+            let tx = host.tx.clone();
+            crate::server_playlists::set_edit_hook(move |plugin| {
+                let _ = tx.send(PluginEvent::SourcePlaylists {
+                    plugin: plugin.into(),
+                    only_edited: true,
+                });
+            });
+        }
+        {
+            // A network back (or free again): playlist changes waiting for the server try
+            // again, at most once a minute (a phone tells of its network often).
+            let tx = host.tx.clone();
+            let last: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+            crate::network::on_change(move || {
+                let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+                if last.is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+                    return;
+                }
+                *last = Some(std::time::Instant::now());
+                let _ = tx.send(PluginEvent::SourcePlaylists {
+                    plugin: crate::subsonic::ID.into(),
+                    only_edited: true,
+                });
+            });
+        }
         let own = host.tx.clone();
         std::thread::Builder::new()
             .name("needle-plugins".into())
@@ -612,7 +647,19 @@ fn run(
             for plugin in loaded.iter_mut() {
                 refresh_source(plugin, &library);
                 let id = plugin.info.manifest.id.clone();
+                let keeps_playlists = plugin.native.is_some();
                 if let Some(source) = &mut plugin.info.source {
+                    // Playlist changes made in Needle that wait for the server (also ones made
+                    // before the source was loaded) go now.
+                    if source.signed_in
+                        && keeps_playlists
+                        && crate::server_playlists::pending(&library, &id).unwrap_or(false)
+                    {
+                        let _ = tx.send(PluginEvent::SourcePlaylists {
+                            plugin: id.clone(),
+                            only_edited: true,
+                        });
+                    }
                     source.syncing = syncing.contains_key(&id);
                     if source.signed_in
                         && !source.syncing
@@ -875,11 +922,30 @@ fn run(
             }
             PluginEvent::SourceSignOut(plugin) => {
                 if let Some(target) = source_plugin(&mut loaded, &plugin) {
+                    // Changes to its playlists made in Needle go to the server first; its
+                    // playlists then leave Needle (not the server). Off this thread: a slow
+                    // server or a sync under way must not hold up streams and other sources.
+                    let flush = target.native.as_ref().is_some_and(|n| n.signed_in());
+                    crate::server_playlists::signing_out(&library, &plugin, true);
+                    let (library, tx) = (library.clone(), tx.clone());
+                    std::thread::spawn(move || {
+                        if flush {
+                            let server = crate::subsonic::Subsonic::new(library.clone());
+                            let _ = crate::server_playlists::sync(&library, &plugin, &server, true);
+                        }
+                        let _ = crate::server_playlists::forget(&library, &plugin);
+                        let _ = tx.send(PluginEvent::SourceSignedOut(plugin));
+                    });
+                }
+            }
+            PluginEvent::SourceSignedOut(plugin) => {
+                if let Some(target) = source_plugin(&mut loaded, &plugin) {
                     let _ = call_source(target, "sign_out", vec![]);
                     let _ = crate::sources::forget(&library, &plugin);
                     refresh_source(target, &library);
                     actions(HostAction::LibraryChanged);
                 }
+                crate::server_playlists::signing_out(&library, &plugin, false);
                 syncing.remove(&plugin);
                 publish(&loaded);
             }
@@ -961,6 +1027,18 @@ fn run(
                     let _ = tx.send(PluginEvent::SourceSyncPage { plugin, page: 0 });
                 }
                 publish(&loaded);
+            }
+            PluginEvent::SourcePlaylists {
+                plugin,
+                only_edited,
+            } => {
+                // Only sources that keep playlists (the built-in Navidrome / Subsonic), signed
+                // in. Run beside the plugin thread: a server with many playlists takes a while.
+                if source_plugin(&mut loaded, &plugin).is_some_and(|t| {
+                    t.native.is_some() && t.info.source.as_ref().is_some_and(|s| s.signed_in)
+                }) {
+                    sync_playlists(&library, &actions, &tx, plugin, only_edited);
+                }
             }
             PluginEvent::SourceSyncPage { plugin, page } => {
                 let Some(target) = source_plugin(&mut loaded, &plugin) else {
@@ -1052,6 +1130,10 @@ fn run(
                             )));
                         }
                         actions(HostAction::LibraryChanged);
+                        let _ = tx.send(PluginEvent::SourcePlaylists {
+                            plugin: plugin.clone(),
+                            only_edited: false,
+                        });
                         if !synced.covers.is_empty() {
                             let (library, actions) = (library.clone(), actions.clone());
                             std::thread::spawn(move || {
@@ -1101,6 +1183,151 @@ fn run(
             }
         }
     }
+}
+
+/// Sources whose changes made in Needle wait a moment to be sent (see `sync_playlists`).
+static PLAYLISTS_WAITING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Minutes until playlist changes that found no server try again: after the first failed try,
+/// the second, and so on; then every hour.
+const RETRY_MINUTES: [u64; 4] = [1, 5, 15, 60];
+
+/// For each source: how many tries in a row found no server, and whether a later try is set.
+static RETRIES: Mutex<BTreeMap<String, (usize, bool)>> = Mutex::new(BTreeMap::new());
+
+/// The minutes until the next try after `failed` tries in a row.
+fn retry_after(failed: usize) -> u64 {
+    RETRY_MINUTES[failed.min(RETRY_MINUTES.len()) - 1]
+}
+
+/// Changes still wait: try again later (once; the wait grows with each try that fails).
+/// Whether this was the first try that failed.
+fn retry_later(plugin: &str, tx: &Sender<PluginEvent>) -> bool {
+    let mut retries = RETRIES.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = retries.entry(plugin.to_string()).or_default();
+    entry.0 += 1;
+    let first = entry.0 == 1;
+    if !entry.1 {
+        entry.1 = true;
+        let wait = Duration::from_secs(60 * retry_after(entry.0));
+        let (plugin, tx) = (plugin.to_string(), tx.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(wait);
+            if let Some(entry) = RETRIES
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_mut(&plugin)
+            {
+                entry.1 = false;
+            }
+            let _ = tx.send(PluginEvent::SourcePlaylists {
+                plugin,
+                only_edited: true,
+            });
+        });
+    }
+    first
+}
+
+/// Nothing waits any more: the next failure starts the waits from the shortest again.
+fn retries_done(plugin: &str) {
+    if let Some(entry) = RETRIES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_mut(plugin)
+    {
+        entry.0 = 0;
+    }
+}
+
+/// Bring the built-in server's playlists in step, on a thread of its own. Changes made in
+/// Needle wait two seconds first, so a run of quick edits (dragging songs) goes as one. Changes
+/// that find no server try again later (see `RETRY_MINUTES`), and when a network comes back.
+fn sync_playlists(
+    library: &Library,
+    actions: &Arc<dyn Fn(HostAction) + Send + Sync>,
+    tx: &Sender<PluginEvent>,
+    plugin: String,
+    only_edited: bool,
+) {
+    if only_edited
+        && !PLAYLISTS_WAITING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(plugin.clone())
+    {
+        return;
+    }
+    let (library, actions, tx) = (library.clone(), actions.clone(), tx.clone());
+    std::thread::spawn(move || {
+        if only_edited {
+            std::thread::sleep(Duration::from_secs(2));
+            PLAYLISTS_WAITING
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&plugin);
+        }
+        let server = crate::subsonic::Subsonic::new(library.clone());
+        // Signed out meanwhile, or signing out: nothing to send here, nor to tell.
+        let gone =
+            || !server.signed_in() || crate::server_playlists::is_signing_out(&library, &plugin);
+        if gone() {
+            return;
+        }
+        // Asked again (a network back, a later try) with nothing waiting: the server is not
+        // asked anything.
+        if only_edited && !crate::server_playlists::pending(&library, &plugin).unwrap_or(true) {
+            retries_done(&plugin);
+            return;
+        }
+        let notify = |text: String| {
+            actions(HostAction::Notify(format!(
+                "{}: {text}.",
+                crate::subsonic::NAME
+            )))
+        };
+        match crate::server_playlists::sync(&library, &plugin, &server, only_edited) {
+            Ok(report) => {
+                for note in &report.notes {
+                    notify(note.clone());
+                }
+                if report.waiting {
+                    // Told at the first try that found no server, not at each try again.
+                    if retry_later(&plugin, &tx) {
+                        for wait in &report.waits {
+                            notify(wait.clone());
+                        }
+                    }
+                } else {
+                    retries_done(&plugin);
+                }
+                if report.changed() {
+                    actions(HostAction::LibraryChanged);
+                }
+                if !report.covers.is_empty()
+                    && crate::sources::fetch_covers(&library, &report.covers, || {
+                        actions(HostAction::LibraryChanged)
+                    }) > 0
+                {
+                    actions(HostAction::LibraryChanged);
+                }
+            }
+            Err(error) => {
+                crate::logfile::warn(format!("Server playlists could not sync: {error:#}"));
+                if gone() {
+                    return;
+                }
+                if crate::server_playlists::pending(&library, &plugin).unwrap_or(false)
+                    && retry_later(&plugin, &tx)
+                    && only_edited
+                {
+                    notify(format!(
+                        "your playlist changes wait for the server: {error:#}"
+                    ));
+                }
+            }
+        }
+    });
 }
 
 /// The turned-on plugin with this id, if it is a music source.
@@ -2629,6 +2856,21 @@ pub fn install_examples(library: &Library) -> Result<usize> {
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn waiting_playlist_changes_try_again_later_and_later() {
+        let waits: Vec<u64> = (1..=7).map(retry_after).collect();
+        assert_eq!(waits, [1, 5, 15, 60, 60, 60, 60]);
+        // One try set at a time; the first failure is the one told.
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let plugin = "test-retry";
+        assert!(retry_later(plugin, &tx));
+        assert!(!retry_later(plugin, &tx));
+        assert_eq!(RETRIES.lock().unwrap()[plugin], (2, true));
+        retries_done(plugin);
+        assert_eq!(RETRIES.lock().unwrap()[plugin].0, 0);
+        assert!(rx.try_recv().is_err(), "the try waits a minute");
+    }
 
     fn wait<T>(what: impl Fn() -> Option<T>) -> T {
         let start = Instant::now();

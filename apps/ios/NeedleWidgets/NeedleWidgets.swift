@@ -58,7 +58,11 @@ struct Cover: View {
     var body: some View {
         Group {
             if let url = Snapshot.coverURL(name), let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image).resizable().scaledToFill()
+                // On a tinted or clear Home Screen a picture would turn into a flat square of the
+                // tint: the cover stays a picture, in the tint's shades.
+                Image(uiImage: image).resizable()
+                    .widgetAccentedRenderingMode(.accentedDesaturated)
+                    .scaledToFill()
             } else {
                 LinearGradient(colors: [amber, amberDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
                     .overlay(Image(systemName: "music.note").font(.title2).foregroundStyle(.white.opacity(0.8)))
@@ -83,6 +87,7 @@ struct NowPlayingWidget: Widget {
 
 struct NowPlayingView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var rendering
     let snapshot: Snapshot
 
     var body: some View {
@@ -132,7 +137,7 @@ struct NowPlayingView: View {
                             .frame(width: 40, height: 40)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .background(Circle().fill(buttonFill))
                 }
                 Spacer()
                 Text(title).font(.subheadline.bold()).lineLimit(1)
@@ -151,7 +156,16 @@ struct NowPlayingView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .background(Capsule().fill(buttonFill))
+    }
+
+    /// The buttons' plain fill. A widget is drawn ahead of time and shown still, so glass that
+    /// answers a touch (`glassEffect(.interactive())`) has nothing to answer there; and on a
+    /// tinted or clear Home Screen the system puts the whole widget on its own glass, where
+    /// glass of ours would be glass on glass. A soft light fill over the blurred cover reads
+    /// as a control in full colour, and a fainter one takes the tint.
+    private var buttonFill: Color {
+        .white.opacity(rendering == .fullColor ? 0.18 : 0.12)
     }
 
     private var backdrop: some View {
@@ -172,7 +186,8 @@ struct RecentWidget: Widget {
         }
         .configurationDisplayName("Recently Played")
         .description("Tap an album to play it.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        // Extra large: an iPad's Home Screen.
+        .supportedFamilies([.systemMedium, .systemLarge, .systemExtraLarge])
     }
 }
 
@@ -183,7 +198,7 @@ struct PlaylistsWidget: Widget {
         }
         .configurationDisplayName("Playlists")
         .description("Your playlists, a tap away.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .supportedFamilies([.systemMedium, .systemLarge, .systemExtraLarge])
     }
 }
 
@@ -216,12 +231,17 @@ struct Shelf<I: AudioPlaybackIntent>: View {
                     }
                 }
             } else {
-                HStack(spacing: 10) {
+                // A row of covers; on an iPad's extra large widget, larger, with what each is.
+                let roomy = family == .systemExtraLarge
+                HStack(alignment: .top, spacing: roomy ? 18 : 10) {
                     ForEach(items.prefix(4)) { item in
                         Button(intent: intent(item)) {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: roomy ? 3 : 4) {
                                 Cover(name: item.cover, corner: 10).aspectRatio(1, contentMode: .fit)
-                                Text(item.title).font(.caption2.bold()).lineLimit(1)
+                                Text(item.title).font(roomy ? .subheadline.bold() : .caption2.bold()).lineLimit(1)
+                                if roomy {
+                                    Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
                             }
                         }
                         .buttonStyle(.plain)

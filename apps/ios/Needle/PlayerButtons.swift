@@ -46,7 +46,7 @@ enum PlayerButtons {
         case "play": "playpause.fill"
         case "next": "forward.fill"
         case "repeat": "repeat"
-        case "favorite": "star"
+        case "favorite": "heart"
         case "lyrics": "quote.bubble"
         case "queue": "list.bullet"
         default: "airplayaudio"

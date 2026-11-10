@@ -33,7 +33,9 @@ struct MainWindow: View {
             }
             .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions))
             .toolbar(removing: .sidebarToggle)
-            .toolbar(store.big && !store.immersive ? .hidden : .visible, for: .windowToolbar)
+            // Under the big player and the full screen one alike: in full screen, the sidebar's
+            // button and Back showed over the cover when the pointer touched the top.
+            .toolbar(store.big || store.immersive ? .hidden : .visible, for: .windowToolbar)
             // No band behind the toolbar over the page only: the window's one background shows
             // through the whole top bar, the search field included.
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
@@ -71,11 +73,11 @@ struct MainWindow: View {
             }
             if store.palette {
                 CommandPalette()
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .transition(store.motion ? .opacity.combined(with: .scale(scale: 0.98)) : .opacity)
                     .zIndex(3)
             }
-            if store.settings.grain > 0.001 {
-                Grain(amount: min(max(Double(store.settings.grain), 0), 1)).zIndex(4).accessibilityHidden(true)
+            if (store.grainPreview ?? store.settings.grain) > 0.001 {
+                Grain(amount: min(max(Double(store.grainPreview ?? store.settings.grain), 0), 1)).zIndex(4).accessibilityHidden(true)
             }
         }
         .overlay(alignment: .bottom) { ToastView().padding(.bottom, store.big ? 0 : 110).zIndex(5) }
@@ -85,7 +87,11 @@ struct MainWindow: View {
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
         .frame(minWidth: Store.leastWidth(store.settings), minHeight: 620)
-        .onAppear { Store.makeRoom(Store.leastWidth(store.settings)) }
+        .onAppear {
+            Store.makeRoom(Store.leastWidth(store.settings))
+            // A key everywhere can open the mini player.
+            GlobalKeys.openMini = { [openWindow] in openWindow(id: "mini") }
+        }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             drop(providers)
             return true
@@ -181,7 +187,7 @@ struct MainWindow: View {
                 if let album = albums.first(where: { $0.album == title }) { store.navigate(album.route) }
             }
         }
-        // For the website's pictures: `--page albums|songs|artists|home|genremap|numbers|doctor` opens that page,
+        // For the website's pictures: `--page albums|songs|artists|home|radio|genremap|numbers|doctor` opens that page,
         // `--panel queue|details|lyrics` the side panel on that, and `--play-album <title>`
         // plays that album from its first song, `--seek <seconds>` into it.
         switch value("--page") {
@@ -189,6 +195,7 @@ struct MainWindow: View {
         case "songs": store.navigate(.songs)
         case "artists": store.navigate(.artists)
         case "home": store.navigate(.home)
+        case "radio": store.navigate(.radio)
         case "genremap": store.navigate(.genreMap)
         case "year": store.navigate(.wrapped(store.reviewYear))
         case "timing": store.navigate(.timing)
@@ -357,8 +364,8 @@ struct MainWindow: View {
                 Inspector()
                     .frame(width: Self.panelWidth)
                     .frame(maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .pane(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.large, style: .continuous))
+                    .pane(RoundedRectangle(cornerRadius: Radius.large, style: .continuous), tinted: true)
                     .padding(.trailing, 10)
                     .padding(.bottom, 10)
                     .padding(.top, 4)
@@ -386,20 +393,49 @@ struct MainWindow: View {
             // page stopped in a hard line above the player, which sat in a flat band.
             .clipShape(OpenAtTopAndFoot())
             // The player floats over the foot of the page, which slides under it (or sits in
-            // the title bar; see `toolbar`).
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            // the title bar; see `toolbar`). On macOS 26 it is the page's bar: the page fades
+            // softly under it, not in a hard cut.
+            .modifier(FootBar {
                 if !store.settings.layout.playerOnTop && !Self.drop.contains("player") {
-                    // The strip takes about 12 pt more than the bar alone: no tall band under it.
-                    VStack(spacing: 2) {
-                        PlayerBar()
-                        // Lyrics under the player (Settings › Appearance): the line being sung.
-                        if LyricStrip.shows { LyricStrip() }
-                    }
-                    .padding(.horizontal, 20).padding(.bottom, LyricStrip.shows ? 4 : 14).padding(.top, 4)
-                    // Clear of the side panel on pages that run under it.
-                    .padding(.trailing, store.settings.showInspector && Self.runsUnder(store.route) ? Self.panelWidth + 20 : 0)
+                    PlayerFoot()
+                        // Clear of the side panel on pages that run under it.
+                        .padding(.trailing, store.settings.showInspector && Self.runsUnder(store.route) ? Self.panelWidth + 20 : 0)
+                }
+            })
+    }
+
+    /// The bar at the page's foot: a safe area bar on macOS 26, which gives the page's scrolling
+    /// a soft edge under it; an inset before.
+    private struct FootBar<Bar: View>: ViewModifier {
+        @ViewBuilder let bar: () -> Bar
+
+        func body(content: Content) -> some View {
+            if #available(macOS 26, *) {
+                content.safeAreaBar(edge: .bottom, spacing: 0, content: bar)
+            } else {
+                content.safeAreaInset(edge: .bottom, spacing: 0, content: bar)
+            }
+        }
+    }
+
+    /// The player at the page's foot, with the line being sung under it (Settings › Appearance):
+    /// one group of glass, so the strip grows out of the player's glass and flows into it.
+    struct PlayerFoot: View {
+        private var store: Store { .shared }
+        @Namespace private var glass
+
+        var body: some View {
+            let lyrics = LyricStrip.shows
+            // The strip takes about 12 pt more than the bar alone: no tall band under it.
+            GlassGroup(spacing: 10) {
+                VStack(spacing: 2) {
+                    PlayerBar(space: glass)
+                    if lyrics { LyricStrip(space: glass) }
                 }
             }
+            .animation(store.motion ? .smooth(duration: 0.35) : nil, value: lyrics)
+            .padding(.horizontal, 20).padding(.bottom, lyrics ? 4 : 14).padding(.top, 4)
+        }
     }
 
     /// The page's box, the bar above it, and the player below it.
@@ -423,6 +459,32 @@ struct MainWindow: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // Right after Back and Forward: as the bar's middle item macOS pushed it over to the
+        // right, half over the side panel.
+        if store.settings.layout.playerOnTop && !Self.drop.contains("player") {
+            if #available(macOS 26, *) {
+                // One group of glass: the buttons, the player, and the line being sung flow
+                // together, and the line grows out of the player's glass when it comes.
+                ToolbarItem(placement: .navigation) { TitleBarGlass().padding(.leading, 2) }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                navigation
+                ToolbarItem(placement: .navigation) { TopPlayer() }
+                // The line being sung beside the player, in the title bar's room to its right;
+                // under it, centred over the page, it sat apart from the player it belongs to.
+                if LyricStrip.shows {
+                    ToolbarItem(placement: .navigation) { LyricStrip(inBar: true).frame(minWidth: 140, idealWidth: 300, maxWidth: 300) }
+                }
+            }
+        } else {
+            navigation
+        }
+    }
+
+    /// The sidebar's button, Back and Forward, and the palette's button, as the system's
+    /// toolbar buttons.
+    @ToolbarContentBuilder
+    private var navigation: some ToolbarContent {
         // The sidebar's button leads Back and Forward, in one place whether the sidebar is open,
         // folded, or a strip of icons.
         ToolbarItemGroup(placement: .navigation) {
@@ -441,27 +503,6 @@ struct MainWindow: View {
             Button { store.palette = true } label: { Image(systemName: "command") }
                 .help("Command palette: go anywhere, do anything · ⌘K")
                 .accessibilityLabel("Command palette: go anywhere, do anything")
-        }
-        // Right after Back and Forward: as the bar's middle item macOS pushed it over to the
-        // right, half over the side panel.
-        if store.settings.layout.playerOnTop && !Self.drop.contains("player") {
-            // Its own capsule of glass, not one with the buttons before it.
-            if #available(macOS 26, *) {
-                ToolbarItem(placement: .navigation) { TopPlayer().padding(.vertical, 3).pane(Capsule()).padding(.leading, 6) }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .navigation) { TopPlayer() }
-            }
-            // The line being sung beside the player, in the title bar's room to its right; under
-            // it, centred over the page, it sat apart from the player it belongs to.
-            if LyricStrip.shows {
-                if #available(macOS 26, *) {
-                    ToolbarItem(placement: .navigation) { LyricStrip(inBar: true).frame(minWidth: 140, idealWidth: 300, maxWidth: 300).padding(.leading, 6) }
-                        .sharedBackgroundVisibility(.hidden)
-                } else {
-                    ToolbarItem(placement: .navigation) { LyricStrip(inBar: true).frame(minWidth: 140, idealWidth: 300, maxWidth: 300) }
-                }
-            }
         }
     }
 
@@ -636,6 +677,7 @@ struct PageView: View {
         Group {
             switch store.route {
             case .home: library { HomePage() }
+            case .radio: library { RadioPage() }
             case .albums: library { AlbumsPage() }
             case .artists: library { ArtistsPage() }
             case .artist(let name): ArtistPage(name: name)
@@ -708,6 +750,10 @@ struct ToastView: View {
 
     var body: some View {
         if let toast = store.toast {
+            // A capsule for one line; a longer message (it may take four) in a rounded box, so
+            // its lines do not run into round ends.
+            let long = toast.text.count > 64 || toast.text.contains("\n")
+            let shape = long ? AnyShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)) : AnyShape(Capsule())
             HStack(spacing: 10) {
                 Image(systemName: toast.error ? "exclamationmark.triangle.fill" : "info.circle.fill")
                     .foregroundStyle(toast.error ? store.colors.danger : store.colors.accent)
@@ -718,9 +764,9 @@ struct ToastView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 16)
-            .pane(Capsule())
+            .pane(shape, interactive: true, tinted: true)
             .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(store.motion ? .move(edge: .bottom).combined(with: .opacity) : .opacity)
             .id(toast.id)
         }
     }

@@ -1,6 +1,6 @@
 //! Offline radio in the interface: measuring songs in the background, stations from a song or
 //! an artist, and blends of two artists.
-use super::{AppView, Event, menus::Entry, motion, pal};
+use super::{AppView, Event, menus::Entry, motion};
 use gpui::{prelude::*, *};
 use gpui_component::ActiveTheme;
 use needle_core::{
@@ -17,6 +17,28 @@ use std::{
 
 /// How many songs a station queues.
 const STATION: usize = 50;
+
+/// A station from one song: the song, then songs that sound like it, and its notice.
+pub fn song_station(
+    library: &needle_core::database::Library,
+    track: needle_core::model::Track,
+) -> anyhow::Result<(Vec<QueueItem>, String)> {
+    let station = library.radio(std::slice::from_ref(&track), STATION - 1)?;
+    let reason = format!("Radio: like “{}”", track.title);
+    let mut items = vec![QueueItem {
+        track: track.clone(),
+        reason: reason.clone(),
+    }];
+    items.extend(station.into_iter().map(|t| QueueItem {
+        track: t,
+        reason: reason.clone(),
+    }));
+    let count = items.len();
+    Ok((
+        items,
+        format!("Radio from “{}”: {count} songs.", track.title),
+    ))
+}
 
 pub struct BlendMenu {
     pub position: Point<Pixels>,
@@ -87,7 +109,7 @@ impl AppView {
         found
     }
 
-    fn play_station(
+    pub(super) fn play_station(
         &mut self,
         work: impl FnOnce(&needle_core::database::Library) -> anyhow::Result<(Vec<QueueItem>, String)>
         + Send
@@ -109,23 +131,7 @@ impl AppView {
 
     /// Play this song, then songs that sound like it.
     pub(super) fn start_radio(&mut self, track: needle_core::model::Track) {
-        self.play_station(move |library| {
-            let station = library.radio(std::slice::from_ref(&track), STATION - 1)?;
-            let reason = format!("Radio: like “{}”", track.title);
-            let mut items = vec![QueueItem {
-                track: track.clone(),
-                reason: reason.clone(),
-            }];
-            items.extend(station.into_iter().map(|t| QueueItem {
-                track: t,
-                reason: reason.clone(),
-            }));
-            let count = items.len();
-            Ok((
-                items,
-                format!("Radio from “{}”: {count} songs.", track.title),
-            ))
-        });
+        self.play_station(move |library| song_station(library, track));
     }
 
     pub(super) fn start_artist_radio(&mut self, artist: String) {
@@ -194,7 +200,6 @@ impl AppView {
 
     pub(super) fn blend_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let menu = self.blend_menu.as_ref()?;
-        let p = pal(cx);
         let mut entries = vec![Entry::Label(format!("Blend {} with", menu.artist).into())];
         match &menu.choices {
             None => entries.push(Entry::Label("Listening for similar artists…".into())),
@@ -216,9 +221,6 @@ impl AppView {
             .w(px(240.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {

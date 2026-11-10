@@ -81,16 +81,10 @@ struct Track: Codable, Identifiable, Hashable {
     }
 
     /// The format and resolution, as the desktop shows it: "FLAC 24/96", "MP3 320".
+    /// The core writes it (`Track::quality`), so every app says the same for the same song
+    /// ("DSD64", not "DSF 1/2822.4").
     var quality: String {
-        let name = format.uppercased()
-        let lossless = ["FLAC", "ALAC", "WAV", "AIFF", "APE", "WV", "DSF", "DFF"].contains(name)
-        if lossless, bitDepth > 0, sampleRate > 0 {
-            let khz = Double(sampleRate) / 1000
-            let rate = khz.rounded() == khz ? String(Int(khz)) : String(format: "%.1f", khz)
-            return "\(name) \(bitDepth)/\(rate)"
-        }
-        if bitrate > 0 { return "\(name) \(bitrate)" }
-        return name
+        trackQuality(format: format, bitDepth: Int64(bitDepth), sampleRate: Int64(sampleRate), bitrate: Int64(bitrate))
     }
 
     /// The album page for this song, grouped as the library groups albums.
@@ -155,12 +149,29 @@ struct PlaylistModel: Codable, Identifiable, Hashable {
     var description: String
     var cover: String?
     var rules: RuleSet?
+    /// For a playlist on a music server (Navidrome): where it lives and how it was at the last
+    /// sync. Kept as it came: the core compares it with the playlist to send changes there.
+    var server: ServerLink? = nil
 
     var smart: Bool { query != nil }
+    /// On a music server that lets this person only read it (another person's playlist, a
+    /// smart one there): its name and songs cannot change here, and it cannot be deleted.
+    var readOnly: Bool { server?.readOnly == true }
 
     static func new() -> PlaylistModel {
         PlaylistModel(id: "", name: "", query: nil, trackIds: [], updatedAt: 0, description: "", cover: nil, rules: nil)
     }
+}
+
+/// Where a server playlist lives (the core's `ServerPlaylist`).
+struct ServerLink: Codable, Hashable {
+    var plugin: String
+    var id: String
+    var name: String
+    var songs: [String]
+    var comment: String
+    /// The server lets this person only read it.
+    var readOnly: Bool? = nil
 }
 
 struct RuleSet: Codable, Hashable {
@@ -274,6 +285,9 @@ struct NeedleSettings: Decodable, Equatable {
     var tray = false
     /// The sleep timer puts the Mac to sleep when it ends.
     var sleepComputer = false
+    /// Keys that work everywhere (Settings › Keyboard): pairs of an action and its keys, as
+    /// ["play", "ctrl-alt-space"], shared with Windows. Held only while the Mac's switch is on.
+    var globalShortcuts: [[String]] = []
     /// The big player's seek bar: "shape", "wave", "line", or "thick".
     var seekStyle = "shape"
     /// What makes an album: "tags" (album artist and album) or "folder".
@@ -444,11 +458,17 @@ func day(_ seconds: Int?) -> String {
     return Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(.dateTime.day().month(.abbreviated).year())
 }
 
+/// What went wrong reading something, in words (see `Store.read`).
+struct Failure: Error, Sendable {
+    let message: String
+}
+
 extension Error {
     /// What went wrong, in words: the message of an error from Needle's core (whose own
     /// description is its Swift name), or the system's description.
     var message: String {
         if let needle = self as? NeedleError, case .Failed(let text) = needle { return text }
+        if let failure = self as? Failure { return failure.message }
         return localizedDescription
     }
 }

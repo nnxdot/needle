@@ -247,9 +247,6 @@ impl AppView {
             .max_w_full()
             .p_6()
             .map(|el| super::glass::pane(el, 12., 20., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .gap_3()
@@ -293,7 +290,11 @@ impl AppView {
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| this.reply_to_ask(false, cx)),
                     )
-                    .child(card.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())),
+                    .child(super::motion::dialog_in(
+                        card.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()),
+                        "plugin-ask-card",
+                        cx,
+                    )),
             )
             .with_priority(3),
         )

@@ -116,7 +116,7 @@ struct StemsPanel: View {
         let muted = level <= 0.001
         let soloed = !muted && levels.enumerated().allSatisfy { $0.offset == i || $0.element <= 0.001 }
         return HStack(spacing: 8) {
-            Image(systemName: icon).foregroundStyle(color).frame(width: 22, height: 22).background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
+            Image(systemName: icon).foregroundStyle(color).frame(width: 22, height: 22).background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
             VStack(alignment: .leading, spacing: 0) {
                 Text(label).font(.needle(.caption).weight(.medium))
                 Text(muted ? "Muted" : "\(Int(level * 100))%").font(.needle(.caption2)).foregroundStyle(.secondary)
@@ -140,14 +140,14 @@ struct StemsPanel: View {
             }
         }
         .padding(6)
-        .background(color.opacity(active && store.playback?.playing == true && !muted ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: 8))
+        .background(color.opacity(active && store.playback?.playing == true && !muted ? 0.1 : 0.05), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .opacity(active ? 1 : 0.6)
     }
 
     private func pill(_ text: String, on: Bool, color: Color, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(text).font(.needle(.caption2).weight(.bold)).frame(width: 20, height: 18)
-                .background(on ? color : .clear, in: RoundedRectangle(cornerRadius: 4))
+                .background(on ? color : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                 .foregroundStyle(on ? .black : .secondary)
         }
         .buttonStyle(.plain)

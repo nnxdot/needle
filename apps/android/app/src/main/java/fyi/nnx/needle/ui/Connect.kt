@@ -127,7 +127,8 @@ fun ConnectScreen() {
         val s = state
         item {
             Column(
-                Modifier.padding(horizontal = Edge).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(16.dp),
+                // Plain on the page, a soft line under it (DESIGN.md: nothing is filled).
+                Modifier.padding(horizontal = Edge).fillMaxWidth().softLine().padding(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val current = s?.current

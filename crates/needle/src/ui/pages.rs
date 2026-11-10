@@ -508,6 +508,63 @@ impl AppView {
         })
     }
 
+    /// Artists' logos come from fanart.tv: Needle has a key, and a person may use their own,
+    /// as on the Mac.
+    fn fanart_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let control = if self.fanart_own {
+            small_button("fanart-remove", "Remove your key")
+                .ghost()
+                .disabled(self.service_busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    let library = this.library.clone();
+                    this.service_job(move || {
+                        integrations::clear_secret(SecretKind::FanartKey)?;
+                        // What the last key was given (or refused) is asked again.
+                        needle_core::media::forget_fanart(&library)?;
+                        Ok("Your fanart.tv key is removed. Needle uses its own.".into())
+                    });
+                    cx.notify();
+                }))
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .w(px(180.))
+                        .child(Input::new(&self.fanart_key).small()),
+                )
+                .child(
+                    small_button("fanart-save", "Save")
+                        .disabled(self.service_busy)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let key = this.fanart_key.read(cx).value().trim().to_string();
+                            if key.is_empty() {
+                                return this.fail("Paste your fanart.tv key first.");
+                            }
+                            this.fanart_key
+                                .update(cx, |field, cx| field.set_value("", window, cx));
+                            let library = this.library.clone();
+                            this.service_job(move || {
+                                integrations::save_secret(SecretKind::FanartKey, &key)?;
+                                needle_core::media::forget_fanart(&library)?;
+                                Ok("fanart.tv key saved.".into())
+                            });
+                            cx.notify();
+                        })),
+                )
+                .into_any_element()
+        };
+        setting_row(
+            "Artists' logos",
+            "From fanart.tv. Needle has a key; yours is optional.",
+            control,
+            cx,
+        )
+    }
+
     fn service_job(&mut self, job: impl FnOnce() -> Result<String> + Send + 'static) {
         self.service_busy = true;
         let sender = self.sender.clone();
@@ -570,7 +627,6 @@ impl AppView {
 
     pub(super) fn settings_view(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
-        let roots = self.library.roots().unwrap_or_default();
         let weak = cx.entity().downgrade();
         let device = |id: SharedString,
                       name: String,
@@ -892,35 +948,7 @@ impl AppView {
                     .when(tab == 2, |el| {
                         el
                     .child(self.lead_title("Music folders", "Needle watches these folders, and changes files only in Fix my library.", cx))
-                    .child(
-                        div()
-                            .py_2()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .when(roots.is_empty(), |el| el.child(meta("No folders yet.", cx)))
-                            .children(roots.into_iter().map(|root| {
-                                div()
-                                    .h(px(34.))
-                                    .px_3()
-                                    .rounded(px(6.))
-                                    .border_1()
-                                    .border_color(p.line_soft)
-                                    .flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(glyph("folder").size(px(16.)).text_color(p.ink_3))
-                                    .child(div().text_size(px(12.5)).truncate().child(root.trim_start_matches("\\\\?\\").to_string()))
-                            }))
-                            .child(
-                                div()
-                                    .mt_2()
-                                    .flex()
-                                    .gap_2()
-                                    .child(small_button("settings-add", "Add folder").icon(icon("plus")).on_click(cx.listener(|this, _, window, cx| this.import_folder(window, cx))))
-                                    .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
-                            ),
-                    )
+                    .child(self.music_folders(cx))
                     .child(setting_row(
                         "Forget songs that are gone",
                         "Check for changes forgets songs whose file was deleted or can no longer be read, instead of keeping them marked missing.",
@@ -1076,6 +1104,7 @@ impl AppView {
                             })),
                             cx,
                         ))
+                        .child(self.fanart_row(cx))
                     })
                     })
                     // Services
@@ -1473,27 +1502,39 @@ impl AppView {
                 .into_any_element(),
             ];
         }
-        // Glass is Windows' Mica and Acrylic; Linux has no setting for it.
-        if !cfg!(windows) {
+        // Glass is Windows' Mica and Acrylic, and Linux's blur.
+        if !cfg!(windows) && !cfg!(target_os = "linux") {
             return Vec::new();
         }
         let p = pal(cx);
         let (allowed, win11) = self.glass_system;
         let chosen = Material::from_name(&self.settings.window_material);
-        let index = Material::ALL
+        let choices = Material::choices();
+        let index = choices
             .iter()
             .position(|(name, _, _)| Material::from_name(name) == chosen)
             .unwrap_or(0);
         // Ambient paints its own background over the whole window, so no glass can show.
         let ambient = self.ambient_look();
         let detail = if ambient {
-            "Ambient background fills the window, so glass is off while it is on.".to_string()
+            "Ambient is on: the cover fills the window behind the glass panes.".to_string()
         } else if !allowed {
             "Windows' Transparency effects setting is off, so Needle stays solid. Turn it on in Windows Settings › Personalization › Colors.".to_string()
         } else if chosen == Material::Mica && !win11 {
             "Mica needs Windows 11, so Needle uses Acrylic here.".to_string()
+        } else if cfg!(target_os = "linux")
+            && chosen == Material::Acrylic
+            && !super::glass::system_blur()
+        {
+            "Your desktop does not blur windows, so Needle shows the cover glow instead."
+                .to_string()
+        } else if cfg!(target_os = "linux")
+            && chosen == Material::Clear
+            && !super::glass::see_through()
+        {
+            "No compositor is running, so Needle shows the cover glow instead.".to_string()
         } else {
-            Material::ALL[index].2.to_string()
+            choices[index].2.to_string()
         };
         let solid = chosen == Material::Solid || !allowed || ambient;
         let mut rows = vec![
@@ -1502,7 +1543,10 @@ impl AppView {
                 &detail,
                 div().when(ambient, |el| el.opacity(0.4)).child(segmented(
                     "window-material",
-                    &Material::ALL.map(|(_, label, _)| label),
+                    &choices
+                        .iter()
+                        .map(|(_, label, _)| *label)
+                        .collect::<Vec<_>>(),
                     index,
                     cx,
                     {
@@ -1512,7 +1556,7 @@ impl AppView {
                                 if this.ambient_look() {
                                     return;
                                 }
-                                this.settings.window_material = Material::ALL[i].0.into();
+                                this.settings.window_material = Material::choices()[i].0.into();
                                 this.persist_settings();
                                 cx.notify();
                             });
@@ -1527,7 +1571,7 @@ impl AppView {
             rows.push(
                 setting_row(
                     "See-through",
-                    "How much the glass shows through the sidebar, title bar, and player.",
+                    "How much shows through the sidebar and around the page.",
                     div()
                         .w(px(220.))
                         .flex()
@@ -1548,27 +1592,12 @@ impl AppView {
             );
             rows.push(
                 setting_row(
-                    "Glass behind the page",
-                    "A little glass through the page too. Text stays readable.",
+                    "See-through page",
+                    "The page lets a little glass through too.",
                     Switch::new("glass-page")
                         .checked(self.settings.glass_page)
                         .on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.glass_page = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                    cx,
-                )
-                .into_any_element(),
-            );
-            rows.push(
-                setting_row(
-                    "The cover on the glass",
-                    "The song that plays, blurred, colours the glass, as on the Mac.",
-                    Switch::new("glass-ambient")
-                        .checked(self.settings.glass_ambient)
-                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.glass_ambient = *checked;
                             this.persist_settings();
                             cx.notify();
                         })),

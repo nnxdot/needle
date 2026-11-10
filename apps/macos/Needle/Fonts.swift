@@ -103,7 +103,7 @@ struct FontRow: View {
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(chosen ? store.colors.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(chosen ? store.colors.accentSoft : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

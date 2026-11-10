@@ -3,15 +3,37 @@
 //! system itself (`watch`). With Settings › Fewer lookups on metered connections on (the
 //! default), background lookups (the search for artists' pictures) wait for a free network.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 static METERED: AtomicBool = AtomicBool::new(false);
 static WATCHING: AtomicBool = AtomicBool::new(false);
 
-/// The app says whether the network it uses now is metered.
+type Listener = Box<dyn Fn() + Send + Sync>;
+static LISTENERS: Mutex<Vec<Listener>> = Mutex::new(Vec::new());
+
+/// Call `listener` when a network may have come back: an app tells of its network (it does at
+/// each change), or the one in use stops being metered. Things waiting for a server (playlist
+/// changes) try again then.
+pub fn on_change(listener: impl Fn() + Send + Sync + 'static) {
+    LISTENERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(Box::new(listener));
+}
+
+fn changed() {
+    for listener in LISTENERS.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+        listener();
+    }
+}
+
+/// The app says whether the network it uses now is metered. Apps say it at each change of
+/// network, so it also tells that a network is there.
 pub fn set_metered(on: bool) {
     METERED.store(on, Ordering::SeqCst);
+    changed();
 }
 
 /// Whether the network in use now is metered, as far as Needle knows.
@@ -35,8 +57,11 @@ pub fn watch() {
         .name("metered".into())
         .spawn(|| {
             loop {
-                if let Some(on) = system_metered() {
-                    set_metered(on);
+                if let Some(on) = system_metered()
+                    && METERED.swap(on, Ordering::SeqCst)
+                    && !on
+                {
+                    changed();
                 }
                 std::thread::sleep(Duration::from_secs(30));
             }

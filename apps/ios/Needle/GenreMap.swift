@@ -135,13 +135,19 @@ struct GenreMapView: View {
     @State private var art: GenreArt?
     /// The view and order `art` was laid out for ("cloud|false").
     @State private var artFor = ""
+    /// Why the cloud or bubbles could not be laid out, and for which view and order.
+    @State private var artProblem: (String, String)?
+    @Environment(\.wide) private var wide
+    /// Goes up with Try Again.
+    @State private var tries = 0
 
     var body: some View {
         GeometryReader { geo in
             // Upright on a phone: as wide as the screen and taller than wide; the bubbles smaller
-            // by the map's area against the widest computer map (980 by 600).
-            let side = min(geo.size.width - 40, 640)
-            let height = min(max(side * 1.6, 300), 760)
+            // by the map's area against the widest computer map (980 by 600). In a wide window
+            // (an iPad) wider than tall, as on the computer.
+            let side = wide ? min(geo.size.width - 64, 980) : min(geo.size.width - 40, 640)
+            let height = wide ? min(max(side * 0.66, 420), 660) : min(max(side * 1.6, 300), 760)
             let laid = GenreLayout.lay(spots ?? [], width: side, height: height,
                                        scale: min(1, max(0.6, (side * height / (980 * 600)).squareRoot())))
             ScrollView {
@@ -162,7 +168,10 @@ struct GenreMapView: View {
                                 Text("By plays").tag(true)
                             }
                             .pickerStyle(.segmented)
-                            if let art, artFor == "\(view)|\(byPlays)" {
+                            if let artProblem, artProblem.0 == "\(view)|\(byPlays)" {
+                                LoadProblem(title: view == "cloud" ? "Could not make the cloud" : "Could not make the bubbles",
+                                            words: artProblem.1) { tries += 1 }
+                            } else if let art, artFor == "\(view)|\(byPlays)" {
                                 Text(art.items.isEmpty ? (byPlays ? "Nothing played yet." : "No genres yet.")
                                      : "\(count(art.items.count, "genre")). \(view == "cloud" ? "As big as" : "Grouped by family, as big as") \(byPlays ? "their plays" : "their songs"). Tap one to play it.")
                                     .font(.needle(.subheadline)).foregroundStyle(store.colors.muted)
@@ -177,6 +186,7 @@ struct GenreMapView: View {
                             .font(.needle(.subheadline)).foregroundStyle(store.colors.muted)
                         if !laid.bubbles.isEmpty {
                             map(laid.bubbles, width: side, height: height)
+                                .frame(maxWidth: .infinity)
                         }
                         if !laid.chips.isEmpty {
                             Text("More genres").font(.needle(.title3).weight(.semibold))
@@ -199,16 +209,25 @@ struct GenreMapView: View {
                 .padding(20)
             }
         }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(1060)
         .navigationTitle("Genre map")
         .themed()
-        .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)") {
+        .task(id: "\(store.libraryVersion)|\(view)|\(byPlays)|\(tries)") {
             guard view != "map" else { return }
             let (kind, plays) = (view, byPlays)
             // Upright on a phone: a little taller than wide.
-            let json = await store.load { $0.genreArtJson(kind: kind, byPlays: plays, aspect: 0.8) } ?? ""
+            let result = await store.attempt { try $0.genreArtJson(kind: kind, byPlays: plays, aspect: 0.8) }
             // Switched to another view or order meanwhile: that one has its own load.
             guard !Task.isCancelled, kind == view, plays == byPlays else { return }
-            art = try? JSONDecoder().decode(GenreArt.self, from: Data(json.utf8))
+            switch result {
+            case .success(let json):
+                art = try? JSONDecoder().decode(GenreArt.self, from: Data(json.utf8))
+                artProblem = art == nil ? ("\(kind)|\(plays)", "Needle could not read its own answer.") : nil
+            case .failure(let error):
+                art = nil
+                artProblem = ("\(kind)|\(plays)", error.words)
+            }
             artFor = "\(kind)|\(plays)"
         }
         .task(id: store.libraryVersion) {
@@ -222,7 +241,7 @@ struct GenreMapView: View {
     private func map(_ bubbles: [GenreBubble], width: Double, height: Double) -> some View {
         let colors = store.colors
         return ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 18).fill(colors.card)
+            RoundedRectangle.soft(Corner.large).fill(colors.card)
             ForEach(bubbles) { bubble in
                 let tone = GenreLayout.tone(bubble.genre, dark: colors.dark)
                 let many = bubble.genre.contains(" ") || bubble.genre.contains("-")
@@ -260,7 +279,7 @@ struct GenreMapView: View {
             .allowsHitTesting(false)
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .clipShape(.soft(Corner.large))
     }
 
     private func play(_ item: GenreArt.Item) {

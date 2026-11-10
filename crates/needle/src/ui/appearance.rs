@@ -14,6 +14,12 @@ use gpui_component::{button::ButtonVariants, switch::Switch};
 /// Space between cards.
 const GAP: f32 = 12.;
 
+/// The systems with a Glass background: Windows' Mica and Acrylic, Linux's blur (or the
+/// cover's glow), macOS's Liquid Glass.
+fn glass_offered() -> bool {
+    cfg!(windows) || cfg!(target_os = "macos") || cfg!(target_os = "linux")
+}
+
 fn hex(value: u32) -> Hsla {
     rgb(value).into()
 }
@@ -51,7 +57,12 @@ fn mini(w: f32, backdrop: Backdrop, p: &Palette) -> Div {
     };
     let block = p.ink_3.opacity(0.22);
     let line = p.ink_3.opacity(0.45);
-    let inset = if backdrop == Backdrop::Glass { 3. } else { 0. };
+    // Windows and Linux, Glass and Ambient: the sidebar and the page float as panes. The Mac's
+    // glass floats its sidebar only.
+    let floats = !cfg!(target_os = "macos") && backdrop != Backdrop::Plain;
+    let side_pane = floats || backdrop == Backdrop::Glass;
+    let inset = if side_pane { 3. } else { 0. };
+    let sheet_inset = if floats { inset } else { 0. };
     let bar_h = (h * 0.1).max(6.);
     let block_w = (w - side_w - pad * 2. - pad * 0.6 * 2.) / 3.;
     div()
@@ -66,9 +77,10 @@ fn mini(w: f32, backdrop: Backdrop, p: &Palette) -> Div {
             div()
                 .absolute()
                 .left(px(side_w))
-                .top_0()
-                .w(px(w - side_w))
-                .h(px(h))
+                .top(px(sheet_inset))
+                .w(px(w - side_w - sheet_inset))
+                .h(px(h - sheet_inset * 2.))
+                .when(floats, |el| el.rounded(px(4.)))
                 .bg(sheet),
         )
         .child(
@@ -78,9 +90,7 @@ fn mini(w: f32, backdrop: Backdrop, p: &Palette) -> Div {
                 .top(px(inset))
                 .w(px(side_w - inset * 2.))
                 .h(px(h - inset * 2.))
-                .when(backdrop == Backdrop::Glass, |el| {
-                    el.rounded(px(5.)).bg(hsla(0., 0., 1., 0.1))
-                })
+                .when(side_pane, |el| el.rounded(px(5.)).bg(hsla(0., 0., 1., 0.1)))
                 .px(px(side_w * 0.18))
                 .py(px(pad))
                 .flex()
@@ -402,10 +412,10 @@ impl AppView {
             .child(option(1, second_focus, second_name, cx))
     }
 
-    /// Glass is chosen and can show (Windows' or macOS's own glass, with Ambient off).
+    /// Glass is chosen and can show (Windows', Linux's or macOS's glass, with Ambient off).
     fn glass_chosen(&self) -> bool {
         use super::glass::Material;
-        (cfg!(windows) || cfg!(target_os = "macos"))
+        glass_offered()
             && !self.ambient_look()
             && Material::from_name(&self.settings.window_material) != Material::Solid
     }
@@ -492,7 +502,7 @@ impl AppView {
         // Background: plain, the music's cover, or the system's glass, as pictures.
         let ambient = self.ambient_look();
         let glass = self.glass_chosen();
-        let glass_offered = cfg!(windows) || cfg!(target_os = "macos");
+        let glass_offered = glass_offered();
         let (allowed, win11) = self.glass_system;
         let card = ((width - GAP * 3.) / 4.).floor();
         let picture = card - 12.;
@@ -527,6 +537,14 @@ impl AppView {
         if glass_offered {
             let about = if cfg!(target_os = "macos") {
                 "Liquid Glass"
+            } else if cfg!(target_os = "linux") {
+                // What shows now: the desktop's blur or a clear window where the compositor
+                // can show them; otherwise Needle paints the cover's glow.
+                match self.material() {
+                    super::glass::Material::Acrylic => "Blur",
+                    super::glass::Material::Clear => "Clear",
+                    _ => "The cover's glow",
+                }
             } else if !allowed {
                 "Needs transparency on"
             } else if win11 {
@@ -549,9 +567,10 @@ impl AppView {
                     if super::glass::Material::from_name(&this.settings.window_material)
                         == super::glass::Material::Solid
                     {
+                        // Linux: the cover glow ("mica" there), which every desktop shows.
                         this.settings.window_material = if cfg!(target_os = "macos") {
                             "glass"
-                        } else if win11 {
+                        } else if (win11 && cfg!(windows)) || cfg!(target_os = "linux") {
                             "mica"
                         } else {
                             "acrylic"
@@ -570,7 +589,7 @@ impl AppView {
         page = page
             .child(self.group_title("Background", cx))
             .child(div().flex().gap(px(GAP)).children(backgrounds))
-            .when(glass && cfg!(windows), |el| {
+            .when(glass && !cfg!(target_os = "macos"), |el| {
                 el.child(div().mt(px(8.)).children(self.glass_settings(cx)))
             })
             .child(div().mt(px(8.)).child(self.switch_row(

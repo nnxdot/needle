@@ -9,8 +9,23 @@ use gpui::{prelude::*, *};
 const BARS: usize = 48;
 
 impl AppView {
+    /// Whether the visualizer moves: only while music plays, and never with Reduce motion
+    /// (it rests, still and low). Only then does it ask for a new frame each time it draws.
+    fn visualizer_moving(&self) -> bool {
+        self.playback.playing && self.motion_allowed()
+    }
+
+    /// The sound's bands now, or all at rest when the visualizer does not move.
+    fn bands(moving: bool) -> Vec<f32> {
+        if moving {
+            needle_core::scope::spectrum(BARS)
+        } else {
+            vec![0.; BARS]
+        }
+    }
+
     /// The strip of bars, `width` by `height`, mirrored about its middle line. It draws again
-    /// each frame while it shows.
+    /// each frame while it moves.
     pub(super) fn visualizer_strip(
         &self,
         width: f32,
@@ -20,10 +35,11 @@ impl AppView {
         let p = pal(cx);
         let color = p.accent;
         let soft = p.glow;
+        let moving = self.visualizer_moving();
         canvas(
             |_, _, _| {},
             move |b, _, window, _| {
-                let bands = needle_core::scope::spectrum(BARS);
+                let bands = Self::bands(moving);
                 let step = b.size.width / BARS as f32;
                 let bar = (step * 0.56).max(px(2.));
                 let middle = b.top() + b.size.height / 2.;
@@ -43,7 +59,9 @@ impl AppView {
                         .corner_radii(bar / 2.),
                     );
                 }
-                window.request_animation_frame();
+                if moving {
+                    window.request_animation_frame();
+                }
             },
         )
         .w(px(width))
@@ -58,10 +76,11 @@ impl AppView {
     pub(super) fn visualizer_light(&self, side: f32, cx: &mut Context<Self>) -> AnyElement {
         let p = pal(cx);
         let (inner, outer) = (p.accent, p.glow);
+        let moving = self.visualizer_moving();
         canvas(
             |_, _, _| {},
             move |b, _, window, _| {
-                let bands = needle_core::scope::spectrum(BARS);
+                let bands = Self::bands(moving);
                 let average = |from: usize, to: usize| {
                     bands[from..to].iter().sum::<f32>() / (to - from) as f32
                 };
@@ -114,7 +133,9 @@ impl AppView {
                         );
                     }
                 }
-                window.request_animation_frame();
+                if moving {
+                    window.request_animation_frame();
+                }
             },
         )
         .size(px(side))
@@ -124,7 +145,12 @@ impl AppView {
     /// A glow behind the cover that grows with how loud the music is now.
     pub(super) fn visualizer_glow(&self, cx: &App) -> Vec<BoxShadow> {
         let p = pal(cx);
-        let level = needle_core::scope::level();
+        // At rest (paused, or Reduce motion) the glow keeps still.
+        let level = if self.visualizer_moving() {
+            needle_core::scope::level()
+        } else {
+            0.
+        };
         vec![BoxShadow {
             color: p.glow.opacity(0.35 + 0.5 * level.min(1.)),
             offset: point(px(0.), px(0.)),

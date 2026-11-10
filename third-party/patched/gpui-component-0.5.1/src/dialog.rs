@@ -422,9 +422,17 @@ impl RenderOnce for Dialog {
                     .child(
                         v_flex()
                             .id(layer_ix)
-                            .bg(cx.theme().background)
+                            // Needle patch: with the edge light, a dialog is a popover pane.
+                            .bg(if cx.theme().popover_edge.a > 0. {
+                                cx.theme().popover
+                            } else {
+                                cx.theme().background
+                            })
                             .border_1()
-                            .border_color(cx.theme().border)
+                            .border_color(crate::styled::popover_border(cx))
+                            .when(cx.theme().popover_edge.a > 0., |el| {
+                                el.edge_light(cx.theme().popover_edge)
+                            })
                             .rounded(cx.theme().radius_lg)
                             .min_h_24()
                             .pt(paddings.top)

@@ -69,7 +69,7 @@ struct CommandPalette: View {
                 .padding(.vertical, 8)
             }
             .frame(width: 620)
-            .pane(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .pane(RoundedRectangle(cornerRadius: Radius.large, style: .continuous), tinted: true)
             .shadow(color: .black.opacity(0.3), radius: 30, y: 12)
             .padding(.top, 90)
         }
@@ -104,7 +104,7 @@ struct CommandPalette: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(active ? store.colors.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(active ? store.colors.accentSoft : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
     }
@@ -124,7 +124,7 @@ struct CommandPalette: View {
     private var items: [Item] {
         var list: [Item] = []
         let pages: [(String, String, Route)] = [
-            ("Home", "house", .home), ("Songs", "music.note", .songs), ("Albums", "square.stack", .albums),
+            ("Home", "house", .home), ("Radio", "dot.radiowaves.left.and.right", .radio), ("Songs", "music.note", .songs), ("Albums", "square.stack", .albums),
             ("Artists", "music.mic", .artists), ("Folders", "folder", .folders), ("Favorites", "heart", .favorites),
             ("Recently added", "clock", .recent), ("Listening history", "chart.line.uptrend.xyaxis", .history),
             ("Sound and equalizer", "slider.vertical.3", .sound), ("Fix my library", "wrench.and.screwdriver", .doctor),

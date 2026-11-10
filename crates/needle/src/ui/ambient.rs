@@ -40,6 +40,8 @@ impl Look {
 #[derive(Default)]
 pub struct Looks {
     map: HashMap<String, Option<Look>>,
+    /// Covers being measured now.
+    pending: std::collections::HashSet<String>,
 }
 
 /// The palette fading from one cover's colours to the next.
@@ -59,6 +61,85 @@ impl Fade {
 }
 
 const FADE_MS: f32 = 900.;
+
+/// A blurred cover for the window's glow, and how strongly it shows.
+type Glow = Option<(PathBuf, f32)>;
+
+/// The whole-window cover glow moving from one cover to the next, over the palette's fade
+/// time. The old picture stays until the new one has loaded, so no frame is blank.
+#[derive(Default)]
+pub struct GlowFade {
+    /// The picture shown, its strength, and whether it has loaded.
+    current: Option<(PathBuf, f32)>,
+    ready: bool,
+    /// The picture it replaces, and its strength; drawn until the new one has faded in.
+    previous: Option<(PathBuf, f32)>,
+    /// When the new picture had loaded and began to fade in.
+    since: Option<Instant>,
+    serial: usize,
+}
+
+impl GlowFade {
+    /// The picture shown now, if any.
+    fn shown(&self) -> Option<(PathBuf, f32)> {
+        self.current.clone()
+    }
+
+    /// The new picture is fading in now. Once it is in, it is drawn still: a glow drawn
+    /// again later (after the big player) does not fade in again.
+    fn fading(&self) -> bool {
+        self.since
+            .is_some_and(|since| since.elapsed().as_secs_f32() * 1000. < FADE_MS)
+    }
+
+    /// Move to `target` (a blurred cover and its strength) and say what to draw: the picture
+    /// fading out, the one fading in, and the fade's serial, or `None` while the new picture
+    /// loads (the old one then stays as it is).
+    fn step(
+        &mut self,
+        target: Option<(PathBuf, f32)>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (Glow, Glow, Option<usize>) {
+        if target.as_ref().map(|t| &t.0) != self.current.as_ref().map(|c| &c.0) {
+            // A picture that never loaded is not kept: the last one seen stays instead.
+            if self.ready {
+                self.previous = self.current.take();
+            }
+            self.current = target;
+            self.ready = false;
+            self.since = None;
+        } else if let (Some(current), Some(target)) = (&mut self.current, target) {
+            // The same cover with a new strength (the look changed): no fade.
+            current.1 = target.1;
+        }
+        if !self.ready {
+            self.ready = match &self.current {
+                Some((path, _)) => window
+                    .use_asset::<ImgResourceLoader>(&Resource::Path(path.as_path().into()), cx)
+                    .is_some(),
+                None => true,
+            };
+            if self.ready {
+                self.since = Some(Instant::now());
+                self.serial += 1;
+            }
+        }
+        // Once the new picture is fully in, the old one is gone.
+        if self
+            .since
+            .is_some_and(|since| since.elapsed().as_secs_f32() * 1000. >= FADE_MS)
+        {
+            self.previous = None;
+        }
+        let fading_in = self.current.clone().filter(|_| self.ready);
+        (
+            self.previous.clone(),
+            fading_in,
+            self.ready.then_some(self.serial),
+        )
+    }
+}
 
 /// The strongest colour in an image: the most colourful band of hues, weighted by how
 /// saturated and how clearly lit each pixel is, so a small red label beats a grey sky.
@@ -165,6 +246,7 @@ impl AppView {
             return look.clone();
         }
         self.looks.map.insert(path.to_string(), None);
+        self.looks.pending.insert(path.to_string());
         let sender = self.sender.clone();
         let cache = self.library.directory.join("artwork").join("ambient");
         let path = path.to_string();
@@ -179,6 +261,7 @@ impl AppView {
         self.looks.map.get(path).cloned().flatten()
     }
     pub(super) fn set_look(&mut self, path: String, look: Option<Look>) {
+        self.looks.pending.remove(&path);
         self.looks.map.insert(path, look);
     }
 
@@ -232,6 +315,12 @@ impl AppView {
             // Ambient covers the whole window with its own background.
             _ if !allowed || self.ambient_look() => Material::Solid,
             Material::Mica if !win11 => Material::Acrylic,
+            // Linux: real blur and a see-through window only where the compositor can show
+            // them; elsewhere Needle paints the glass in a solid window.
+            Material::Acrylic if cfg!(target_os = "linux") && !super::glass::system_blur() => {
+                Material::Painted
+            }
+            Material::Clear if !super::glass::see_through() => Material::Painted,
             m => m,
         }
     }
@@ -239,6 +328,26 @@ impl AppView {
     /// macOS Liquid Glass is on (Settings › Appearance).
     pub(super) fn liquid(&self) -> bool {
         self.material() == super::glass::Material::Liquid
+    }
+
+    /// Windows and Linux: the glass look is on, with window glass or with Ambient (one look
+    /// with two strengths of cover). The sidebar and the page then float as panes over the
+    /// back layer, with the cover glowing behind them. Never on macOS.
+    pub(super) fn glass_look(&self) -> bool {
+        !cfg!(target_os = "macos")
+            && (self.ambient_look() || self.material() != super::glass::Material::Solid)
+    }
+
+    /// The glass look with the floating layout: the sidebar and the page as panes.
+    pub(super) fn floating_glass(&self) -> bool {
+        self.glass_look() && self.floating()
+    }
+
+    /// Linux's cover glow (the default, and Blur or Clear where the desktop cannot show
+    /// them): the window stays solid, and Needle paints the glass (the cover's glow on the
+    /// back layer's colour) itself.
+    pub(super) fn painted_glass(&self) -> bool {
+        self.material() == super::glass::Material::Painted
     }
 
     /// The player and the side panel float over the page (Needle 2.0's layout, after the
@@ -297,6 +406,7 @@ impl AppView {
 
     /// Tell Windows which material to draw, when it or dark/light changed.
     pub(super) fn update_glass(&mut self, window: &mut Window, cx: &App) {
+        super::glass::probe_desktop(window);
         let key = (self.material(), theme::pal(cx).dark);
         if self.glass_applied != Some(key) {
             super::glass::apply(window, key.0, key.1);
@@ -342,6 +452,7 @@ impl AppView {
             target.back = target.chrome.opacity(if target.dark { 0.5 } else { 0.55 });
             target.canvas = target.canvas.opacity(if target.dark { 0.62 } else { 0.7 });
         }
+        target.glass = self.glass_look();
         let shown = theme::pal(cx);
         if target != self.fade.to {
             // Switching dark and light snaps; covers fade.
@@ -445,25 +556,34 @@ impl AppView {
         self.settings.ambient || self.settings.theme == "ambient"
     }
 
-    /// Windows: Glass is on, with the cover on it (Settings › Appearance › The cover on the
-    /// glass), so the glass takes the music's colours, as on the Mac.
+    /// Windows and Linux: Glass is on, so the playing cover glows behind the back layer and
+    /// the glass takes the music's colours, as the Mac's `glass_backdrop` does. It follows
+    /// Colors from the music; where Linux cannot blur, it is the glass itself, so it is
+    /// always there.
     pub(super) fn glass_cover(&self) -> bool {
         use super::glass::Material;
-        cfg!(windows)
-            && self.settings.glass_ambient
+        !cfg!(target_os = "macos")
             && !self.ambient_look()
+            && (self.settings.music_colors || self.painted_glass())
             && matches!(
                 self.material(),
-                Material::Mica | Material::Acrylic | Material::Clear
+                Material::Mica | Material::Acrylic | Material::Clear | Material::Painted
             )
     }
 
-    /// The Ambient look's background: the page's or the playing song's cover, blurred, over
-    /// the whole window (or the chosen colour as a soft gradient), with a dark wash on top so
-    /// text stays readable on any cover.
-    pub(super) fn ambient_layer(&mut self, cx: &App) -> Option<AnyElement> {
-        let on_glass = self.glass_cover();
-        if !self.ambient_look() && !on_glass {
+    /// The cover's glow behind the back layer, for Ambient and for glass alike: the page's or
+    /// the playing song's cover, blurred (the cached `Look::blur`, so nothing is redrawn per
+    /// frame), or the music's colour as a soft gradient, with a wash on top so text stays
+    /// readable on any cover. Ambient lays it strongly over a solid base; glass half
+    /// see-through over the window's glass, or a little stronger over a solid base where Linux
+    /// cannot blur.
+    pub(super) fn ambient_layer(
+        &mut self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<AnyElement> {
+        let ambient = self.ambient_look();
+        if !ambient && !self.glass_cover() {
             return None;
         }
         let p = theme::pal(cx);
@@ -476,67 +596,92 @@ impl AppView {
                     .or_else(|| shown.and_then(|c| c.track.artwork))
             })
             .flatten();
-        let blur = path.and_then(|path| self.look(&path)).and_then(|look| {
-            look.blur.clone().map(|b| {
-                (
-                    b,
-                    look.strength(p.dark).max(if p.dark { 0.6 } else { 0.35 }),
-                )
-            })
-        });
-        if on_glass {
-            // Over the glass: the cover half see-through, so the glass still shows through it,
-            // and a light wash for the words.
-            let layer = div().absolute().inset_0();
-            let layer = match blur {
-                Some((blur, fit)) => layer.child(
-                    img(blur)
-                        .absolute()
-                        .inset_0()
-                        .size_full()
-                        .object_fit(ObjectFit::Cover)
-                        .opacity(0.55 * fit),
-                ),
-                None => layer.child(div().absolute().inset_0().bg(linear_gradient(
-                    150.,
-                    linear_color_stop(p.glow.opacity(0.35), 0.),
-                    linear_color_stop(p.glow.opacity(0.05), 1.),
-                ))),
-            };
-            return Some(
-                layer
-                    .child(div().absolute().inset_0().bg(linear_gradient(
-                        180.,
-                        linear_color_stop(p.chrome.opacity(if p.dark { 0.1 } else { 0.25 }), 0.),
-                        linear_color_stop(p.chrome.opacity(if p.dark { 0.35 } else { 0.5 }), 1.),
-                    )))
-                    .into_any_element(),
-            );
-        }
-        let layer = div().absolute().inset_0().bg(p.chrome);
-        let layer = match blur {
-            Some((blur, fit)) => layer.child(
-                img(blur)
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(ObjectFit::Cover)
-                    .opacity(0.8 * fit),
+        let blur = path
+            .as_ref()
+            .and_then(|path| self.look(path))
+            .and_then(|look| {
+                look.blur.clone().map(|b| {
+                    (
+                        b,
+                        look.strength(p.dark).max(if p.dark { 0.6 } else { 0.35 }),
+                    )
+                })
+            });
+        // A cover still being measured keeps the glow there is, rather than flashing the
+        // plain colour in between.
+        let measuring = path.is_some_and(|path| self.looks.pending.contains(&path));
+        let painted = ambient || self.painted_glass();
+        let d = p.dark;
+        // (cover, gradient start and end, wash top and foot).
+        let (cover, glow, wash) = match (ambient, painted) {
+            (true, _) => (0.8, (0.55, 0.08), if d { (0.3, 0.65) } else { (0.55, 0.8) }),
+            (false, true) => (0.7, (0.45, 0.06), if d { (0.2, 0.5) } else { (0.4, 0.65) }),
+            (false, false) => (
+                0.55,
+                (0.35, 0.05),
+                if d { (0.1, 0.35) } else { (0.25, 0.5) },
             ),
-            None => layer.child(div().absolute().inset_0().bg(linear_gradient(
-                150.,
-                linear_color_stop(p.glow.opacity(0.55), 0.),
-                linear_color_stop(p.glow.opacity(0.08), 1.),
-            ))),
         };
+        let layer = div()
+            .absolute()
+            .inset_0()
+            .when(painted, |el| el.bg(p.chrome));
+        // A new cover fades in over the old one, as the palette does; the old one stays until
+        // the new one has loaded.
+        let target = if measuring && blur.is_none() {
+            self.glow_fade.shown()
+        } else {
+            blur.map(|(blur, fit)| (blur, cover * fit))
+        };
+        let gradient = target.is_none();
+        let (old, new, serial) = self.glow_fade.step(target, window, cx);
+        let fading = self.glow_fade.fading();
+        let picture = |path: PathBuf| {
+            img(path)
+                .absolute()
+                .inset_0()
+                .size_full()
+                .object_fit(ObjectFit::Cover)
+        };
+        let layer = layer
+            .when(gradient, |el| {
+                el.child(div().absolute().inset_0().bg(linear_gradient(
+                    150.,
+                    linear_color_stop(p.glow.opacity(glow.0), 0.),
+                    linear_color_stop(p.glow.opacity(glow.1), 1.),
+                )))
+            })
+            .when_some(old, |el, (path, alpha)| match serial {
+                Some(serial) => el.child(motion::animate(
+                    picture(path),
+                    ("glow-out", serial),
+                    FADE_MS as u64,
+                    cx,
+                    move |el, t| el.opacity(alpha * (1. - t)),
+                )),
+                None => el.child(picture(path).opacity(alpha)),
+            })
+            .when_some(new.zip(serial), |el, ((path, alpha), serial)| {
+                if fading {
+                    el.child(motion::animate(
+                        picture(path),
+                        ("glow-in", serial),
+                        FADE_MS as u64,
+                        cx,
+                        move |el, t| el.opacity(alpha * t),
+                    ))
+                } else {
+                    el.child(picture(path).opacity(alpha))
+                }
+            });
         Some(
             layer
                 // On the light look a busy mid-tone background makes grey text hard to read,
                 // so the wash is lighter and more even there.
                 .child(div().absolute().inset_0().bg(linear_gradient(
                     180.,
-                    linear_color_stop(p.chrome.opacity(if p.dark { 0.3 } else { 0.55 }), 0.),
-                    linear_color_stop(p.chrome.opacity(if p.dark { 0.65 } else { 0.8 }), 1.),
+                    linear_color_stop(p.chrome.opacity(wash.0), 0.),
+                    linear_color_stop(p.chrome.opacity(wash.1), 1.),
                 )))
                 .into_any_element(),
         )
@@ -570,6 +715,72 @@ impl AppView {
             return div().into_any_element();
         }
         self.backdrop(path.as_deref(), height, strength, cx)
+    }
+
+    /// Whether the page shown is scrolled down from its top.
+    fn page_scrolled(&self) -> bool {
+        use super::Page;
+        let down = |handle: &ScrollHandle| f32::from(handle.offset().y) < -0.5;
+        match &self.page {
+            Page::Settings => down(&self.settings_scroll),
+            Page::Timing => down(&self.timing_scroll),
+            // Its list scrolls under a header that stays.
+            Page::History => false,
+            Page::Home
+            | Page::Folders
+            | Page::Import
+            | Page::Search
+            | Page::Sound
+            | Page::Doctor
+            | Page::Numbers
+            | Page::MoodMap
+            | Page::Radio
+            | Page::Wrapped(_) => down(&self.page_scroll),
+            Page::Artist(_) => down(&self.artist_scroll),
+            page if page.is_grid() => down(&self.grid_scroll.0.borrow().base_handle),
+            _ => down(&self.list_scroll.0.borrow().base_handle),
+        }
+    }
+
+    /// Windows and Linux: soft edges on the page, so it fades out under the title bar and
+    /// under the floating player rather than stopping at a hard line. The top one shows only
+    /// while the page is scrolled: at rest it would lay a band over the page's glow or banner.
+    pub(super) fn scroll_edges(&self, cx: &App) -> Vec<AnyElement> {
+        let c = theme::pal(cx).canvas;
+        let mut edges = Vec::new();
+        if self.page_scrolled() {
+            edges.push(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(14.))
+                    .bg(linear_gradient(
+                        180.,
+                        linear_color_stop(c, 0.),
+                        linear_color_stop(c.opacity(0.), 1.),
+                    ))
+                    .into_any_element(),
+            );
+        }
+        if !self.settings.layout.player_on_top {
+            edges.push(
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(super::player2::HEIGHT + 28.))
+                    .bg(linear_gradient(
+                        180.,
+                        linear_color_stop(c.opacity(0.), 0.),
+                        linear_color_stop(c.opacity(c.a * 0.85), 1.),
+                    ))
+                    .into_any_element(),
+            );
+        }
+        edges
     }
 
     /// Film grain over the whole window, so large surfaces do not look like flat paint.

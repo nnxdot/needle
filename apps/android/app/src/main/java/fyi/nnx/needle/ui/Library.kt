@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Album
@@ -43,7 +44,6 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Style
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -197,7 +197,7 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                         colors = pill,
                         border = null,
                     )
-                    DropdownMenu(expanded = more, onDismissRequest = { more = false }, shape = RoundedCornerShape(20.dp)) {
+                    GlassMenu(expanded = more, onDismissRequest = { more = false }) {
                         DropdownMenuItem(text = { Text("Genres") }, leadingIcon = { Icon(Icons.Rounded.Style, null) }, onClick = { more = false; open(Route.Genres) })
                         DropdownMenuItem(text = { Text("Folders") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { more = false; open(Route.Folder(null)) })
                         DropdownMenuItem(text = { Text("Record crate") }, leadingIcon = { Icon(Icons.Rounded.Album, null) }, onClick = { more = false; open(Route.Crate) })
@@ -215,7 +215,7 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
             val current = sort.forSongs(filter == Filter.Songs)
             Box {
                 IconButton(onClick = { sorting = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${current.label}") }
-                DropdownMenu(expanded = sorting, onDismissRequest = { sorting = false }, shape = RoundedCornerShape(20.dp)) {
+                GlassMenu(expanded = sorting, onDismissRequest = { sorting = false }) {
                     orders.forEach { s ->
                         DropdownMenuItem(
                             text = { Text(s.label) },
@@ -284,7 +284,9 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
         span {
             Column(Modifier.padding(horizontal = 0.dp)) {
                 LibraryLink(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }) { open(Route.Favorites) }
-                LibraryLink(Icons.Rounded.History, "History", "What you played", last = true) { open(Route.History) }
+                LibraryLink(Icons.Rounded.History, "History", "What you played") { open(Route.History) }
+                // The iPhone's Radio tab: stations and quick mixes (a tablet's side bar has it too).
+                LibraryLink(Icons.Rounded.Radio, "Radio", "Your station and quick mixes", last = true) { open(Route.Radio) }
             }
         }
         span { Text("Recently added", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp)) }
@@ -472,11 +474,7 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
                 PlaylistCover(playlist, Modifier.size(56.dp), SmallCoverShape)
                 Column(Modifier.weight(1f)) {
                     Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        if (playlist.smart) "Smart playlist" else count(playlist.songs.toInt(), "song"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    PlaylistLine(playlist)
                 }
             }
         }

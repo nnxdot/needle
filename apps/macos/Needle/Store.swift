@@ -23,12 +23,26 @@ final class Store {
     /// sidebar redrew every row of the song table).
     private(set) var colors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
     private(set) var motion = true
+    /// Reduce motion is on in System Settings (Settings › Appearance says so).
+    private(set) var systemStill = false
     private(set) var displayFont = "system"
     /// The text font's setting (Settings › Appearance › Text); the window is drawn anew for it.
     private(set) var textFont = "system"
     /// Song rows in the compact height.
     private(set) var compactRows = false
+    /// What plays and how. It changes only when something other than the place in the song
+    /// does (the song, play or pause, repeat, the volume, the loop, the queue): its `position`
+    /// is where the song was then. The moving place is `playhead.position`, which only the seek
+    /// bars, the clocks, and the line being sung read, so the rest of the window does not
+    /// redraw ten times a second.
     private(set) var playback: MacPlayback?
+    /// Where the song is now, ten times a second while it plays.
+    @ObservationIgnored let playhead = Playhead()
+    /// The song playing, by id: song rows read this, which changes only with the song.
+    private(set) var playingID: String?
+    /// The main window shows on screen (not minimised, hidden, or covered): moving things rest
+    /// while it does not.
+    private(set) var mainVisible = true
     /// The song playing, with every field.
     private(set) var current: Track?
     /// The songs up next (the first few hundred), read again whenever the queue changes.
@@ -38,6 +52,9 @@ final class Store {
     private(set) var lyrics: Lyrics?
     private(set) var lyricsFor: String?
     private(set) var lyricsLooking = false
+    /// The last lyrics found were timed: while the next song's are looked up, the strip under
+    /// the player keeps its room (see `LyricStrip.shows`).
+    private(set) var lyricsTimed = false
     /// The timed lyric line being sung; it changes only when the line does.
     private(set) var lyricLine: Int?
     private(set) var scan = ScanStatus(running: false, scanned: 0, imported: 0, current: "", error: nil)
@@ -56,6 +73,9 @@ final class Store {
     /// The accent without an open page's colours: for the always-dark mini player and the
     /// sidebar (whose highlight AppKit keeps from when it was made).
     private(set) var playerAccent: Color = .accentColor
+    /// The faint cover colour under the player's, the panels', the palette's, and the messages'
+    /// glass (see `pane`), or none.
+    private(set) var paneTint: Color?
     /// Whether music plays: menus and the palette follow this, which changes only when it does
     /// (`playback` changes ten times a second).
     private(set) var isPlaying = false
@@ -88,8 +108,11 @@ final class Store {
     /// An album's, artist's, or playlist's page has scrolled its big title away: the title bar
     /// shows the name instead.
     var headerFolded = false
-    /// The album tile just chosen (its own id), whose cover grows into the album page's.
-    var travelingTile: UUID?
+    /// The album tile just chosen ("<place>|<album's rule>"), whose cover grows into the album
+    /// page's, and back into the tile on Back. Kept while its album's page shows, and let go of
+    /// once the way back has been flown (or another page opens).
+    var travelingTile: String?
+    @ObservationIgnored private var landing: Task<Void, Never>?
     /// The namespace the traveling cover moves in (the main window's).
     @ObservationIgnored var coverSpace: Namespace.ID?
     /// The song the details panel describes: the last one clicked.
@@ -179,10 +202,17 @@ final class Store {
         reloadPlaylists()
         reloadPlugins()
         reloadThemes()
+        if let sound = try? core.soundSettings() { soundOn = Self.soundLit(sound) }
         nowPlaying.start(self)
         if settings.welcomed { sendCrashReports() }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+        schedule(Self.fast)
+        // A window shown, hidden, or covered: the pace of the timer, and whether moving
+        // things move, follow at once.
+        NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowsChanged() }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didUnhideNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowsChanged() }
         }
         maybeWelcome()
         #if DEBUG
@@ -193,6 +223,11 @@ final class Store {
             checkForUpdate(force: false)
             // Folders changed while Needle was closed: the watcher sees only what comes after.
             core.rescan()
+        }
+        // Reduce motion turned on or off in System Settings: followed at once, not at the next
+        // change of the look.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshLook() }
         }
         // A drive plugged in: its folders are read and watched again.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] note in
@@ -213,15 +248,51 @@ final class Store {
 
     // MARK: - Following the core
 
+    /// Ten times a second while music plays or a window shows; once a second while nothing
+    /// plays and no window of Needle's can be seen (closed, minimised, hidden, or covered).
+    private static let fast: TimeInterval = 0.1
+    private static let slow: TimeInterval = 1
+
+    private func schedule(_ interval: TimeInterval) {
+        timer?.invalidate()
+        timerInterval = interval
+        let next = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        next.tolerance = interval * 0.2
+        RunLoop.main.add(next, forMode: .common)
+        timer = next
+    }
+
+    @ObservationIgnored private var timerInterval: TimeInterval = 0
+
+    /// The timer's pace for what plays and what shows now.
+    private func pace() {
+        let seen = NSApp?.windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) && !($0 is NSPanel) } ?? true
+        let wanted = isPlaying || seen ? Self.fast : Self.slow
+        if wanted != timerInterval { schedule(wanted) }
+    }
+
+    private func windowsChanged() {
+        let main = NSApp?.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }
+        let visible = main.map { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) } ?? false
+        if visible != mainVisible { mainVisible = visible }
+        pace()
+    }
+
     private func tick() {
         ticks += 1
         let now = core.macPlayback()
         // Slower while nothing plays: four times a second is plenty.
-        if now.playing || ticks % 3 == 0 || now != playback { follow(now) }
+        let slow = timerInterval >= Self.slow
+        if now.playing || slow || ticks % 3 == 0 || now != playback { follow(now) }
         followSleep()
-        guard ticks % 5 == 0 else { return }
-        let pace = core.speedAndPitch()
-        if pace != tempo { tempo = pace }
+        // Music started while slow (a media key): fast at once. Otherwise once a second (a
+        // window closed sends no notice).
+        if (now.playing && slow) || ticks % 10 == 0 { pace() }
+        guard slow || ticks % 5 == 0 else { return }
+        let speed = core.speedAndPitch()
+        if speed != tempo { tempo = speed }
         let status = core.scanStatus()
         if status != scan {
             // The slow search for artists' pictures waits while the library is read.
@@ -270,7 +341,7 @@ final class Store {
         if let r = running { running?.remaining = r.remaining.rounded(.up) }
         if running != sleep { sleep = running }
         let ended = core.sleepTimerEnded()
-        if let seen = sleepEndedSeen, ended > seen, settings.sleepComputer { sleepMac() }
+        if let seen = sleepEndedSeen, ended > seen, settings.sleepComputer, !Store.fromAppStore { sleepMac() }
         sleepEndedSeen = ended
     }
 
@@ -299,7 +370,7 @@ final class Store {
     /// again, away from the window, then the pages show the new albums.
     func setAlbumRule(grouping: String? = nil, compilations: Bool? = nil) {
         Task {
-            let done = await ask { core in
+            let done: Void? = await ask { core in
                 var choices = try core.libraryChoices()
                 if let grouping { choices.albumGrouping = grouping }
                 if let compilations { choices.compilationsVarious = compilations }
@@ -334,7 +405,11 @@ final class Store {
 
     private func follow(_ now: MacPlayback) {
         let before = playback
-        playback = now
+        if now.position != playhead.position { playhead.position = now.position }
+        // Only a change other than the place in the song tells the views reading `playback`.
+        let moved = before.map { var same = $0; same.position = now.position; return same != now } ?? true
+        if moved { playback = now }
+        if now.current != playingID { playingID = now.current }
         if now.playing != isPlaying { isPlaying = now.playing }
         // A point A set on the last song is not this one's.
         if now.current != before?.current, loopStart != nil { loopStart = nil }
@@ -350,8 +425,11 @@ final class Store {
             reloadCurrent(started: now.current != before?.current)
         }
         if now.queueVersion != queueVersion {
+            let first = queueVersion == .max
             queueVersion = now.queueVersion
-            queue = core.queueEntries(offset: 0, limit: 400)
+            let next = core.queueEntries(offset: 0, limit: 400)
+            // Rows come, go, and move into place (still with Reduce motion, and the first time).
+            withAnimation(motion && !first ? .smooth(duration: 0.3) : nil) { queue = next }
             queueSeconds = core.queueSeconds()
         }
         if now.artwork != tintFor {
@@ -359,7 +437,7 @@ final class Store {
             findTint(now.artwork)
         }
         followLyrics(now.position)
-        nowPlaying.update(now)
+        nowPlaying.update(now, speed: tempo.available ? Double(tempo.speed) : 1)
     }
 
     private func followLyrics(_ position: Double) {
@@ -388,6 +466,8 @@ final class Store {
             lyrics = found ?? nil
             lyricsFor = id
             lyricsLooking = false
+            let timed = lyrics.map { !$0.instrumental && !$0.lines.isEmpty } ?? false
+            if timed != lyricsTimed { lyricsTimed = timed }
             if needsCover {
                 coverFetched.insert(id)
                 let got = await Task.detached { (try? core.fetchCover(id: id)) ?? 0 }.value
@@ -409,6 +489,8 @@ final class Store {
         libraryTask = Task {
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
+            // A cover may have been saved again at its path (a cover fetched, one chosen).
+            Covers.forgetStamps()
             libraryVersion += 1
             reloadPlaylists()
             if let id = playback?.current { current = JSON.decode(Track.self, (try? core.trackJson(id: id)) ?? nil) }
@@ -456,13 +538,13 @@ final class Store {
     }
 
     private func show(_ next: Toast) {
-        withAnimation(.snappy) { toast = next }
+        withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = next }
         NSAccessibility.post(element: NSApp!, notification: .announcementRequested,
                              userInfo: [.announcement: next.text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         toastTask?.cancel()
         toastTask = Task {
             try? await Task.sleep(for: .seconds(next.error ? 14 : 6))
-            if !Task.isCancelled, toast?.id == next.id { withAnimation(.snappy) { toast = nil } }
+            if !Task.isCancelled, toast?.id == next.id { withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = nil } }
         }
     }
 
@@ -470,6 +552,8 @@ final class Store {
     /// Sends sound settings to the player one at a time, in order; while one is on its way,
     /// only the newest waiting goes next (a slider being dragged sends many).
     func setSound(_ value: SoundSettings) {
+        let lit = Self.soundLit(value)
+        if lit != soundOn { soundOn = lit }
         soundNext.put(value)
         let (core, next) = (core, soundNext)
         soundQueue.async {
@@ -482,6 +566,17 @@ final class Store {
             }
         }
     }
+
+    /// A sound tool is on (the equalizer, mono, crossfeed, or a balance off the middle): the
+    /// player's sound button is lit. Read at the start, and kept with each change sent.
+    private(set) var soundOn = false
+
+    static func soundLit(_ s: SoundSettings) -> Bool {
+        s.eq || s.mono || s.crossfeed || abs(s.balance) > 0.001
+    }
+
+    /// The film grain while its slider is dragged: shown at once, saved when let go.
+    var grainPreview: Float?
 
     @ObservationIgnored private let soundQueue = DispatchQueue(label: "fyi.nnx.Needle.sound")
     @ObservationIgnored private let soundNext = Latest<SoundSettings>()
@@ -517,6 +612,15 @@ final class Store {
     nonisolated func load<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> T? {
         let core = core
         return await Task.detached { try? work(core) }.value
+    }
+
+    /// Reads a value away from the window, or what went wrong, in words: for a page that shows
+    /// a failure in its own place (never as an empty page).
+    nonisolated func read<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> Result<T, Failure> {
+        let core = core
+        return await Task.detached {
+            do { return .success(try work(core)) } catch { return .failure(Failure(message: error.message)) }
+        }.value
     }
 
     // MARK: - Settings
@@ -561,7 +665,14 @@ final class Store {
         let plain = pageTint == nil ? look : lookNow(paged: false)
         if plain != plainColors { plainColors = plain }
         if plain.accent != playerAccent { playerAccent = plain.accent }
-        let still = settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        // The player's and the panels' glass take the playing cover's colour, faintly, when the
+        // colours come from the music (less on the light look, which washes out sooner).
+        let fromMusic = settings.musicColors && (customTheme?.musicColors ?? true) && coverTint != nil
+        let wash = fromMusic ? plain.glow.opacity(plain.dark ? 0.18 : 0.1) : nil
+        if wash != paneTint { paneTint = wash }
+        let system = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if system != systemStill { systemStill = system }
+        let still = settings.reduceMotion || system
         if motion == still { motion = !still }
         if displayFont != settings.displayFont { displayFont = settings.displayFont }
         if textFont != settings.textFont {
@@ -606,6 +717,8 @@ final class Store {
         // The player in the title bar needs its width beside the sidebar button, Back, Forward,
         // and the command button, and the window's buttons when the sidebar is folded away.
         let beside: CGFloat = 170 + (layout.sidebarHidden ? 80 : 0)
+            // The line being sung beside it, at its narrowest.
+            + (settings.playerLyrics ? 150 : 0)
         let page: CGFloat = layout.playerOnTop ? max(560, TopPlayer.width + beside) : 560
         let wanted = max(760, page + sidebar + (settings.showInspector ? 310 : 0))
         // Never wider than the screen: on a small one the window could not fit.
@@ -661,13 +774,33 @@ final class Store {
         searchQuiet = false
         sort = nil
         selectedTracks = []
+        let from = route
         route = to
         big = false
         headerFolded = false
+        followTravel(from: from, to: to)
         // A page without a colour of its own goes back to the theme's. From one album or
         // artist to another, the colour stays until the next one's is found: no flash between.
         // Never in an animation (see `setPageTint`).
         if pageTint != nil, !to.isPaged { pageTint = nil }
+    }
+
+    /// The traveling cover (see `travelingTile`): kept on the way to its album's page and while
+    /// it shows; leaving it, kept for the flight back (the tile it came from may show again),
+    /// then let go of once the page's change is done. Any other page: let go of at once.
+    private func followTravel(from: Route, to: Route) {
+        landing?.cancel()
+        guard let tile = travelingTile else { return }
+        let album = { (route: Route) -> Bool in
+            if case .album(_, _, let query) = route { return tile.hasSuffix("|" + query) }
+            return false
+        }
+        if album(to) { return }
+        guard album(from) else { travelingTile = nil; return }
+        landing = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            if !Task.isCancelled, !album(route) { travelingTile = nil }
+        }
     }
 
     /// An album or artist page's colour, once found; only while that page is still open.
@@ -718,13 +851,19 @@ final class Store {
         JSON.decode(PlaylistModel.self, (try? core.playlistJson(id: id)) ?? nil)
     }
 
-    /// The full rule for what `route` shows, with the search and the chosen order.
-    func expression(for route: Route, playlistRule: String? = nil) -> String {
+    /// The full rule for what `route` shows, with the search and the chosen order. A playlist's
+    /// page needs its playlist (`playlist`): without one (it was removed, say by a server's
+    /// sync) there is no rule, never an empty one, which would be the whole library.
+    func expression(for route: Route, playlist: PlaylistModel? = nil) -> String? {
         let text = search.trimmingCharacters(in: .whitespaces)
         if route == .albums || route == .artists { return text }
         var base = route.base
         if case .source(let plugin, _) = route { base = core.sourceRule(plugin: plugin) }
-        if case .playlist = route { base = playlistRule ?? "" }
+        if case .playlist(let id) = route {
+            guard let playlist, playlist.id == id else { return nil }
+            // A playlist of picked songs has no rule: the core lists its songs by its id.
+            base = playlist.query ?? ""
+        }
         var rule: String
         if base.isEmpty {
             rule = text
@@ -802,10 +941,84 @@ final class Store {
             notify("Up next shuffled.")
             return
         }
-        if case .playlist(let id) = route, let model = playlistModel(id) {
-            playPage(rule: expression(for: route, playlistRule: model.query), playlist: model.smart ? nil : id, shuffle: true)
+        if case .playlist(let id) = route {
+            guard let model = playlistModel(id), let rule = expression(for: route, playlist: model) else {
+                playlistGone(id)
+                return
+            }
+            playPage(rule: rule, playlist: model.smart ? nil : id, shuffle: true)
+        } else if let rule = expression(for: route) {
+            playPage(rule: rule, playlist: nil, shuffle: true)
+        }
+    }
+
+    /// A playlist that is no longer there (deleted here, or on its music server and then
+    /// synced): its page says so and goes back, never showing the whole library in its place.
+    func playlistGone(_ id: String) {
+        let gone = Route.playlist(id)
+        back.removeAll { $0 == gone }
+        forward.removeAll { $0 == gone }
+        if addingTo?.id == id { addingTo = nil }
+        reloadPlaylists()
+        notify("This playlist was removed.")
+        guard route == gone else { return }
+        if let to = back.popLast() {
+            open(to)
         } else {
-            playPage(rule: expression(for: route), playlist: nil, shuffle: true)
+            open(.home)
+        }
+    }
+
+    /// A playlist saved under a new id (a copy of one that left): its page, and the way back to
+    /// it, go to the new one. With `follow`, the window goes there from any page.
+    func playlistMoved(from old: String, to new: String, follow: Bool = true) {
+        let (before, after) = (Route.playlist(old), Route.playlist(new))
+        back = back.map { $0 == before ? after : $0 }
+        forward = forward.map { $0 == before ? after : $0 }
+        if route == before {
+            route = after
+            headerFolded = false
+        } else if follow {
+            navigate(after)
+        }
+        reloadPlaylists()
+    }
+
+    /// Tells the person where a change to a playlist went, and where their version now lives.
+    /// `done` is what to say when it went just as asked. When it did not (the playlist is
+    /// read-only on its server, changed there meanwhile, or left), the core's note says so and
+    /// names the copy; never "Added …" for songs that went to a copy. With `follow` (the
+    /// person was editing that playlist), the window goes to the copy.
+    func playlistSaved(_ saved: PlaylistSaved, from old: String, follow: Bool, done: String?) {
+        if let note = saved.note {
+            notify(note.hasSuffix(".") ? note : note + ".")
+        } else if let name = saved.copyName {
+            notify("Saved as a copy, “\(name)”.")
+        } else if let done {
+            notify(done)
+        }
+        let mine = saved.copyId ?? saved.id
+        if !old.isEmpty, mine != old {
+            if saved.copyId == nil {
+                // The playlist itself left Needle and lives on under a new id.
+                playlistMoved(from: old, to: mine, follow: follow)
+            } else if follow || route == .playlist(old) {
+                navigate(.playlist(mine))
+            }
+        }
+        libraryChanged()
+    }
+
+    /// Deletes a playlist; only once the core has done so does Needle say it is deleted (offline,
+    /// a server playlist's delete can fail).
+    func deletePlaylist(_ id: String) {
+        Task {
+            guard await ask({ try $0.deletePlaylist(id: id) }) != nil else { return }
+            if route == .playlist(id) { navigate(.songs) }
+            back.removeAll { $0 == .playlist(id) }
+            forward.removeAll { $0 == .playlist(id) }
+            notify("Playlist deleted. Your music files are untouched.")
+            reloadPlaylists()
         }
     }
 
@@ -835,7 +1048,7 @@ final class Store {
 
     func seekBy(_ seconds: Double) {
         guard let p = playback, p.current != nil else { return }
-        seek(min(max(0, p.position + seconds), max(0, p.duration - 1)))
+        seek(min(max(0, playhead.position + seconds), max(0, p.duration - 1)))
     }
 
     func setVolume(_ value: Float, fromMute: Bool = false) {
@@ -880,7 +1093,7 @@ final class Store {
             core.setLoop(start: nil, end: nil)
         } else if let a = loopStart {
             loopStart = nil
-            let b = p.position
+            let b = playhead.position
             if b > a + 0.5 {
                 core.setLoop(start: a, end: b)
                 notify("Looping \(clock(a)) – \(clock(b))")
@@ -888,8 +1101,8 @@ final class Store {
                 fail("Point B must come after point A.")
             }
         } else {
-            loopStart = p.position
-            notify("Point A set at \(clock(p.position)). Click the loop button again at point B.")
+            loopStart = playhead.position
+            notify("Point A set at \(clock(loopStart ?? 0)). Click the loop button again at point B.")
         }
     }
 
@@ -949,10 +1162,15 @@ final class Store {
 
     func addToPlaylist(_ playlist: Playlist, _ ids: [String]) {
         let id = playlist.id
+        guard !playlist.readOnly else {
+            notify("“\(playlist.name)” is read-only on the server.")
+            return
+        }
         Task {
-            guard let added = await ask({ try $0.addSongsToPlaylist(id: id, ids: ids) }) else { return }
-            notify(added == 0 ? "Already in “\(playlist.name)”." : "Added \(count(Int(added), "track")) to “\(playlist.name)”.")
-            libraryChanged()
+            guard let saved = await ask({ try $0.addSongsToPlaylist(id: id, ids: ids) }) else { return }
+            let added = Int(saved.changed)
+            playlistSaved(saved, from: id, follow: false,
+                          done: added == 0 ? "Already in “\(playlist.name)”." : "Added \(count(added, "track")) to “\(playlist.name)”.")
         }
     }
 
@@ -1183,4 +1401,12 @@ final class Latest<Value>: @unchecked Sendable {
         defer { value = nil; lock.unlock() }
         return value
     }
+}
+
+/// Where the song playing is, in its own seconds: the one value that changes ten times a
+/// second, kept apart from `Store` so only the views that show it (seek bars, clocks, the line
+/// being sung) redraw with it.
+@MainActor @Observable
+final class Playhead {
+    var position: Double = 0
 }

@@ -29,7 +29,7 @@ struct HistoryView: View {
                     } label: {
                         HStack(spacing: 12) {
                             Artwork(path: item.song?.artwork, seed: item.album + item.artist, size: 120)
-                                .frame(width: 44, height: 44).clipShape(.rect(cornerRadius: 7))
+                                .frame(width: 44, height: 44).clipShape(.soft(Corner.smallCover))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).lineLimit(1).foregroundStyle(item.song == nil ? .secondary : .primary)
                                 Text(item.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
@@ -48,6 +48,8 @@ struct HistoryView: View {
             }
         }
         .overlay { if done && items.isEmpty { ContentUnavailableView("Nothing played yet", systemImage: "clock") } }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle("Listening history")
         .themed()
         .task(id: store.libraryVersion) { generation += 1; loading = false; items = []; done = false; await more() }
@@ -116,6 +118,8 @@ struct StatsView: View {
             .padding()
         }
         .overlay { if stats == nil { ProgressView() } }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle("Listening")
         .themed()
         .task(id: days) {
@@ -131,7 +135,9 @@ struct StatsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        // A plain tile in the page's raised colour: a figure is content, not a control.
+        .background(store.colors.card, in: .soft(Corner.middle))
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -143,7 +149,7 @@ struct StatsView: View {
                     let row = HStack(spacing: 12) {
                         Text("\(i + 1)").font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.secondary).frame(width: 22)
                         Artwork(path: r.artwork, seed: r.album + r.artist, size: 120)
-                            .frame(width: 40, height: 40).clipShape(.rect(cornerRadius: 6))
+                            .frame(width: 40, height: 40).clipShape(.soft(Corner.smallCover))
                         VStack(alignment: .leading, spacing: 1) {
                             let name = !r.title.isEmpty ? r.title : !r.album.isEmpty ? r.album : r.artist
                             Text(name).lineLimit(1)
@@ -178,7 +184,7 @@ struct FoldersView: View {
                 NavigationLink(value: Route.folder(folder.path)) {
                     HStack(spacing: 12) {
                         Artwork(path: folder.artwork, seed: folder.name, size: 120)
-                            .frame(width: 44, height: 44).clipShape(.rect(cornerRadius: 7))
+                            .frame(width: 44, height: 44).clipShape(.soft(Corner.smallCover))
                             .overlay { if folder.artwork == nil { Image(systemName: "folder.fill").foregroundStyle(.white) } }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(folder.name)
@@ -186,6 +192,7 @@ struct FoldersView: View {
                         }
                     }
                 }
+                .pageRow()
             }
             if !songs.isEmpty {
                 Section {
@@ -198,6 +205,8 @@ struct FoldersView: View {
         }
         .listStyle(.plain)
         .overlay { if folders == nil { ProgressView() } }
+        // A readable width in a wide window (an iPad), not a band across it.
+        .readableWidth(860)
         .navigationTitle(path.map { ($0 as NSString).lastPathComponent } ?? "Folders")
         .themed()
         .task(id: store.libraryVersion) {

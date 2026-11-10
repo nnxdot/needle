@@ -34,10 +34,11 @@ extension SpeedPitch {
 /// The moon in the player's foot: lit while the sleep timer runs, with the time left beside it.
 struct SleepMoon: View {
     @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
 
     var body: some View {
         let running = store.sleep
-        Button { store.sheet = .sleep } label: {
+        Button { window.sheet = .sleep } label: {
             HStack(spacing: 5) {
                 Image(systemName: running == nil ? "moon" : "moon.fill")
                     .font(.needle(.title3).weight(running == nil ? .regular : .semibold))
@@ -48,35 +49,52 @@ struct SleepMoon: View {
             .foregroundStyle(running == nil ? .white.opacity(0.7) : ThemeColors.amber)
             .frame(minWidth: 44, minHeight: 44)
             .padding(.horizontal, running == nil ? 0 : 8)
-            .background(.white.opacity(running == nil ? 0 : 0.14), in: Capsule())
+            // Glass only while the timer runs, in the cover's colour as the player's other lit
+            // signs; none while it is off.
+            .glassEffect(running == nil ? .identity : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .hoverEffect(.highlight)
+        .toolPopover(["sleep"])
         .accessibilityLabel("Sleep timer")
         .accessibilityValue(running.map { "\(sleepClock($0.remaining)) left" } ?? "Off")
     }
 }
 
-/// A choice in a tool's sheet: lit while chosen.
+/// A choice in a tool's sheet: lit while chosen; the lit glass glides from the chip chosen
+/// before to this one (`space`).
 private struct ToolChip: View {
     @Environment(Store.self) private var store
     let label: String
     let on: Bool
     var enabled = true
+    let space: Namespace.ID
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button { withMotion(.smooth(duration: 0.35), action) } label: {
             Text(label)
                 .font(.needle(.subheadline).weight(.medium))
-                .foregroundStyle(on ? store.colors.onAccent : store.colors.text.opacity(enabled ? 1 : 0.4))
+                .foregroundStyle(on ? AnyShapeStyle(store.colors.onAccent) : enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
                 .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(on ? store.colors.accent : store.colors.text.opacity(0.08), in: Capsule())
+                .glassEffect(on ? .regular.tint(store.colors.accent).interactive() : .regular.interactive(), in: .capsule)
+                .glassEffectID(on ? "chosen" : label, in: space)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+extension View {
+    /// A half-height tool sheet: the system's glass shows through (no page is painted in it),
+    /// with words in the sheet's own light or dark and the accent.
+    func toolSheet(_ store: Store) -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .tint(store.colors.accent)
     }
 }
 
@@ -87,6 +105,7 @@ struct SleepSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var chosen = 1
     @State private var fade = true
+    @Namespace private var chips
 
     /// The chips: their names, and what they start.
     private static let choices: [(String, String, UInt32)] = [
@@ -109,18 +128,20 @@ struct SleepSheet: View {
                         Text(sleepClock(running.remaining)).font(.needle(.body).monospacedDigit()).foregroundStyle(ThemeColors.amber)
                     }
                 }
-                Text("Music stops softly when the time is up.").font(.needle(.subheadline)).foregroundStyle(colors.muted)
+                Text("Music stops softly when the time is up.").font(.needle(.subheadline)).foregroundStyle(.secondary)
             }
-            FlowLayout(spacing: 8) {
-                ForEach(Array(Self.choices.enumerated()), id: \.offset) { i, item in
-                    ToolChip(label: item.0, on: i == chosen) { chosen = i }
+            GlassEffectContainer(spacing: 4) {
+                FlowLayout(spacing: 8) {
+                    ForEach(Array(Self.choices.enumerated()), id: \.offset) { i, item in
+                        ToolChip(label: item.0, on: i == chosen, space: chips) { chosen = i }
+                    }
                 }
             }
             Divider()
             Toggle(isOn: Binding(get: { running?.fade ?? fade }, set: { fade = $0; store.setSleepFade($0) })) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Fade out")
-                    Text("Over the last minute").font(.needle(.caption)).foregroundStyle(colors.muted)
+                    Text("Over the last minute").font(.needle(.caption)).foregroundStyle(.secondary)
                 }
             }
             .tint(colors.accent)
@@ -142,7 +163,7 @@ struct SleepSheet: View {
         .padding(22)
         .frame(maxHeight: .infinity, alignment: .top)
         .presentationDetents([.medium])
-        .themed()
+        .toolSheet(store)
         .onAppear {
             fade = store.core.sleepFade()
             if let running, let i = Self.choices.firstIndex(where: { $0.1 == running.kind && ($0.1 != "minutes" || $0.2 == running.minutes) }) {
@@ -167,6 +188,7 @@ struct SleepSheet: View {
 /// Keep the pitch, and Only for this song.
 struct SpeedSheet: View {
     @Environment(Store.self) private var store
+    @Namespace private var chips
 
     var body: some View {
         let colors = store.colors
@@ -176,7 +198,7 @@ struct SpeedSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Speed and pitch").font(.needle(.title2).weight(.bold))
                 if !available {
-                    Text("Off for this output, so the sound stays untouched.").font(.needle(.subheadline)).foregroundStyle(colors.muted)
+                    Text("Off for this output, so the sound stays untouched.").font(.needle(.subheadline)).foregroundStyle(.secondary)
                 }
                 HStack {
                     Text("Speed").font(.needle(.body).weight(.semibold))
@@ -187,27 +209,29 @@ struct SpeedSheet: View {
                     .tint(colors.accent)
                     .accessibilityLabel("Speed")
                     .accessibilityValue(speedName(tempo.speed))
-                FlowLayout(spacing: 8) {
-                    ForEach(store.core.speedPresets(), id: \.self) { speed in
-                        ToolChip(label: speedName(speed), on: available && abs(tempo.speed - speed) < 0.005, enabled: available) {
-                            change { $0.speed = speed }
+                GlassEffectContainer(spacing: 4) {
+                    FlowLayout(spacing: 8) {
+                        ForEach(store.core.speedPresets(), id: \.self) { speed in
+                            ToolChip(label: speedName(speed), on: available && abs(tempo.speed - speed) < 0.005, enabled: available, space: chips) {
+                                change { $0.speed = speed }
+                            }
                         }
                     }
                 }
                 HStack {
                     Text("Pitch").font(.needle(.body).weight(.semibold))
                     Spacer()
-                    Text(pitchName(tempo.semitones)).font(.needle(.body).monospacedDigit()).foregroundStyle(colors.muted)
+                    Text(pitchName(tempo.semitones)).font(.needle(.body).monospacedDigit()).foregroundStyle(.secondary)
                 }
                 .padding(.top, 6)
                 Slider(value: Binding(get: { Double(tempo.semitones) }, set: { v in change { $0.semitones = Float(v.rounded()) } }), in: -12...12, step: 1)
-                    .tint(colors.text.opacity(0.6))
+                    .tint(.secondary)
                     .accessibilityLabel("Pitch")
                     .accessibilityValue(pitchName(tempo.semitones))
                 Toggle(isOn: Binding(get: { tempo.keepPitch }, set: { on in change { $0.keepPitch = on } })) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Keep the pitch")
-                        Text("Faster without the chipmunk voice").font(.needle(.caption)).foregroundStyle(colors.muted)
+                        Text("Faster without the chipmunk voice").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 Toggle("Only for this song", isOn: Binding(get: { tempo.onlyThisSong }, set: { on in change { $0.onlyThisSong = on } }))
@@ -222,7 +246,7 @@ struct SpeedSheet: View {
             .padding(22)
         }
         .presentationDetents([.medium, .large])
-        .themed()
+        .toolSheet(store)
     }
 
     private func change(_ edit: (inout SpeedPitch) -> Void) {

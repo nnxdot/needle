@@ -3,7 +3,7 @@
 //! folders watched for changes, updates that install themselves, and the rest of the desktop's
 //! tools. Rich data goes to Swift as JSON (the core's own types, which Swift decodes); what is
 //! read many times a second ([`MacPlayback`]) is a plain record.
-use crate::{Needle, NeedleError, Result, Song, log};
+use crate::{Needle, NeedleError, PlaylistSaved, Result, Song, log};
 use needle_core::{
     audio::{Command, QueueItem, Repeat},
     cast::{Group, Speaker},
@@ -189,14 +189,6 @@ pub struct TagProgress {
     pub done: u32,
     pub total: u32,
     pub current: String,
-}
-
-#[derive(Clone, uniffi::Record)]
-pub struct GroupMember {
-    /// The member's address (empty for this computer), for [`Needle::set_speaker_delay`].
-    pub key: String,
-    pub name: String,
-    pub delay: i32,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -999,30 +991,6 @@ impl Needle {
         needle_core::audio::devices().unwrap_or_default()
     }
 
-    /// Writes the equalizer as an Equalizer APO file ("ParametricEQ.txt").
-    pub fn save_eq_file(&self, path: String) -> Result<()> {
-        use needle_core::dsp::{BANDS, ParamBand, format_parametric};
-        let dsp = self.library.settings()?.dsp;
-        let bands: Vec<ParamBand> = if dsp.parametric_mode() {
-            dsp.parametric.clone()
-        } else {
-            BANDS
-                .iter()
-                .zip(dsp.bands)
-                .filter(|(_, g)| *g != 0.)
-                .map(|(f, g)| ParamBand {
-                    frequency: *f as f32,
-                    gain: g,
-                    q: 1.41,
-                    ..Default::default()
-                })
-                .collect()
-        };
-        std::fs::write(&path, format_parametric(dsp.preamp_db, &bands))
-            .map_err(anyhow::Error::from)?;
-        Ok(())
-    }
-
     /// How many songs are measured for radio, of how many: `[done, total]`.
     pub fn measured_count(&self) -> Vec<u64> {
         let found = *DESK.measured.lock().unwrap();
@@ -1089,8 +1057,14 @@ impl Needle {
     }
 
     /// Saves a playlist (a new one when its id is empty); a rule builder's rules become its
-    /// rule. Returns its id.
-    pub fn save_playlist_json(&self, json: String) -> Result<String> {
+    /// rule. `before_json` is the playlist as the editor opened it: then only what the editor
+    /// changed is saved, so what a sync changed meanwhile stays. Says where it went: its id, and
+    /// a copy and a note when the save did not go just as asked (see `PlaylistSaved`).
+    pub fn save_playlist_json(
+        &self,
+        json: String,
+        before_json: Option<String>,
+    ) -> Result<PlaylistSaved> {
         let mut playlist: Playlist =
             serde_json::from_str(&json).map_err(|e| failed(e.to_string()))?;
         playlist.name = playlist.name.trim().to_string();
@@ -1107,8 +1081,21 @@ impl Needle {
             query::compile(rule, chrono::Utc::now().timestamp())?;
         }
         playlist.updated_at = chrono::Utc::now().timestamp();
-        self.library.save_playlist(&playlist)?;
-        Ok(playlist.id)
+        if let Some(before) = before_json {
+            let mut before: Playlist =
+                serde_json::from_str(&before).map_err(|e| failed(e.to_string()))?;
+            if let Some(set) = &before.rules {
+                before.query = Some(rules::to_query(set)?);
+            }
+            before.name = before.name.trim().to_string();
+            let saved = self
+                .library
+                .save_playlist_changes_saved(&before, &playlist)?;
+            return Ok(PlaylistSaved::new(saved, 0));
+        }
+        // A server playlist saved after it left Needle comes back under an id of its own.
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, 0))
     }
 
     /// The rule builder's kinds of rule and orders: `{"kinds": [{label, ops, value,
@@ -1145,8 +1132,9 @@ impl Needle {
         Ok(self.library.search_page(&query, 0, 1)?.total as u32)
     }
 
-    /// Adds songs to a playlist of picked songs, each once. Returns how many were added.
-    pub fn add_songs_to_playlist(&self, id: String, ids: Vec<String>) -> Result<u32> {
+    /// Adds songs to a playlist of picked songs, each once. Says where they went, and how many
+    /// were added (`changed`).
+    pub fn add_songs_to_playlist(&self, id: String, ids: Vec<String>) -> Result<PlaylistSaved> {
         let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         if playlist.query.is_some() {
@@ -1167,26 +1155,27 @@ impl Needle {
             }
         }
         let count = new.len() as u32;
-        if count > 0 {
-            playlist.track_ids.extend(new);
-            playlist.updated_at = chrono::Utc::now().timestamp();
-            self.library.save_playlist(&playlist)?;
+        if count == 0 {
+            return Ok(PlaylistSaved::unchanged(id));
         }
-        Ok(count)
+        playlist.track_ids.extend(new);
+        playlist.updated_at = chrono::Utc::now().timestamp();
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, count))
     }
 
     /// Moves songs (already in it, or dropped from elsewhere) to just before the song
-    /// `before`, or to the end.
+    /// `before`, or to the end. Says where they went.
     pub fn place_in_playlist(
         &self,
         id: String,
         ids: Vec<String>,
         before: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<PlaylistSaved> {
         let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         if before.as_ref().is_some_and(|b| ids.contains(b)) {
-            return Ok(());
+            return Ok(PlaylistSaved::unchanged(id));
         }
         let moving: Vec<String> = playlist
             .track_ids
@@ -1213,19 +1202,25 @@ impl Needle {
             .unwrap_or(playlist.track_ids.len());
         playlist.track_ids.splice(at..at, adding);
         playlist.updated_at = chrono::Utc::now().timestamp();
-        Ok(self.library.save_playlist(&playlist)?)
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, 0))
     }
 
-    /// Takes songs out of a playlist of picked songs. Returns how many went.
-    pub fn remove_songs_from_playlist(&self, id: String, ids: Vec<String>) -> Result<u32> {
+    /// Takes songs out of a playlist of picked songs. Says where the change went, and how many
+    /// went (`changed`).
+    pub fn remove_songs_from_playlist(
+        &self,
+        id: String,
+        ids: Vec<String>,
+    ) -> Result<PlaylistSaved> {
         let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         let before = playlist.track_ids.len();
         playlist.track_ids.retain(|t| !ids.contains(t));
         let removed = (before - playlist.track_ids.len()) as u32;
         playlist.updated_at = chrono::Utc::now().timestamp();
-        self.library.save_playlist(&playlist)?;
-        Ok(removed)
+        let saved = self.library.save_playlist_saved(&playlist)?;
+        Ok(PlaylistSaved::new(saved, removed))
     }
 
     /// Reads an M3U or M3U8 file into a new playlist. Returns its name and songs, in words.
@@ -1239,35 +1234,6 @@ impl Needle {
     }
 
     // ---------- Radio
-
-    /// The artists that sound nearest to `artist`, for a blend.
-    pub fn similar_artists(&self, artist: String) -> Vec<String> {
-        self.library
-            .similar_artists(&artist, 10)
-            .unwrap_or_default()
-    }
-
-    /// Plays songs from both artists that flow from one to the other. Returns how many.
-    pub fn start_blend(&self, first: String, second: String) -> Result<u32> {
-        let station = self.library.blend(&first, &second, STATION)?;
-        if station.len() < 2 {
-            return Err(failed(
-                "Not enough songs are measured yet to make a station. Needle measures them in the background; try again soon.",
-            ));
-        }
-        let reason = format!("Blend: {first} × {second}");
-        let count = station.len() as u32;
-        self.player.send(Command::Play(
-            station
-                .into_iter()
-                .map(|track| QueueItem {
-                    track,
-                    reason: reason.clone(),
-                })
-                .collect(),
-        ));
-        Ok(count)
-    }
 
     /// Plays this song, then songs that sound like it. Returns how many.
     pub fn radio_from(&self, id: String) -> Result<u32> {
@@ -1635,49 +1601,7 @@ impl Needle {
             .unwrap_or_default())
     }
 
-    // ---------- Speakers
-
-    /// The members of the speaker group playing now, with their delays.
-    pub fn group_members(&self) -> Vec<GroupMember> {
-        let Some(group) = self
-            .library
-            .settings()
-            .ok()
-            .and_then(|s| s.output_device)
-            .as_deref()
-            .and_then(Group::from_device_name)
-        else {
-            return vec![];
-        };
-        group
-            .members()
-            .into_iter()
-            .map(|(key, name)| GroupMember {
-                delay: *group.delays.get(&key).unwrap_or(&0),
-                key,
-                name,
-            })
-            .collect()
-    }
-
-    /// Moves one member of the group playing now earlier or later, in ms.
-    pub fn set_speaker_delay(&self, key: String, ms: i32) -> Result<()> {
-        let settings = self.library.settings()?;
-        let Some(mut group) = settings
-            .output_device
-            .as_deref()
-            .and_then(Group::from_device_name)
-        else {
-            return Ok(());
-        };
-        group.delays.insert(key, ms.clamp(-1000, 1000));
-        group.delays.retain(|_, ms| *ms != 0);
-        let device = group.device_name();
-        self.save_settings_with(|s| s.output_device = Some(device))?;
-        self.player
-            .send(Command::SpeakerDelays(group.delays.clone()));
-        Ok(())
-    }
+    // ---------- Speakers (the group's timing is in `shared.rs`, with the phones)
 
     /// Speakers on the network as JSON (`[{name, kind, address, port, …}]`), after a few
     /// seconds of looking.
@@ -1749,15 +1673,10 @@ impl Needle {
 
     /// Finishes signing in to Last.fm once it is approved in the browser. Returns the user.
     pub fn lastfm_continue(&self) -> Result<String> {
-        let pending = DESK
-            .lastfm
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or_else(|| failed("Sign in to Last.fm again."))?;
-        match integrations::lastfm_complete(&pending) {
+        // Saved only while it is still the sign-in waiting: Cancel during the slow answer, or a
+        // newer sign-in, saves nothing (the phones' rule).
+        match integrations::lastfm_finish_waiting(&DESK.lastfm) {
             Ok(user) => {
-                *DESK.lastfm.lock().unwrap() = None;
                 self.save_settings_with(|s| s.lastfm_enabled = true)?;
                 DESK.discord_refresh.store(true, Ordering::SeqCst);
                 Ok(user)
@@ -2141,32 +2060,6 @@ impl Needle {
         }
         notes
     }
-
-    // ---------- The log
-
-    pub fn log_folder(&self) -> String {
-        needle_core::logfile::log_folder(&self.library.directory)
-            .to_string_lossy()
-            .to_string()
-    }
-
-    /// An error report to paste in an email: the recent log and the last crash, without file
-    /// paths or names.
-    pub fn error_report(&self) -> String {
-        let data = &self.library.directory;
-        let crash = needle_core::logfile::pending(data)
-            .last()
-            .and_then(|f| std::fs::read_to_string(f).ok())
-            .map(|t| format!("\n\nLast crash:\n{t}"))
-            .unwrap_or_default();
-        needle_core::logfile::prepare(&format!(
-            "Needle {} on {} {}\n\nRecent log:\n{}{crash}",
-            env!("CARGO_PKG_VERSION"),
-            std::env::consts::OS,
-            std::env::consts::ARCH,
-            needle_core::logfile::recent(data, 80)
-        ))
-    }
 }
 
 /// Where Needle keeps its library on this Mac: the same folder the desktop app used, so the
@@ -2291,4 +2184,41 @@ impl Needle {
 #[uniffi::export]
 pub fn default_data_directory() -> String {
     Library::default_directory().to_string_lossy().to_string()
+}
+
+/// The short format text for a song from its fields ("FLAC 24/48", "MP3 320", "DSD64"): what
+/// the desktop and the phones show for it (see `Track::quality`). For the Mac's `Track`,
+/// which comes as JSON.
+#[uniffi::export]
+pub fn track_quality(format: String, bit_depth: i64, sample_rate: i64, bitrate: i64) -> String {
+    Track {
+        format,
+        bit_depth,
+        sample_rate,
+        bitrate,
+        ..Track::default()
+    }
+    .quality()
+}
+
+#[cfg(test)]
+mod quality_tests {
+    #[test]
+    fn the_mac_reads_the_same_format_text_as_the_phones() {
+        let track = needle_core::model::Track {
+            format: "FLAC".into(),
+            bit_depth: 24,
+            sample_rate: 48_000,
+            bitrate: 2_100,
+            ..Default::default()
+        };
+        let text = super::track_quality(track.format.clone(), 24, 48_000, 2_100);
+        assert_eq!(text, "FLAC 24/48");
+        assert_eq!(text, crate::Song::from(&track).quality);
+        assert_eq!(super::track_quality("DSF".into(), 1, 2_822_400, 0), "DSD64");
+        assert_eq!(
+            super::track_quality("MP3".into(), 0, 44_100, 320),
+            "MP3 320"
+        );
+    }
 }

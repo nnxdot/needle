@@ -356,6 +356,17 @@ impl AppView {
                         open(v, Page::Settings, window, cx);
                         let down: f32 = down.parse().unwrap_or(0.);
                         v.settings_scroll.set_offset(point(px(0.), px(-down)));
+                        // NEEDLE_SHOW_FOLDER: "ask" asks to stop reading the first music
+                        // folder; "remove" stops reading it (use a copy of a data folder).
+                        if let Ok(how) = std::env::var("NEEDLE_SHOW_FOLDER")
+                            && let Some(root) = v.library.roots().unwrap_or_default().first()
+                        {
+                            if how == "remove" {
+                                v.remove_folder(root.clone(), cx);
+                            } else {
+                                v.folder_asked = Some(root.clone());
+                            }
+                        }
                         // NEEDLE_SHOW_OPEN: settings cards to open, such as "output-device,lastfm".
                         if let Ok(open) = std::env::var("NEEDLE_SHOW_OPEN") {
                             for id in open.split(',') {
@@ -417,6 +428,13 @@ impl AppView {
                             .detach();
                         }
                     }
+                    // "playlist:Road trip": a playlist's page, by its name.
+                    Some(("playlist", name)) => {
+                        if let Some(list) = v.playlists.iter().find(|p| p.name == name) {
+                            let page = Page::Playlist(list.id.clone());
+                            open(v, page, window, cx)
+                        }
+                    }
                     // "album:Hana Mori/Bloom Season": one album's page.
                     Some(("album", which)) => {
                         let (artist, album) = which.split_once('/').unwrap_or(("", which));
@@ -438,6 +456,7 @@ impl AppView {
                         open(v, Page::Albums, window, cx)
                     }
                     _ if page == "mood" => open(v, Page::MoodMap, window, cx),
+                    _ if page == "radio" => open(v, Page::Radio, window, cx),
                     _ if page == "server" => open(
                         v,
                         Page::Source {
@@ -453,6 +472,71 @@ impl AppView {
                     }
                     _ => open(v, Page::Songs, window, cx),
                 });
+            })
+            .detach();
+        }
+        // For screenshots: the command palette, open over the page (NEEDLE_SHOW_PALETTE).
+        if std::env::var_os("NEEDLE_SHOW_PALETTE").is_some() {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(4)).await;
+                let _ = view.update_in(cx, |v, window, cx| v.open_palette(window, cx));
+            })
+            .detach();
+        }
+        // For screenshots: a right-click menu, once the page is up (NEEDLE_SHOW_MENU: "track"
+        // for the first song's, "track:playlists" with Add to playlist open, or
+        // "playlist:Road trip" for a sidebar playlist's).
+        if let Ok(which) = std::env::var("NEEDLE_SHOW_MENU") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(5)).await;
+                let _ = view.update(cx, |v, cx| {
+                    let at = point(px(460.), px(300.));
+                    match which.split_once(':') {
+                        Some(("playlist", name)) => {
+                            if let Some(id) = v
+                                .playlists
+                                .iter()
+                                .find(|p| p.name == name)
+                                .map(|p| p.id.clone())
+                            {
+                                v.open_playlist_menu(id, point(px(150.), px(420.)), cx);
+                            }
+                        }
+                        Some(("track", "playlists")) => {
+                            v.open_menu(0, at, cx);
+                            if let Some(menu) = v.menu.as_mut() {
+                                menu.sub = Some("playlists");
+                            }
+                        }
+                        _ => v.open_menu(0, at, cx),
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        // For screenshots: the playlist editor ("new"), or a smart playlist's editor with its
+        // first rule's field list open ("dropdown") (NEEDLE_SHOW_EDITOR).
+        if let Ok(how) = std::env::var("NEEDLE_SHOW_EDITOR") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(4)).await;
+                let _ = view.update_in(cx, |v, window, cx| {
+                    v.open_playlist_editor(None, vec![], None, window, cx);
+                    if how == "dropdown"
+                        && let Some(editor) = v.editor.as_mut()
+                    {
+                        editor.show_field_list(window, cx);
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        // For screenshots: the small floating player (NEEDLE_SHOW_FLOAT).
+        if std::env::var_os("NEEDLE_SHOW_FLOAT").is_some() {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(4)).await;
+                let _ = view.update_in(cx, |v, window, cx| v.toggle_float(window, cx));
             })
             .detach();
         }

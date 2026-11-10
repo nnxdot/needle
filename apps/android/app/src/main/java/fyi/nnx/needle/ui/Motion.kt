@@ -170,8 +170,9 @@ fun PlayingBars(playing: Boolean, modifier: Modifier = Modifier, color: Color = 
     }
 }
 
-/** A soft sweep of light across a placeholder while its content loads. */
+/** A soft sweep of light across a placeholder while its content loads; still with Reduce motion. */
 fun Modifier.shimmer(): Modifier = composed {
+    if (reduceMotion()) return@composed background(MaterialTheme.colorScheme.surfaceContainerHigh)
     val transition = rememberInfiniteTransition(label = "shimmer")
     val x by transition.animateFloat(
         initialValue = -1f,

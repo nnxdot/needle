@@ -22,13 +22,11 @@ import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Speaker
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -79,6 +77,33 @@ object Ui {
     val showPlayer = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /** A page to open from outside the pages (the tile's long press, a Settings row). */
     val openRoute = kotlinx.coroutines.flow.MutableSharedFlow<Route>(extraBufferCapacity = 1)
+    /**
+     * A playlist's change went to a copy (PlaylistSaved): the page of the playlist it was made
+     * on, where that page shows, becomes the copy's (first the playlist's id, then the copy).
+     */
+    val toCopy = kotlinx.coroutines.flow.MutableSharedFlow<Pair<String, Route.Playlist>>(extraBufferCapacity = 1)
+    /**
+     * Leaves a playlist's page (by its id) where it shows, as Back would: it was deleted, or a sync
+     * removed it. A page alone in its tab (opened from a tablet's side bar) gives way to the tab's
+     * first page, rather than Back closing Needle.
+     */
+    val leavePlaylist = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1)
+}
+
+/**
+ * Tells what a playlist save did: the core's note when it did not go just as asked (it went to a
+ * copy, the playlist is read-only on the server, it changed there meanwhile), else [done]. A
+ * change that went to a copy never says it went to the playlist; where that playlist's page
+ * shows, the copy's page takes its place.
+ */
+fun tellSaved(from: String, saved: fyi.nnx.needle.core.PlaylistSaved, done: String?) {
+    val copy = saved.copyId
+    val note = saved.note ?: saved.copyName?.let { "Your version is kept as “$it”" }
+    when {
+        note != null -> showMessage(note)
+        done != null -> showMessage(done)
+    }
+    if (copy != null) Ui.toCopy.tryEmit(from to Route.Playlist(copy, saved.copyName.orEmpty()))
 }
 
 /** What a tablet's side pane shows. */
@@ -199,7 +224,7 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
         }
         return
     }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = { core.answer(q.id, null, null); done() },
         title = { Text(q.title.ifBlank { q.plugin }) },
         text = {
@@ -246,7 +271,7 @@ fun <T> pickedFile(context: Context, uri: Uri?, action: (String) -> T, finished:
 private fun AddToPlaylistSheet(ids: List<String>) {
     val playlistsLoad = rememberLoaded { playlists() }
     val playlists by playlistsLoad
-    ModalBottomSheet(onDismissRequest = { Ui.sheet.value = null }) {
+    GlassSheet(onDismissRequest = { Ui.sheet.value = null }) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Add to a playlist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
             Row(
@@ -258,11 +283,12 @@ private fun AddToPlaylistSheet(ids: List<String>) {
                 Text("New playlist", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
             }
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                items(playlists.orEmpty().filter { !it.smart }, key = { it.id }) { playlist ->
+                // Not one that picks its own songs, nor one the server lets you only read.
+                items(playlists.orEmpty().filter { !it.smart && !it.readOnly }, key = { it.id }) { playlist ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
-                            libraryWrite({ core.addToPlaylist(playlist.id, ids) }, { showMessage(it.message ?: "Could not add it") }) {
-                                showMessage("Added to ${playlist.name}")
+                            libraryWrite({ core.addToPlaylist(playlist.id, ids) }, { showMessage(it.message ?: "Could not add it") }) { saved ->
+                                tellSaved(playlist.id, saved, "Added to ${playlist.name}")
                                 refreshLibrary()
                             }
                             Ui.sheet.value = null
@@ -273,7 +299,7 @@ private fun AddToPlaylistSheet(ids: List<String>) {
                         PlaylistCover(playlist, Modifier.size(48.dp), SmallCoverShape)
                         Column {
                             Text(playlist.name, style = MaterialTheme.typography.bodyLarge)
-                            Text(count(playlist.songs.toInt(), "song"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            PlaylistLine(playlist)
                         }
                     }
                 }
@@ -293,13 +319,15 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
     var description by remember(detail?.id) { mutableStateOf(detail?.description ?: "") }
     var smart by remember(detail?.id) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
     var rule by remember(detail?.id) { mutableStateOf(detail?.rule ?: "") }
+    // What the dialog showed at first: only what the person changes is saved.
+    val before = remember(detail?.id) { (detail?.name ?: "") to (detail?.description ?: "") }
     var saving by remember { mutableStateOf(false) }
     // Checked off the main thread as the rule is typed.
     val problem by androidx.compose.runtime.produceState<String?>(null, smart, rule) {
         value = if (smart && rule.isNotBlank()) withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.checkRule(rule) }.getOrNull() } else null
     }
     val close = { Ui.sheet.value = null }
-    AlertDialog(
+    GlassAlertDialog(
         onDismissRequest = close,
         title = { Text(if (editing == null) "New playlist" else "Edit playlist") },
         text = {
@@ -335,10 +363,10 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
                         if (editing == null) {
                             core.createPlaylist(name, description, ids, if (smart) rule else null)
                         } else {
-                            core.editPlaylist(editing, name, description, if (smart) rule else null)
+                            core.editPlaylist(editing, name, description, if (smart) rule else null, before.first, before.second)
                         }
-                    }, { saving = false; showMessage(it.message ?: "Could not save it") }) {
-                        showMessage(if (editing == null) "Made $name" else "Saved")
+                    }, { saving = false; showMessage(it.message ?: "Could not save it") }) { result ->
+                        if (editing != null && result is fyi.nnx.needle.core.PlaylistSaved) tellSaved(editing, result, "Saved") else showMessage("Made $name")
                         refreshLibrary()
                         close()
                     }

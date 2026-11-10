@@ -115,6 +115,65 @@ impl Track {
             &self.album
         }
     }
+    /// The short format text every app shows for the song: "FLAC 24/96", "FLAC 16/44.1",
+    /// "MP3 320", "DSD64", or the format alone when nothing more is known. The same rules as
+    /// the desktop's Quality (its player, Details panel, and Quality column).
+    pub fn quality(&self) -> String {
+        // 1-bit DSD is named by its multiple of 44.1 kHz: DSD64, DSD128, …
+        if self.bit_depth == 1 && self.sample_rate >= 2_822_400 {
+            return format!("DSD{}", self.sample_rate / 44_100);
+        }
+        let khz = self.sample_rate as f64 / 1000.;
+        let rate = if khz.fract() == 0. {
+            format!("{khz:.0}")
+        } else {
+            format!("{khz:.1}")
+        };
+        if self.bit_depth > 0 {
+            format!("{} {}/{}", self.format, self.bit_depth, rate)
+        } else if self.bitrate > 0 {
+            format!("{} {}", self.format, self.bitrate)
+        } else {
+            self.format.clone()
+        }
+    }
+}
+
+#[cfg(test)]
+mod quality_tests {
+    use super::Track;
+
+    fn track(format: &str, bit_depth: i64, sample_rate: i64, bitrate: i64) -> Track {
+        Track {
+            format: format.into(),
+            bit_depth,
+            sample_rate,
+            bitrate,
+            ..Track::default()
+        }
+    }
+
+    #[test]
+    fn quality_reads_as_the_desktop_shows_it() {
+        assert_eq!(track("FLAC", 24, 48_000, 2_000).quality(), "FLAC 24/48");
+        assert_eq!(track("FLAC", 24, 96_000, 0).quality(), "FLAC 24/96");
+        assert_eq!(track("FLAC", 16, 44_100, 900).quality(), "FLAC 16/44.1");
+        assert_eq!(track("WAV", 32, 352_800, 0).quality(), "WAV 32/352.8");
+        assert_eq!(track("ALAC", 16, 88_200, 0).quality(), "ALAC 16/88.2");
+        assert_eq!(track("MP3", 0, 44_100, 320).quality(), "MP3 320");
+        assert_eq!(track("OPUS", 0, 48_000, 128).quality(), "OPUS 128");
+        assert_eq!(track("M4A", 0, 0, 0).quality(), "M4A");
+        assert_eq!(track("", 0, 0, 0).quality(), "");
+    }
+
+    #[test]
+    fn one_bit_dsd_is_named_by_its_rate() {
+        assert_eq!(track("DSF", 1, 2_822_400, 5_644).quality(), "DSD64");
+        assert_eq!(track("DFF", 1, 5_644_800, 0).quality(), "DSD128");
+        assert_eq!(track("DSF", 1, 11_289_600, 0).quality(), "DSD256");
+        // 1-bit at a rate below DSD64 is not DSD: it reads as any other file does.
+        assert_eq!(track("WAV", 1, 44_100, 0).quality(), "WAV 1/44.1");
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -135,6 +194,68 @@ pub struct Playlist {
     /// `None` for a rule typed by hand.
     #[serde(default)]
     pub rules: Option<RuleSet>,
+    /// For a playlist that lives on a music server (a Navidrome playlist): which one, and
+    /// how it was when last synced. `None` for Needle's own playlists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<ServerPlaylist>,
+}
+
+/// Where a server playlist lives, and how it was at the last sync (see
+/// [`crate::server_playlists`]): what both sides are compared with, to know which side changed.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerPlaylist {
+    /// The source that brings it (its plugin id, such as "subsonic").
+    pub plugin: String,
+    /// Its id on the server.
+    pub id: String,
+    /// Its name at the last sync.
+    pub name: String,
+    /// Its songs (library ids) at the last sync, in order.
+    pub songs: Vec<String>,
+    /// Its comment on the server at the last sync.
+    pub comment: String,
+    /// The server lets this person only read it (another person's playlist, or a smart one):
+    /// changes made in Needle never go to it, and it is never deleted there.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
+    /// When the server last changed it, as the server writes it: a playlist whose time and
+    /// count of songs are as at the last sync is not read again.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub changed: String,
+    /// Entries of the server's list Needle cannot read (no title): their places in the list
+    /// and their ids, sent back in place so a push does not take them off the server.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unread: Vec<(usize, String)>,
+    /// After Needle's own push: the name and songs the push replaced, so a save read before
+    /// the push does not take Needle's own change for one made on the server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pushed_over: Option<(String, Vec<String>)>,
+}
+
+impl ServerPlaylist {
+    /// The same last-synced state (where it lives, its name, songs, and comment), whatever an
+    /// app kept of the rest.
+    pub fn same_state(&self, other: &Self) -> bool {
+        self.plugin == other.plugin
+            && self.id == other.id
+            && self.name == other.name
+            && self.songs == other.songs
+            && self.comment == other.comment
+    }
+}
+
+impl Playlist {
+    /// The source that brings this playlist, when it lives on a music server.
+    pub fn server_plugin(&self) -> Option<&str> {
+        self.server.as_ref().map(|s| s.plugin.as_str())
+    }
+    /// A server playlist changed in Needle since the last sync (its name or its songs).
+    pub fn edited_here(&self) -> bool {
+        self.server
+            .as_ref()
+            .is_some_and(|s| s.name != self.name || s.songs != self.track_ids)
+    }
 }
 
 /// A smart playlist's rules as the builder shows them.

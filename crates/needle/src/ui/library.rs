@@ -153,6 +153,7 @@ impl AppView {
             Page::Doctor => self.doctor_view(width, cx),
             Page::Numbers => self.numbers_view(width, cx),
             Page::MoodMap => self.mood_view(width, cx),
+            Page::Radio => self.radio_view(width, cx),
             Page::Search => self.search_view(width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
@@ -394,7 +395,7 @@ impl AppView {
                     },
                 )
                 .when_some(
-                    playlist.clone().filter(|l| l.query.is_none()),
+                    playlist.clone().filter(super::playlist_saves::takes_songs),
                     |el, list| {
                         el.child(
                             Button::new("add-songs")
@@ -406,22 +407,28 @@ impl AppView {
                         )
                     },
                 )
-                .when_some(playlist.clone(), |el, list| {
-                    el.child(
-                        Button::new("edit-playlist")
-                            .icon(icon("edit"))
-                            .when(!tight, |b| b.label("Edit"))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_playlist_editor(
-                                    Some(list.clone()),
-                                    vec![],
-                                    None,
-                                    window,
-                                    cx,
-                                )
-                            })),
-                    )
-                })
+                // Read-only on its server: no Edit (its name and songs are the server's).
+                .when_some(
+                    playlist
+                        .clone()
+                        .filter(|l| !super::playlist_saves::read_only(l)),
+                    |el, list| {
+                        el.child(
+                            Button::new("edit-playlist")
+                                .icon(icon("edit"))
+                                .when(!tight, |b| b.label("Edit"))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_playlist_editor(
+                                        Some(list.clone()),
+                                        vec![],
+                                        None,
+                                        window,
+                                        cx,
+                                    )
+                                })),
+                        )
+                    },
+                )
                 .when(playlist.is_none(), |el| {
                     el.child(
                         icon_button("save-view", "plus", "Save as a playlist").on_click(
@@ -587,6 +594,10 @@ impl AppView {
         };
         let playlist = self.playlists.iter().find(|p| &p.id == id)?.clone();
         let (export, delete) = (playlist.clone(), playlist.clone());
+        // A playlist from a music server: changes made here go to the server too, unless the
+        // server lets this person only read it (then it cannot be deleted either).
+        let on_server = playlist.server.is_some();
+        let read_only = super::playlist_saves::read_only(&playlist);
         Some(
             div()
                 .px_6()
@@ -594,8 +605,34 @@ impl AppView {
                 .flex()
                 .gap_2()
                 .items_center()
+                .when(on_server, |el| {
+                    let p = pal(cx);
+                    // The note gives way to the buttons: it shortens, they never move off.
+                    el.child(
+                        div()
+                            .flex_shrink()
+                            .min_w_0()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .text_size(px(12.))
+                            .text_color(p.ink_2)
+                            .child(
+                                glyph("server")
+                                    .flex_shrink_0()
+                                    .size(px(12.))
+                                    .text_color(p.ink_3),
+                            )
+                            .child(div().min_w_0().truncate().child(if read_only {
+                                "Read-only on the server"
+                            } else {
+                                "On your music server: changes here are saved there too"
+                            })),
+                    )
+                })
                 .child(
                     Button::new("export-playlist")
+                        .flex_shrink_0()
                         .small()
                         .ghost()
                         .label("Export M3U8")
@@ -618,36 +655,36 @@ impl AppView {
                         })),
                 )
                 .child(div().flex_1())
-                .child(
-                    Button::new("delete-playlist")
-                        .small()
-                        .ghost()
-                        .when(self.confirm_delete, |b| b.danger())
-                        .label(if self.confirm_delete {
-                            "Click again to delete"
-                        } else {
-                            "Delete playlist"
-                        })
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            if this.confirm_delete {
-                                match this.library.delete_playlist(&delete.id) {
-                                    Ok(()) => {
-                                        this.playlists =
-                                            this.library.playlists().unwrap_or_default();
-                                        this.back.clear();
-                                        this.open(Page::Songs, window, cx);
-                                        this.notify(
-                                            "Playlist deleted. Your music files are untouched.",
-                                        );
-                                    }
-                                    Err(e) => this.fail(e.to_string()),
-                                }
+                .when(!read_only, |el| {
+                    el.child(
+                        Button::new("delete-playlist")
+                            .flex_shrink_0()
+                            .small()
+                            .ghost()
+                            .when(self.confirm_delete, |b| b.danger())
+                            .label(if self.confirm_delete && on_server {
+                                "Delete here and on the server"
+                            } else if self.confirm_delete {
+                                "Click again to delete"
                             } else {
-                                this.confirm_delete = true;
-                            }
-                            cx.notify();
-                        })),
-                ),
+                                "Delete playlist"
+                            })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if this.confirm_delete {
+                                    this.delete_playlist_later(
+                                        delete.id.clone(),
+                                        on_server,
+                                        Page::Songs,
+                                        window,
+                                        cx,
+                                    );
+                                } else {
+                                    this.confirm_delete = true;
+                                }
+                                cx.notify();
+                            })),
+                    )
+                }),
         )
     }
 
@@ -706,6 +743,11 @@ impl AppView {
             self.skeleton(cx).into_any_element()
         } else if self.page.is_grid() && !self.groups.is_empty() {
             self.grid(width, cx).into_any_element()
+        } else if matches!(&self.page, Page::Playlist(id) if !self.playlists.iter().any(|p| &p.id == id))
+        {
+            // The playlist left the library: the page is about to go (`leave_gone_playlist`).
+            // It is not empty, so it does not say so.
+            div().into_any_element()
         } else if self.tracks.is_empty() {
             let search = self.search_text(cx);
             let (title, detail, steps): (String, String, &[Step]) = match &self.page {
@@ -1428,6 +1470,23 @@ impl AppView {
             .flex_col()
             .child(with_scrollbar(list, &self.grid_scroll))
             .children(self.letter_bar(columns, cx))
+            // Measure the grid on the sheet, so the A–Z bar's letters fit what is really
+            // there; draw again when it changed.
+            .child({
+                let room = self.letter_room.clone();
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, _| {
+                        let height = f32::from(bounds.size.height);
+                        if (room.get() - height).abs() > 0.5 {
+                            room.set(height);
+                            window.request_animation_frame();
+                        }
+                    },
+                )
+                .absolute()
+                .size_full()
+            })
             .into_any_element()
     }
 

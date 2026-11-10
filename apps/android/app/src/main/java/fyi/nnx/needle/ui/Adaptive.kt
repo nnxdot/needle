@@ -1,6 +1,5 @@
 package fyi.nnx.needle.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -65,10 +64,15 @@ fun Modifier.bleed(side: Dp): Modifier = layout { measurable, constraints ->
 internal fun LazyGridScope.edgeToEdge(side: Dp, key: Any? = null, content: @Composable () -> Unit) =
     item(key = key, span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(side)) { content() } }
 
+/** The corner of a tablet's page, a sheet beside the side bar (see [pane]). */
+val PaneShape = RoundedCornerShape(topStart = 18.dp)
+
 /**
- * A tablet's page beside the side bar: a sheet on the page's colour with one round top-left
- * corner, as the Mac's and the computer's, clear of the status and navigation bars. The bars'
- * space is taken here, so pages inside keep no room for them again.
+ * A tablet's page beside the side bar: its place, clear of the status and navigation bars. The
+ * bars' space is taken here, so pages inside keep no room for them again. The page itself is a
+ * sheet on the page's colour with one round top-left corner, as the Mac's and the computer's
+ * ([paneSheet]); what floats over it (the player, the side pane) is not cut by that sheet, so
+ * their shadows fall past its foot.
  */
 @Composable
 fun Modifier.pane(): Modifier = this
@@ -76,6 +80,6 @@ fun Modifier.pane(): Modifier = this
     // A navigation bar on the left is the side bar's to clear, not the pages' again.
     .consumeWindowInsets(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Start))
     .padding(top = 6.dp)
-    .clip(RoundedCornerShape(topStart = 18.dp))
-    .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
 
+/** The page's sheet in a tablet's [pane]: cut to its round corner. */
+fun Modifier.paneSheet(): Modifier = clip(PaneShape)

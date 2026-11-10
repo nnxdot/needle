@@ -34,7 +34,7 @@ struct SongMenu: View {
                     playlist.trackIds = ids
                     store.editor = playlist
                 }
-                let lists = store.playlists.filter { !$0.smart }
+                let lists = store.playlists.filter { !$0.smart && !$0.readOnly }
                 if !lists.isEmpty { Divider() }
                 ForEach(lists, id: \.id) { list in
                     Button(list.name) { store.addToPlaylist(list, ids) }
@@ -43,9 +43,9 @@ struct SongMenu: View {
             if arrangeable, let playlistID {
                 Button(many ? "Remove \(tracks.count) from This Playlist" : "Remove from This Playlist") {
                     Task {
-                        if let n = await store.ask({ try $0.removeSongsFromPlaylist(id: playlistID, ids: ids) }) {
-                            store.notify("Took \(count(Int(n), "song")) out of the playlist.")
-                            store.libraryChanged()
+                        if let saved = await store.ask({ try $0.removeSongsFromPlaylist(id: playlistID, ids: ids) }) {
+                            store.playlistSaved(saved, from: playlistID, follow: true,
+                                                done: "Took \(count(Int(saved.changed), "song")) out of the playlist.")
                         }
                     }
                 }
@@ -126,7 +126,7 @@ struct GroupMenu: View {
         Button("Play Next") { queue(next: true) }
         Button("Add to Queue") { queue(next: false) }
         Menu("Add to Playlist") {
-            ForEach(store.playlists.filter { !$0.smart }, id: \.id) { list in
+            ForEach(store.playlists.filter { !$0.smart && !$0.readOnly }, id: \.id) { list in
                 Button(list.name) {
                     Task {
                         if let ids = await ids() { store.addToPlaylist(list, ids) }

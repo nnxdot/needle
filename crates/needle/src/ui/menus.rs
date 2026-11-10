@@ -99,7 +99,7 @@ impl AppView {
             return self
                 .playlists
                 .iter()
-                .filter(|p| p.query.is_none())
+                .filter(|p| super::playlist_saves::takes_songs(p))
                 .cloned()
                 .map(|playlist| {
                     let (id, song) = (playlist.id.clone(), track.clone());
@@ -128,7 +128,11 @@ impl AppView {
                 this.set_rating(std::slice::from_ref(&id), if favorite { 0 } else { 5 })
             },
         )];
-        if self.playlists.iter().any(|p| p.query.is_none()) {
+        if self
+            .playlists
+            .iter()
+            .any(super::playlist_saves::takes_songs)
+        {
             entries.push(Entry::Sub {
                 icon: "playlist",
                 label: "Add to playlist".into(),
@@ -241,7 +245,7 @@ impl AppView {
                 let playlists: Vec<_> = self
                     .playlists
                     .iter()
-                    .filter(|p| p.query.is_none())
+                    .filter(|p| super::playlist_saves::takes_songs(p))
                     .cloned()
                     .collect();
                 if !playlists.is_empty() {
@@ -566,14 +570,14 @@ impl AppView {
                         .id(("menu-row", i))
                         .h(px(30.))
                         .px_2()
-                        .rounded(px(5.))
+                        .rounded(px(super::glass::ROW_IN_PANE))
                         .flex()
                         .items_center()
                         .gap_2()
                         .cursor_pointer()
                         .text_size(px(13.))
-                        .when(active, |el| el.bg(p.raised_hover))
-                        .hover(|s| s.bg(p.raised_hover))
+                        .when(active, |el| el.bg(super::glass::active_fill(&p)))
+                        .map(|el| super::glass::hover_row(el, super::glass::ROW_IN_PANE, cx))
                         .child(glyph(icon).size(px(15.)).text_color(if active {
                             p.ink
                         } else {
@@ -620,9 +624,6 @@ impl AppView {
             .w(px(252.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -635,14 +636,14 @@ impl AppView {
                         .id("menu-back")
                         .h(px(30.))
                         .px_2()
-                        .rounded(px(5.))
+                        .rounded(px(super::glass::ROW_IN_PANE))
                         .flex()
                         .items_center()
                         .gap_2()
                         .cursor_pointer()
                         .text_size(px(12.5))
                         .font_weight(FontWeight::MEDIUM)
-                        .hover(|s| s.bg(p.raised_hover))
+                        .map(|el| super::glass::hover_row(el, super::glass::ROW_IN_PANE, cx))
                         .child(glyph("chevron-left").size(px(14.)).text_color(p.ink_2))
                         .child(title)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -741,6 +742,7 @@ impl AppView {
             return vec![];
         };
         let smart = playlist.query.is_some();
+        let read_only = super::playlist_saves::read_only(&playlist);
         let (play, shuffle, queue, open, export, delete) = (
             playlist.clone(),
             playlist.clone(),
@@ -751,7 +753,7 @@ impl AppView {
         );
         let confirm = menu.confirm;
         let position = menu.position;
-        vec![
+        let mut entries = vec![
             Entry::item("play", "Play", None, move |this, _, _| {
                 this.play_playlist(play.clone(), false, false)
             }),
@@ -761,6 +763,35 @@ impl AppView {
             Entry::item("queue", "Add to queue", None, move |this, _, _| {
                 this.play_playlist(queue.clone(), false, true)
             }),
+        ];
+        // Read-only on its server: it is not renamed, changed, or deleted here.
+        if read_only {
+            entries.push(Entry::Separator);
+            entries.push(Entry::item(
+                "external",
+                "Export as M3U8…",
+                None,
+                move |this, _, cx| {
+                    if !this.can_pick(cx) {
+                        return;
+                    }
+                    let library = this.library.clone();
+                    let playlist = export.clone();
+                    this.background(move || {
+                        let Some(path) = rfd::FileDialog::new()
+                            .set_file_name(format!("{}.m3u8", playlist.name))
+                            .save_file()
+                        else {
+                            return Ok(String::new());
+                        };
+                        library.export_playlist(&playlist, &path)?;
+                        Ok("Playlist exported.".into())
+                    });
+                },
+            ));
+            return entries;
+        }
+        entries.extend([
             Entry::Separator,
             Entry::item(
                 "edit",
@@ -794,7 +825,9 @@ impl AppView {
             Entry::Separator,
             Entry::item(
                 "trash",
-                if confirm {
+                if confirm && playlist.server.is_some() {
+                    "Delete here and on the server"
+                } else if confirm {
                     "Click again to delete"
                 } else {
                     "Delete playlist"
@@ -812,39 +845,38 @@ impl AppView {
                         });
                         return;
                     }
-                    match this.library.delete_playlist(&delete.id) {
-                        Ok(()) => {
-                            this.playlists = this.library.playlists().unwrap_or_default();
-                            if this.page == Page::Playlist(delete.id.clone()) {
-                                this.back.clear();
-                                this.open(Page::Home, window, cx);
-                            }
-                            this.notify("Playlist deleted. Your music files are untouched.");
-                        }
-                        Err(e) => this.fail(e.to_string()),
-                    }
+                    this.delete_playlist_later(
+                        delete.id.clone(),
+                        delete.server.is_some(),
+                        Page::Home,
+                        window,
+                        cx,
+                    );
                 },
             ),
-        ]
+        ]);
+        entries
     }
 
     pub(super) fn playlist_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let menu = self.playlist_menu.as_ref()?;
-        let p = pal(cx);
         let entries = self.playlist_menu_entries();
         if entries.is_empty() {
             return None;
         }
         let rows = Self::menu_rows(&entries, None, cx);
+        // The server playlist's confirm line is longer than the others.
+        let wide = menu.confirm
+            && self
+                .playlists
+                .iter()
+                .any(|p| p.id == menu.id && p.server.is_some());
         let body = div()
             .id("playlist-menu")
             .occlude()
-            .w(px(220.))
+            .w(px(if wide { 240. } else { 220. }))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -916,7 +948,7 @@ impl AppView {
             return self
                 .playlists
                 .iter()
-                .filter(|p| p.query.is_none())
+                .filter(|p| super::playlist_saves::takes_songs(p))
                 .cloned()
                 .map(|playlist| {
                     let (id, page) = (playlist.id.clone(), page.clone());
@@ -954,7 +986,11 @@ impl AppView {
                 this.enqueue(tracks);
             }),
         ];
-        if self.playlists.iter().any(|p| p.query.is_none()) {
+        if self
+            .playlists
+            .iter()
+            .any(super::playlist_saves::takes_songs)
+        {
             entries.push(Entry::item_keep(
                 "playlist",
                 "Add to playlist…",
@@ -1004,9 +1040,6 @@ impl AppView {
             .w(px(220.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
@@ -1019,14 +1052,14 @@ impl AppView {
                         .id("group-menu-back")
                         .h(px(30.))
                         .px_2()
-                        .rounded(px(5.))
+                        .rounded(px(super::glass::ROW_IN_PANE))
                         .flex()
                         .items_center()
                         .gap_2()
                         .cursor_pointer()
                         .text_size(px(12.5))
                         .font_weight(FontWeight::MEDIUM)
-                        .hover(|s| s.bg(p.raised_hover))
+                        .map(|el| super::glass::hover_row(el, super::glass::ROW_IN_PANE, cx))
                         .child(glyph("chevron-left").size(px(14.)).text_color(p.ink_2))
                         .child("Add to playlist")
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -1092,7 +1125,6 @@ impl AppView {
 
     pub(super) fn collections_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (position, serial) = self.collections_menu?;
-        let p = pal(cx);
         let entries = self.collections_menu_entries();
         let rows = Self::menu_rows(&entries, None, cx);
         let body = div()
@@ -1101,9 +1133,6 @@ impl AppView {
             .w(px(220.))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
             .flex()
             .flex_col()
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
