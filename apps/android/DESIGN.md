@@ -82,15 +82,28 @@ plays and the one main button.
   now" in the accent, and a round Play/Pause), then shelves of covers ("Jump back in", "New in
   your library", "On repeat", "Favorites") and "Artists you play most" in circles, each shelf
   with a grey line under its title and See all where there is a page of it.
-- **Library** is one page with filter pills at the top (Playlists, Albums, Artists, Songs, and
-  More). With no pill chosen: Favorites, History, and Radio as plain rows, then what came in lately.
+- **Library** is one page with one bar of words at the top (All, Playlists, Albums, Artists,
+  Songs, Genres, Folders); every kind shows in place under it.
+  - The bar: one quiet pill in the page's raised tone with a faint 1 dp edge, 40 dp high (each
+    word 48 dp to touch), the words scrolling sideways where they do not fit, their cut edges
+    fading. The chosen word in the accent, semibold, on a soft light (the text colour at about
+    9 %) that slides from word to word, as the dock's tab light. No word goes away, no ✕.
+  - Under it, once a kind is chosen, one small line: the count in grey at the left; at the right
+    the order in words with a small chevron (a dropdown menu), then one round quiet button where
+    the kind has one (Grid or List for Albums and Artists; + for a new playlist).
+  - All: a shelf of covers (Favorites, History, and Radio, each with a small round sign on its
+    cover, then the playlists), "Recently added" with See all, and "Explore your library": Record
+    crate, Genre map, In numbers, and Your year as plain tiles like the Radio page's quick mixes.
 - **Radio** (`Radio.kt`) is the iPhone's Radio tab, under Library on a phone (the dock keeps its
   three tabs) and in the side bar under Home: your station (a large cover, darkened at its foot,
   with a round Play), quick mixes as plain tiles in the page's raised colour (not glass, not
   Material cards), each mix's sign in the colour of a cover from it, and a station for each song
   played most.
 - **Grids:** two covers across on phones, a title and one grey line under each; on tablets as
-  many as fit (`gridColumns` in Adaptive.kt).
+  many as fit (`gridColumns` in Adaptive.kt). The Library's albums are three across on a phone,
+  their grey line a size smaller.
+- **Shelves:** a row of covers that scrolls sideways, 16 dp from the page's edge; on a phone the
+  Library's shelf shows three cards and a slice of the fourth.
 - **Search** (`Search.kt`): the field, then chips (All, Songs, Albums, Artists, Lyrics). All
   shows the best match in a card (cover, kind, name, a round Play), then Songs (5), Albums and
   Artists as rows of tiles, In the lyrics (the words lit in amber), and Try a rule.
@@ -189,7 +202,8 @@ plays and the one main button.
   as plain rows, a soft line between groups.
 - Albums and playlists have the same kind of sheet: a long press on a cover, or More at the top
   right of their page.
-- Small choices (sort, view) are dropdown menus.
+- Small choices (sort, view) are dropdown menus. In the Library, Grid or List is one round
+  button beside the order instead.
 
 ## Motion
 
@@ -204,7 +218,9 @@ plays and the one main button.
   on release (predictive back); let go early, the page slides back.
 - Rows in the queue and in playlists slide to their new places when a song is taken out or moved
   (not after a drag, whose rows are in place already).
-- The dock's open tab sits on a soft light that slides from tab to tab.
+- The dock's open tab sits on a soft light that slides from tab to tab; the Library's chosen word
+  has the same light.
 - "Reduce motion" (or Android's own setting) turns it into cross-fades: pages, the player, the
   side pane, the floating player, the dock's mini player, and the bar of chosen songs fade; sheets
-  come and go without a slide; the loading shimmer and the tab light stand still.
+  come and go without a slide; the loading shimmer and the tab lights stand still (they move to
+  the new tab at once).

@@ -67,29 +67,10 @@ val ArtistOrders = listOf("name" to "A–Z", "most_played" to "Most played", "mo
 fun ArtistSortButton() {
     val more by NeedleApp.instance.more.collectAsState()
     var open by remember { mutableStateOf(false) }
-    val current = ArtistOrders.firstOrNull { it.first == more.artistOrder } ?: ArtistOrders.first()
     Box {
-        IconButton(onClick = { open = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${current.second}") }
+        IconButton(onClick = { open = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${artistOrderLabel(more.artistOrder)}") }
         GlassMenu(expanded = open, onDismissRequest = { open = false }) {
-            ArtistOrders.forEach { (id, label) ->
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    trailingIcon = { if (id == more.artistOrder) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { open = false; NeedleApp.instance.updateMore { it.copy(artistOrder = id) } },
-                )
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            DropdownMenuItem(
-                text = { Text("Only album artists") },
-                trailingIcon = { if (more.albumArtistsOnly) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { open = false; NeedleApp.instance.updateMore { it.copy(albumArtistsOnly = !it.albumArtistsOnly) } },
-            )
-            // The core leaves them out (artists_by reads the choice itself), as on the computer.
-            DropdownMenuItem(
-                text = { Text("Hide Various Artists-only") },
-                trailingIcon = { if (more.hideCompilationArtists) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { open = false; NeedleApp.instance.updateMore { it.copy(hideCompilationArtists = !it.hideCompilationArtists) } },
-            )
+            ArtistMenuItems { open = false }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             val asList by LibraryView.artistsAsList.collectAsState()
             ViewChoices(asList, { open = false }, LibraryView::setArtists)
@@ -97,13 +78,50 @@ fun ArtistSortButton() {
     }
 }
 
+/** The words for an artist order, as the menu shows them. */
+fun artistOrderLabel(id: String): String = (ArtistOrders.firstOrNull { it.first == id } ?: ArtistOrders.first()).second
+
+/**
+ * The artists' orders, Only album artists, and Hide Various Artists-only: the Artists page's sort
+ * menu and the Library's order words both show these.
+ */
+@Composable
+fun ArtistMenuItems(close: () -> Unit) {
+    val more by NeedleApp.instance.more.collectAsState()
+    ArtistOrders.forEach { (id, label) ->
+        DropdownMenuItem(
+            text = { Text(label) },
+            trailingIcon = { if (id == more.artistOrder) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
+            onClick = { close(); NeedleApp.instance.updateMore { it.copy(artistOrder = id) } },
+        )
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    DropdownMenuItem(
+        text = { Text("Only album artists") },
+        trailingIcon = { if (more.albumArtistsOnly) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
+        onClick = { close(); NeedleApp.instance.updateMore { it.copy(albumArtistsOnly = !it.albumArtistsOnly) } },
+    )
+    // The core leaves them out (artists_by reads the choice itself), as on the computer.
+    DropdownMenuItem(
+        text = { Text("Hide Various Artists-only") },
+        trailingIcon = { if (more.hideCompilationArtists) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
+        onClick = { close(); NeedleApp.instance.updateMore { it.copy(hideCompilationArtists = !it.hideCompilationArtists) } },
+    )
+}
+
 /**
  * Every artist, in the order chosen: circles as many across as fit, or rows (Grid or List in the
  * sort menu). Ordered by name, an A–Z bar at the right edge jumps to a letter, tapped or slid
- * along; in another order, a quick scroll there jumps through the list.
+ * along; in another order, a quick scroll there jumps through the list. `above` sits over the
+ * list (the Library's line with the count), given how many artists there are once known.
  */
 @Composable
-fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androidx.compose.ui.unit.Dp = 8.dp) {
+fun ArtistGrid(
+    open: (Route) -> Unit,
+    modifier: Modifier = Modifier,
+    top: androidx.compose.ui.unit.Dp = 8.dp,
+    above: (@Composable (count: Int?) -> Unit)? = null,
+) {
     val more by NeedleApp.instance.more.collectAsState()
     val listLoad = rememberLoaded(more.artistOrder, more.albumArtistsOnly, more.hideCompilationArtists) { artistsBy("", more.artistOrder, more.albumArtistsOnly) }
     val loaded by listLoad
@@ -119,37 +137,40 @@ fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androi
     val alphabetical = more.artistOrder == "name" && letters.size > 3
     val asList by LibraryView.artistsAsList.collectAsState()
     val rowsState = androidx.compose.foundation.lazy.rememberLazyListState()
-    Box(modifier.fillMaxSize()) {
-        if (asList) {
-            androidx.compose.foundation.lazy.LazyColumn(
-                Modifier.fillMaxSize(),
-                state = rowsState,
-                contentPadding = PaddingValues(end = if (alphabetical) 28.dp else 0.dp, top = top, bottom = 32.dp + LocalBottomInset.current),
-            ) {
-                items(list.size, key = { list[it].name }) { i -> ArtistRow(list[i], Place(i, list.size), open) }
+    Column(modifier.fillMaxSize()) {
+        above?.invoke(loaded?.size)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (asList) {
+                androidx.compose.foundation.lazy.LazyColumn(
+                    Modifier.fillMaxSize(),
+                    state = rowsState,
+                    contentPadding = PaddingValues(end = if (alphabetical) 28.dp else 0.dp, top = top, bottom = 32.dp + LocalBottomInset.current),
+                ) {
+                    items(list.size, key = { list[it].name }) { i -> ArtistRow(list[i], Place(i, list.size), open) }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(104.dp),
+                    state = state,
+                    contentPadding = PaddingValues(start = 16.dp, end = if (alphabetical) 36.dp else 16.dp, top = top, bottom = 32.dp + LocalBottomInset.current),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
+                }
             }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(104.dp),
-                state = state,
-                contentPadding = PaddingValues(start = 16.dp, end = if (alphabetical) 36.dp else 16.dp, top = top, bottom = 32.dp + LocalBottomInset.current),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
+            if (alphabetical) {
+                AlphabetBar(
+                    letters.keys.toList(),
+                    Modifier.align(Alignment.CenterEnd).padding(end = 4.dp, bottom = LocalBottomInset.current),
+                ) { letter ->
+                    letters[letter]?.let { scope.launch { if (asList) rowsState.scrollToItem(it) else state.scrollToItem(it) } }
+                }
+            } else {
+                val edge = Modifier.align(Alignment.TopEnd).padding(top = top, bottom = LocalBottomInset.current)
+                if (asList) QuickScroll(rowsState, list.size, edge) else QuickScroll(state, list.size, edge)
             }
-        }
-        if (alphabetical) {
-            AlphabetBar(
-                letters.keys.toList(),
-                Modifier.align(Alignment.CenterEnd).padding(end = 4.dp, bottom = LocalBottomInset.current),
-            ) { letter ->
-                letters[letter]?.let { scope.launch { if (asList) rowsState.scrollToItem(it) else state.scrollToItem(it) } }
-            }
-        } else {
-            val edge = Modifier.align(Alignment.TopEnd).padding(top = top, bottom = LocalBottomInset.current)
-            if (asList) QuickScroll(rowsState, list.size, edge) else QuickScroll(state, list.size, edge)
         }
     }
 }

@@ -397,7 +397,7 @@ fun Cover(path: String?, modifier: Modifier = Modifier, shape: Shape = CoverShap
  * Mark server songs is on. One the server lets you only read always has the mark, and says so.
  */
 @Composable
-fun PlaylistLine(playlist: fyi.nnx.needle.core.Playlist) {
+fun PlaylistLine(playlist: fyi.nnx.needle.core.Playlist, style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (playlist.readOnly || (playlist.server && NeedleApp.instance.app.collectAsState().value.serverMark)) {
             Icon(
@@ -410,7 +410,7 @@ fun PlaylistLine(playlist: fyi.nnx.needle.core.Playlist) {
         val songs = if (playlist.smart) "Smart playlist" else count(playlist.songs.toInt(), "song")
         Text(
             if (playlist.readOnly) "Read-only · $songs" else songs,
-            style = MaterialTheme.typography.bodyMedium,
+            style = style,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
         )
@@ -524,9 +524,10 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, top: Dp = 28.dp, 
     }
 }
 
+/** An album in a grid or on a shelf; `small` for three across a phone, with its grey line smaller. */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Unit)? = null, onClick: () -> Unit) {
+fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Unit)? = null, small: Boolean = false, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
@@ -544,11 +545,11 @@ fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Uni
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = if (small) 6.dp else 8.dp),
         )
         Text(
             album.artist,
-            style = MaterialTheme.typography.bodyMedium,
+            style = if (small) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
