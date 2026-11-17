@@ -1062,7 +1062,14 @@ struct SeekBar: View {
     @Environment(Store.self) private var store
     let duration: Double
     var loop: [Double] = []
+    /// The place the finger chose: shown until the core reports it (or 1.5 s pass).
     @State private var dragged: Double?
+    /// Where the bar stood when the finger started to drag; nil between drags.
+    @State private var dragStart: Double?
+    /// The drag goes sideways (true) or not (false), from its start; nil between drags.
+    @State private var dragSideways: Bool?
+    /// Lets go of `dragged` 1.5 s after a seek, if the core has not reported the place by then.
+    @State private var settle: Task<Void, Never>?
     /// The song's loud and quiet shape, once measured.
     @State private var shape: [Float] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotionSystem
@@ -1099,17 +1106,13 @@ struct SeekBar: View {
                 .frame(height: style != "shape" ? 24 : shape.isEmpty ? (dragged == nil ? 7 : 12) : (dragged == nil ? 24 : 30))
                 .frame(maxHeight: .infinity)
                 .contentShape(.rect)
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { g in dragged = duration * min(1, max(0, g.location.x / geo.size.width)) }
-                        .onEnded { _ in
-                            if let dragged { store.seek(dragged) }
-                            // The core takes a moment to report the new place.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.dragged = nil }
-                        }
-                )
+                .gesture(seekDrag(width: geo.size.width).exclusively(before: seekTap(width: geo.size.width)))
             }
             .frame(height: store.choices.seekStyle != "shape" ? 28 : shape.isEmpty ? 20 : 32)
+            // The core has reported the place the finger chose: the bar follows the song again.
+            .onChange(of: store.position) { _, now in
+                if dragStart == nil, let dragged, settle != nil, abs(now - dragged) < 1 { letGo() }
+            }
             .motion(.spring(response: 0.3, dampingFraction: 0.7), value: dragged == nil)
             .accessibilityElement()
             .accessibilityLabel("Position")
@@ -1150,6 +1153,63 @@ struct SeekBar: View {
                 try? await Task.sleep(for: .seconds(10))
             }
         }
+    }
+}
+
+extension SeekBar {
+    /// A drag moves the place by the finger's travel, from where the bar stood, as Control
+    /// Center's sliders do: touching the bar never seeks, and a swipe down that starts on it
+    /// does not either.
+    private func seekDrag(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { g in
+                if dragSideways == nil { dragSideways = abs(g.translation.width) >= abs(g.translation.height) }
+                guard dragSideways == true, duration > 0, width > 0 else { return }
+                if dragStart == nil {
+                    // A new drag: the last one's place stays where it is, under the finger.
+                    settle?.cancel()
+                    settle = nil
+                    dragStart = dragged ?? store.position
+                }
+                let start = dragStart ?? 0
+                dragged = min(duration, max(0, start + Double(g.translation.width / width) * duration))
+            }
+            .onEnded { _ in
+                let wasSideways = dragSideways == true
+                dragSideways = nil
+                dragStart = nil
+                guard wasSideways, let dragged else { return }
+                seek(to: dragged)
+            }
+    }
+
+    /// A tap (with no drag) plays from that place.
+    private func seekTap(width: CGFloat) -> some Gesture {
+        SpatialTapGesture()
+            .onEnded { tap in
+                guard duration > 0, width > 0 else { return }
+                settle?.cancel()
+                let place = duration * min(1, max(0, Double(tap.location.x / width)))
+                dragged = place
+                seek(to: place)
+            }
+    }
+
+    /// Seeks, and keeps the chosen place shown until the core reports it, or 1.5 s at most:
+    /// the bar never flicks back to the old place for a moment.
+    private func seek(to place: Double) {
+        store.seek(place)
+        settle?.cancel()
+        settle = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            if !Task.isCancelled, dragStart == nil { letGo() }
+        }
+    }
+
+    private func letGo() {
+        settle?.cancel()
+        settle = nil
+        dragged = nil
     }
 }
 
