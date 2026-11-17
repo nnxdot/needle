@@ -729,7 +729,12 @@ impl AppView {
                 self.tracks.is_empty()
             }
         {
-            self.skeleton(cx).into_any_element()
+            // Grey rows only for a load that has already taken 300 ms; before that, nothing.
+            if self.loading_since.elapsed() >= super::SKELETON_AFTER {
+                self.skeleton(cx).into_any_element()
+            } else {
+                div().into_any_element()
+            }
         } else if self.page.is_grid() && !self.groups.is_empty() {
             self.grid(width, cx).into_any_element()
         } else if matches!(&self.page, Page::Playlist(id) if !self.playlists.iter().any(|p| &p.id == id))

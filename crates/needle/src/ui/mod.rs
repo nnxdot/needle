@@ -165,6 +165,9 @@ const MIN_WINDOW: (f32, f32) = (900., 620.);
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
+/// How long a load runs before its grey placeholder rows show.
+const SKELETON_AFTER: Duration = Duration::from_millis(300);
+
 /// How long the big player takes to grow; shrinking is quicker.
 const BIG_MS: u64 = 260;
 const BIG_OUT_MS: u64 = 200;
@@ -665,6 +668,9 @@ pub struct AppView {
     explanation: Option<String>,
     generation: u64,
     loading: bool,
+    /// When the load running now started: the grey placeholder rows show only once it has
+    /// taken 300 ms (a quick load shows nothing in between).
+    loading_since: Instant,
     /// The playlist window, while it is open.
     editor: Option<playlist_editor::PlaylistEditor>,
     /// When the seek bar was last moved by hand.
@@ -1399,6 +1405,7 @@ impl AppView {
             explanation: None,
             generation: 0,
             loading: true,
+            loading_since: Instant::now(),
             editor: None,
             add_songs: None,
             seek_moved: None,
@@ -2312,7 +2319,19 @@ impl AppView {
                 return;
             }
         }
+        if !self.loading {
+            self.loading_since = Instant::now();
+        }
         self.loading = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SKELETON_AFTER).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.loading && this.generation == generation {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
         let library = self.library.clone();
         let sender = self.sender.clone();
         let manual = self.manual_playlist();
