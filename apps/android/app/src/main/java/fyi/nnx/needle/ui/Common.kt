@@ -352,7 +352,11 @@ fun time(seconds: Double): String {
     else "%d:%02d".format(s / 60, s % 60)
 }
 
-fun count(n: Int, word: String) = if (n == 1) "1 $word" else "$n ${word}s"
+/** A whole number with the thousands mark of the user's language ("8,214"). */
+fun number(n: Long): String = java.text.NumberFormat.getIntegerInstance().format(n)
+
+/** "1 song", "8,214 songs". */
+fun count(n: Int, word: String) = if (n == 1) "1 $word" else "${number(n.toLong())} ${word}s"
 
 /** "12 songs, 48 minutes", as at the foot of an Apple Music album. */
 fun songsAndLength(songs: List<Song>): String {

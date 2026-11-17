@@ -313,9 +313,6 @@ private fun Modifier.fadeSides(scroll: ScrollState): Modifier = this
 
 // ---------- The line under the bar
 
-/** "8,214 songs": how many, with the thousands marked. */
-private fun amount(n: Int, word: String) = if (n == 1) "1 $word" else "${"%,d".format(n)} ${word}s"
-
 /** Under the bar once a kind is chosen: how many in grey at the left; its order and button at the right. */
 @Composable
 private fun KindLine(count: String?, controls: @Composable RowScope.() -> Unit = {}) {
@@ -534,7 +531,7 @@ private fun LibraryShelf(open: (Route) -> Unit) {
     val width = shelfCardWidth()
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "favorites") {
-            ShelfCard(width, "Favorites", places?.let { amount(it.favorites, "song") }, Icons.Rounded.Favorite, 0, onClick = { open(Route.Favorites) }) {
+            ShelfCard(width, "Favorites", places?.let { count(it.favorites, "song") }, Icons.Rounded.Favorite, 0, onClick = { open(Route.Favorites) }) {
                 Mosaic(places?.loved.orEmpty(), null, it, CoverShape, seed = "Favorites")
             }
         }
@@ -648,7 +645,7 @@ private fun ExploreLibrary(open: (Route) -> Unit, albums: List<Album>?) {
     val picks = remember(albums) { albums.orEmpty().distinctBy { it.artwork ?: (it.title + it.artist) }.take(4) }
     val tiles = listOf(
         ExploreTile("Record crate", "Flip the covers", Icons.Rounded.Album, Route.Crate),
-        ExploreTile("Genre map", facts?.let { amount(it.first, "genre") } ?: "Your genres", Icons.Rounded.BubbleChart, Route.MoodMap),
+        ExploreTile("Genre map", facts?.let { count(it.first, "genre") } ?: "Your genres", Icons.Rounded.BubbleChart, Route.MoodMap),
         ExploreTile("In numbers", "Your library, counted", Icons.Rounded.BarChart, Route.Numbers),
         ExploreTile("Your year", facts?.second?.toString() ?: "What you played", Icons.Rounded.AutoAwesome, Route.Wrapped(null)),
     )
@@ -712,7 +709,7 @@ private fun Albums(sort: Sort, sortBy: (Sort) -> Unit, open: (Route) -> Unit, sc
     val all = list.orEmpty()
     val letter = { i: Int -> all.getOrNull(i)?.let { letterOf(sort, it.title, it.artist) } }
     Column(Modifier.fillMaxSize().then(scroll)) {
-        KindLine(albums?.let { amount(it.size, "album") }) {
+        KindLine(albums?.let { count(it.size, "album") }) {
             OrderButton(sort.label) { close ->
                 Sort.entries.forEach { s -> OrderItem(s.label, s == sort) { close(); sortBy(s) } }
             }
@@ -740,7 +737,7 @@ private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
     val more by NeedleApp.instance.more.collectAsState()
     val asList by LibraryView.artistsAsList.collectAsState()
     ArtistGrid(open, scroll, top = 4.dp, above = { n ->
-        KindLine(n?.let { amount(it, "artist") }) {
+        KindLine(n?.let { count(it, "artist") }) {
             OrderButton(artistOrderLabel(more.artistOrder)) { close -> ArtistMenuItems(close) }
             ViewToggle(asList, LibraryView::setArtists)
         }
@@ -756,7 +753,7 @@ private fun Songs(sort: Sort, sortBy: (Sort) -> Unit, open: (Route) -> Unit, scr
     val list = remember(songs, sort) { songs?.let { sortedSongs(it, sort) }.orEmpty() }
     val state = rememberLazyListState()
     Column(Modifier.fillMaxSize().then(scroll)) {
-        KindLine(songs?.let { amount(it.size, "song") }) {
+        KindLine(songs?.let { count(it.size, "song") }) {
             // Songs carry no date they were added, so they sort by name or artist only.
             OrderButton(sort.label) { close ->
                 (Sort.entries - Sort.Recent).forEach { s -> OrderItem(s.label, s == sort) { close(); sortBy(s) } }
@@ -788,7 +785,7 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
     val count = list.size
     Column(Modifier.fillMaxSize().then(scroll)) {
         // The core gives playlists no order to choose: the count, and + for a new one.
-        KindLine(playlists?.let { amount(it.size, "playlist") }) {
+        KindLine(playlists?.let { count(it.size, "playlist") }) {
             RoundButton(Icons.Rounded.Add, "New playlist") { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
@@ -825,7 +822,7 @@ private fun Genres(open: (Route) -> Unit, scroll: Modifier) {
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
     Column(Modifier.fillMaxSize().then(scroll)) {
-        KindLine(genres?.let { amount(it.size, "genre") })
+        KindLine(genres?.let { count(it.size, "genre") })
         GenreGrid(genres.orEmpty(), open, Modifier.weight(1f).fillMaxWidth(), top = 4.dp)
     }
 }
@@ -836,7 +833,7 @@ private fun Folders(open: (Route) -> Unit, scroll: Modifier) {
     val rootsLoad = rememberLoaded { folders() }
     val roots by rootsLoad
     Column(Modifier.fillMaxSize().then(scroll)) {
-        KindLine(roots?.let { amount(it.size, "folder") })
+        KindLine(roots?.let { count(it.size, "folder") })
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
             folderRoots(roots, open)
         }

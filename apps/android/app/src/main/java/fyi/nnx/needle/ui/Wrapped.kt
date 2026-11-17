@@ -204,7 +204,7 @@ private fun Intro(w: Wrapped) {
         Big("%,d".format(minutes))
         Text("minutes of music", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(28.dp))
-        Small("${w.stats.plays} plays · ${w.stats.songs} songs · ${w.stats.artists} artists")
+        Small("${number(w.stats.plays.toLong())} plays · ${number(w.stats.songs.toLong())} songs · ${number(w.stats.artists.toLong())} artists")
     }
 }
 
