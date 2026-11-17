@@ -13,6 +13,8 @@ struct MainWindow: View {
     /// (Following them as they are saved fed each squeeze of a column back into the split view,
     /// which then never settled, and AppKit stopped the app.)
     @State private var sidebarStart = CGFloat(Store.shared.settings.layout.sidebarWidth)
+    /// Files from the Finder dragged over the window (they are added to the library).
+    @State private var filesOver = false
 
     var body: some View {
         @Bindable var store = store
@@ -93,7 +95,16 @@ struct MainWindow: View {
             // A key everywhere can open the mini player.
             GlobalKeys.openMini = { [openWindow] in openWindow(id: "mini") }
         }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        .overlay {
+            if filesOver {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(colors.accent, lineWidth: 2)
+                    .padding(4)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $filesOver) { providers in
             drop(providers)
             return true
         }

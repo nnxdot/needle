@@ -870,7 +870,7 @@ struct QueueButton: View {
 
     var body: some View {
         PanelButton(panel: .queue, icon: "list.bullet", help: "Queue · ⌘J")
-            .dropDestination(for: String.self) { ids, _ in
+            .dropTarget(Circle(), outset: 6) { ids in
                 store.enqueue(ids)
                 return true
             }

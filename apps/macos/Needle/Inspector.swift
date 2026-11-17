@@ -303,7 +303,7 @@ struct QueuePanel: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .dropDestination(for: String.self) { ids, _ in
+                .dropTarget(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous), ring: true) { ids in
                     store.enqueue(ids)
                     return true
                 }

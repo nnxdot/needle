@@ -182,7 +182,7 @@ struct PlayerButtonsEditor: View {
                     .fill(Color.primary.opacity(0.07))
                     .frame(width: 120, height: 26)
                     .overlay(Text("Song").font(.needle(.caption2)).foregroundStyle(.tertiary))
-                    .dropDestination(for: String.self) { names, _ in
+                    .dropTarget(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)) { names in
                         guard let name = names.first else { return false }
                         save(insert(name, at: before.count, into: list))
                         return true
@@ -196,7 +196,7 @@ struct PlayerButtonsEditor: View {
             .padding(.vertical, 8)
             .background(Capsule().fill(Color.primary.opacity(0.05)))
             .overlay(Capsule().strokeBorder(Color.primary.opacity(0.1)))
-            .dropDestination(for: String.self) { names, _ in
+            .dropTarget(Capsule(), ring: true) { names in
                 guard let name = names.first else { return false }
                 save(insert(name, at: list.count, into: list))
                 return true
@@ -220,7 +220,7 @@ struct PlayerButtonsEditor: View {
                     .disabled(list == PlayerButtons.short)
             }
             .frame(minHeight: 30)
-            .dropDestination(for: String.self) { names, _ in
+            .dropTarget(RoundedRectangle(cornerRadius: Radius.small, style: .continuous), outset: 6) { names in
                 guard let name = names.first, name != "play" else { return false }
                 save(list.filter { $0 != name })
                 return true
@@ -236,7 +236,7 @@ struct PlayerButtonsEditor: View {
         icon(name, lit: true)
             .onTapGesture { if name != "play" { save(list.filter { $0 != name }) } }
             .draggable(name)
-            .dropDestination(for: String.self) { names, _ in
+            .dropTarget(RoundedRectangle(cornerRadius: Radius.small, style: .continuous)) { names in
                 guard let moved = names.first, moved != name else { return false }
                 save(insert(moved, at: list.firstIndex(of: name) ?? list.count, into: list))
                 return true

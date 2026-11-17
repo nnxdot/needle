@@ -363,6 +363,45 @@ struct HoverHighlight: ViewModifier {
 
 extension View {
     func hoverHighlight(outset: CGFloat = 0) -> some View { modifier(HoverHighlight(outset: outset)) }
+
+    /// Takes songs' ids (or a player button's name) dropped on it, as `dropDestination` does, and
+    /// shows that it will while something is dragged over it: an accent fill in `shape`, or with
+    /// `ring` a 2 pt accent ring, at once. `outset` draws it that far past the sides (and half
+    /// that above and below).
+    func dropTarget<S: InsettableShape>(_ shape: S, ring: Bool = false, outset: CGFloat = 0,
+                                        action: @escaping ([String]) -> Bool) -> some View {
+        modifier(DropTarget(shape: shape, ring: ring, outset: outset, action: action))
+    }
+}
+
+/// See `View.dropTarget`.
+struct DropTarget<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let ring: Bool
+    let outset: CGFloat
+    let action: ([String]) -> Bool
+    @State private var targeted = false
+
+    func body(content: Content) -> some View {
+        let accent = Store.shared.colors.accent
+        content
+            .background {
+                if targeted && !ring {
+                    shape.fill(accent.opacity(0.15))
+                        .padding(.horizontal, -outset)
+                        .padding(.vertical, -outset / 2)
+                }
+            }
+            .overlay {
+                if targeted && ring {
+                    shape.strokeBorder(accent, lineWidth: 2)
+                        .padding(.horizontal, -outset)
+                        .padding(.vertical, -outset / 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            .dropDestination(for: String.self) { items, _ in action(items) } isTargeted: { targeted = $0 }
+    }
 }
 
 /// How much of the page's right side the open side panel covers: pages that run a picture on
