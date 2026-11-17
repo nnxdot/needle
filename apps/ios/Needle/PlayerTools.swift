@@ -51,10 +51,10 @@ struct SleepMoon: View {
             .padding(.horizontal, running == nil ? 0 : 8)
             // Glass only while the timer runs, in the cover's colour as the player's other lit
             // signs; none while it is off.
-            .glassEffect(running == nil ? .identity : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
+            .glassEffect(running == nil ? .identity : .regular.tint((store.coverColor ?? .clear).opacity(0.3)), in: .capsule)
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Pressable.sign)
         .hoverEffect(.highlight)
         .toolPopover(["sleep"])
         .accessibilityLabel("Sleep timer")

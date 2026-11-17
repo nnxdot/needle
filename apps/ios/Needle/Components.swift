@@ -669,8 +669,6 @@ struct PlayButtons: View {
     }
 }
 
-/// Springs down a little while held, as Liquid Glass controls do; with Reduce motion it only
-/// dims a little.
 /// A page (or a part of one) that could not be read: what went wrong, in Needle's words, and
 /// Try Again. Shown instead of an empty page.
 struct LoadProblem: View {
@@ -689,13 +687,29 @@ struct LoadProblem: View {
     }
 }
 
+/// Goes down a little the moment it is touched (0.1 s, fast at first), and back up with a
+/// spring that does not bounce: Needle's one press, for tiles, covers, and the player's
+/// buttons. With Reduce motion it only dims a little.
 struct Pressable: ButtonStyle {
+    /// How small it goes while held: 0.96 for tiles, covers, and wide pills; 0.94 for round
+    /// signs (`Pressable.sign`).
+    var scale: CGFloat = 0.96
+
+    /// The player's round signs.
+    static let sign = Pressable(scale: 0.94)
+
     func makeBody(configuration: Configuration) -> some View {
         let reduced = Motion.reduced
         return configuration.label
-            .scaleEffect(configuration.isPressed && !reduced ? 0.96 : 1)
+            .scaleEffect(configuration.isPressed && !reduced ? scale : 1)
             .opacity(configuration.isPressed && reduced ? 0.7 : 1)
-            .animation(reduced ? .easeOut(duration: 0.1) : .spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(Self.motion(pressed: configuration.isPressed), value: configuration.isPressed)
+    }
+
+    /// Down fast, up with no bounce.
+    @MainActor
+    static func motion(pressed: Bool) -> Animation {
+        pressed || Motion.reduced ? .easeOut(duration: 0.1) : .spring(response: 0.3, dampingFraction: 1)
     }
 }
 

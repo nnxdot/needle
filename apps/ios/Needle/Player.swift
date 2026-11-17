@@ -438,7 +438,7 @@ struct NowPlayingView: View {
                         .frame(width: 44, height: 44)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(Pressable.sign)
                 .hoverEffect(.highlight)
                 .accessibilityLabel("Close the player")
             }
@@ -486,10 +486,10 @@ struct NowPlayingView: View {
                 .font(.body.weight(.semibold))
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 44, height: 44)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .glassEffect(.regular, in: .circle)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Pressable.sign)
         .accessibilityLabel("Look")
         .accessibilityValue(names[now] ?? "Cover")
         .accessibilityHint("Shows the player as \(names[next] ?? "")")
@@ -676,7 +676,7 @@ struct NowPlayingView: View {
                 .contentTransition(.symbolEffect(.replace))
                 .pressBounce(favoriteTaps)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Pressable.sign)
         .accessibilityLabel(favorite ? "Remove from Favorites" : "Add to Favorites")
         // Only for a tap: not when the star is read for a song that is a favourite.
         .sensoryFeedback(.success, trigger: favoriteTaps) { _, _ in store.app.haptics }
@@ -795,7 +795,7 @@ struct NowPlayingView: View {
                 .glassEffect(translateLyrics ? .regular.tint((store.coverColor ?? .clear).opacity(0.35)) : .identity, in: .circle)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Pressable.sign)
         .accessibilityLabel(translateLyrics ? "Hide the translation" : "Translate the lyrics")
         .accessibilityAddTraits(translateLyrics ? .isSelected : [])
     }
@@ -821,7 +821,7 @@ struct NowPlayingView: View {
                 .contentShape(.circle)
                 .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Pressable.sign)
         .accessibilityLabel(which == .lyrics ? "Lyrics" : "Up Next")
         .accessibilityAddTraits(on ? .isSelected : [])
         .hoverEffect(.highlight)
@@ -904,7 +904,7 @@ struct PlayerSidePane: View {
                             .background(.white.opacity(translate ? 0.18 : 0), in: .circle)
                             .contentShape(.circle)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(Pressable.sign)
                     .hoverEffect(.highlight)
                     .accessibilityLabel(translate ? "Hide the translation" : "Translate the lyrics")
                     .accessibilityAddTraits(translate ? .isSelected : [])
@@ -915,7 +915,7 @@ struct PlayerSidePane: View {
                         .frame(width: 36, height: 36)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(Pressable.sign)
                 .hoverEffect(.highlight)
                 .accessibilityLabel("Close the pane")
             }
@@ -1079,9 +1079,10 @@ struct BigButton: View {
         @Binding var held: Bool
         func makeBody(configuration: Configuration) -> some View {
             configuration.label
-                // Grows a little while held; with Reduce motion only the glass shows.
-                .scaleEffect(configuration.isPressed && !Motion.reduced ? 1.12 : 1)
-                .animation(Motion.of(.spring(response: 0.3, dampingFraction: 0.55)), value: configuration.isPressed)
+                // Goes down a little while held, as every player button (`Pressable`); with
+                // Reduce motion only the glass shows.
+                .scaleEffect(configuration.isPressed && !Motion.reduced ? Pressable.sign.scale : 1)
+                .animation(Pressable.motion(pressed: configuration.isPressed), value: configuration.isPressed)
                 .onChange(of: configuration.isPressed) { _, now in
                     withFade(.easeOut(duration: 0.2)) { held = now }
                 }
@@ -1777,13 +1778,13 @@ struct QueuePane: View {
             GlassEffectContainer(spacing: 4) {
                 HStack(spacing: 12) {
                     Button { shuffles += 1; store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn, bounce: shuffles, plain: onPane) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(Pressable())
                         .accessibilityLabel("Shuffle")
                         .accessibilityValue(store.choices.shuffleStays && !store.onComputer ? (store.shuffleOn ? "On" : "Off") : "")
                     Button { repeats += 1; store.cycleRepeat() } label: {
                         Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off, bounce: repeats, plain: onPane)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(Pressable())
                     .accessibilityLabel("Repeat")
                     .accessibilityValue(store.playback?.repeat == .one ? "One" : store.playback?.repeat == .all ? "All" : "Off")
                 }
@@ -1860,7 +1861,7 @@ struct Pill: View {
             .frame(maxWidth: .infinity)
             .frame(height: plain ? 36 : 40)
             .background { if plain { Capsule().fill(.white.opacity(on ? 0.85 : 0.12)) } }
-            .glassEffect(plain ? .identity : on ? .regular.tint(.white.opacity(0.8)).interactive() : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
+            .glassEffect(plain ? .identity : on ? .regular.tint(.white.opacity(0.8)) : .regular.tint((store.coverColor ?? .clear).opacity(0.3)), in: .capsule)
             .contentShape(.capsule)
             .contentTransition(.symbolEffect(.replace))
             .hoverEffect(.highlight)
