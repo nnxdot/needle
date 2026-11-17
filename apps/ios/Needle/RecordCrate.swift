@@ -66,10 +66,16 @@ struct RecordCrateView: View {
         .contentShape(.rect)
         .gesture(
             DragGesture(minimumDistance: 4)
-                .onChanged { drag = $0.translation.height }
+                .onChanged { value in
+                    let pulled = value.translation.height
+                    // Past the first or the last record the crate gives less and less: there is
+                    // nothing more to flip, but it never stops dead.
+                    let pastEnd = (index == 0 && pulled < 0) || (index == albums.count - 1 && pulled > 0)
+                    drag = pastEnd ? Motion.rubberBand(pulled, limit: step * 3) : pulled
+                }
                 .onEnded { value in
                     let target = Int((Double(index) + Double(value.predictedEndTranslation.height / step)).rounded())
-                    flip(to: target, count: albums.count)
+                    flip(to: target, count: albums.count, velocity: value.velocity.height)
                 }
         )
         .accessibilityElement()
@@ -126,10 +132,17 @@ struct RecordCrateView: View {
         .animation(nil, value: index)
     }
 
-    private func flip(to target: Int, count: Int) {
+    /// `velocity`: the finger's, in points a second, when a drag ends; the records go on at
+    /// that speed.
+    private func flip(to target: Int, count: Int, velocity: CGFloat? = nil) {
         let next = min(max(0, target), count - 1)
         // The records flip; with Reduce motion the next one is simply there.
-        withMotion(.spring(response: 0.45, dampingFraction: 0.82)) {
+        let animation: Animation? = if let velocity {
+            Motion.thrown(velocity / step, over: CGFloat(Double(next) - progress), duration: 0.45, bounce: 0.15)
+        } else {
+            Motion.of(.spring(response: 0.45, dampingFraction: 0.82))
+        }
+        withAnimation(animation) {
             index = next
             drag = 0
         }
