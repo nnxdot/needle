@@ -716,7 +716,9 @@ pub struct AppView {
     album_moving: Option<(String, Option<String>)>,
     /// Music server songs whose moving cover was asked for this time Needle runs.
     moving_cover_asked: std::collections::HashSet<String>,
-    immersive_serial: u64,
+    /// The controls' fade: their strength when it started, when, and how long it takes (ms).
+    /// A change mid-way goes on from where they are.
+    immersive_fade: (f32, Instant, f32),
     /// Whether it shows the lyrics beside the cover, when the song has them.
     immersive_lyrics: bool,
     /// Full screen shows what plays next beside the cover (the queue button there).
@@ -1423,7 +1425,7 @@ impl AppView {
             record_spin: (30., None),
             album_moving: None,
             moving_cover_asked: Default::default(),
-            immersive_serial: 0,
+            immersive_fade: (1., Instant::now(), 0.),
             immersive_lyrics: true,
             immersive_queue: false,
             immersive_waiting: false,
