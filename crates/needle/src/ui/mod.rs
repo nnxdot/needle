@@ -679,6 +679,9 @@ pub struct AppView {
     polled_redraw: Instant,
     /// When a playing server song's shape was last asked for.
     waveform_asked: Instant,
+    /// The wave seek bar's height: whether it is on its way to moving (or flat), from what
+    /// height, and since when. It grows and flattens over 250 ms.
+    wave_amp: std::cell::Cell<(bool, f32, Instant)>,
     /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
     /// gathered for.
     playlist_art: std::collections::HashMap<String, Vec<String>>,
@@ -1411,6 +1414,7 @@ impl AppView {
             seek_moved: None,
             polled_redraw: Instant::now(),
             waveform_asked: Instant::now(),
+            wave_amp: std::cell::Cell::new((false, 0., Instant::now())),
             thumbs_seen: 0,
             server_songs: vec![],
             playlist_art: Default::default(),
@@ -3229,6 +3233,21 @@ impl AppView {
         let style = self.settings.seek_style.clone();
         // The wave moves only while the music plays, and not with Reduce motion.
         let moving = style == "wave" && self.playback.playing && self.motion_allowed();
+        // On pause the wave flattens (and on play grows) over 250 ms, from where it is.
+        let wave_height = |(on, from, since): (bool, f32, Instant)| {
+            let target = if on { 2.5 } else { 0. };
+            let t = (since.elapsed().as_secs_f32() / 0.25).min(1.);
+            (from + (target - from) * motion::ease_out(t), t < 1.)
+        };
+        if self.wave_amp.get().0 != moving {
+            let (now, _) = wave_height(self.wave_amp.get());
+            self.wave_amp.set((moving, now, Instant::now()));
+        }
+        let (amplitude, settling) = if self.motion_allowed() {
+            wave_height(self.wave_amp.get())
+        } else {
+            (0., false)
+        };
         let (accent, rest) = (p.accent, p.ink.opacity(0.22));
         div()
             .flex_1()
@@ -3265,8 +3284,7 @@ impl AppView {
                         );
                         if style == "wave" && split > b.left() {
                             // What has played: one smooth wave, flat while the music rests.
-                            let amplitude = if moving { 2.5 } else { 0. };
-                            let phase = if moving {
+                            let phase = if amplitude > 0. {
                                 std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     // In whole turns first: seconds since 1970 are too
@@ -3298,8 +3316,12 @@ impl AppView {
                                         .corner_radii(thick / 2.),
                                 );
                             }
-                            if moving {
+                            // It moves on Needle's 25-a-second clock, not at the screen's rate;
+                            // only the short grow or flatten asks for every frame.
+                            if settling {
                                 window.request_animation_frame();
+                            } else if moving {
+                                motion::mark_slow_loop();
                             }
                         } else if split > b.left() {
                             window.paint_quad(

@@ -347,6 +347,11 @@ pub fn slow_repeat<E>(element: E, ms: u64, rest: f32, cx: &App, apply: impl Fn(E
     apply(element, pulsating_between(0., 1.)(phase))
 }
 
+/// Something on screen moves slowly (as a [`slow_repeat`] does): redraw on Needle's timer.
+pub fn mark_slow_loop() {
+    SLOW_LOOPS.store(true, Ordering::Relaxed);
+}
+
 /// Whether a [`slow_repeat`] was drawn since the last call.
 pub fn take_slow_loops() -> bool {
     SLOW_LOOPS.swap(false, Ordering::Relaxed)
