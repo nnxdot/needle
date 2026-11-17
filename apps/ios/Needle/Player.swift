@@ -1516,11 +1516,18 @@ private struct TimedLyrics: View {
     /// Each line in your language, by its place (Translate on).
     let translations: [Int: String]
     let share: (String) -> Void
+    /// When the finger last scrolled the lyrics: the sung line is not scrolled to for 3 seconds
+    /// after, so the reader is never pulled back while reading ahead or back.
+    @State private var userScrolled: Date?
+
+    /// How long the lyrics wait after a scroll by hand, as on every system.
+    private static let handScrollPause: Duration = .seconds(3)
 
     var body: some View {
         let reduce = systemReduceMotion || store.app.reduceMotion
         let position = store.position
         let current = lines.lastIndex { $0.time <= position + 0.2 } ?? -1
+        let anchor = UnitPoint(x: stage ? 0.5 : 0, y: stage ? 0.4 : 0.25)
         return ScrollViewReader { reader in
             ScrollView(showsIndicators: false) {
                 LazyVStack(alignment: stage ? .center : .leading, spacing: stage ? 30 : 22) {
@@ -1550,7 +1557,11 @@ private struct TimedLyrics: View {
                         .scaleEffect(i == current && !reduce ? 1.03 : 1, anchor: stage ? .center : .leading)
                         .frame(maxWidth: .infinity, alignment: stage ? .center : .leading)
                         .id(i)
-                        .onTapGesture { store.seek(line.time) }
+                        .onTapGesture {
+                            // A tapped line plays: the lyrics follow it again at once.
+                            userScrolled = nil
+                            store.seek(line.time)
+                        }
                         .contextMenu {
                             if !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
                                 Button("Share as Card", systemImage: "square.and.arrow.up") { share(line.text) }
@@ -1561,9 +1572,24 @@ private struct TimedLyrics: View {
                 }
                 .animation(reduce ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.8), value: current)
             }
+            .onScrollPhaseChange { old, phase in
+                // The finger on the lyrics, their glide after it, and the moment it ends.
+                func byHand(_ p: ScrollPhase) -> Bool { p == .tracking || p == .interacting || p == .decelerating }
+                if byHand(phase) || byHand(old) { userScrolled = .now }
+            }
             .onChange(of: current, initial: true) { _, now in
+                guard now >= 0, userScrolled == nil else { return }
+                withMotion(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: anchor) }
+            }
+            // 3 seconds after the last scroll by hand, back to the line being sung.
+            .task(id: userScrolled) {
+                guard userScrolled != nil else { return }
+                try? await Task.sleep(for: Self.handScrollPause)
+                guard !Task.isCancelled else { return }
+                userScrolled = nil
+                let now = lines.lastIndex { $0.time <= store.position + 0.2 } ?? -1
                 guard now >= 0 else { return }
-                withMotion(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: UnitPoint(x: stage ? 0.5 : 0, y: stage ? 0.4 : 0.25)) }
+                withMotion(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: anchor) }
             }
         }
         .mask(LyricsFade())
