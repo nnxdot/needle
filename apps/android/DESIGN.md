@@ -207,15 +207,20 @@ plays and the one main button.
 
 ## Motion
 
-- Pages slide a little and fade; covers move between the grid, the page, and the player.
-- Rows and covers come in one after another as a page opens (`entrance`), never when scrolled to.
+- Pages opened from a page slide a little and fade; covers move between the grid, the page, and
+  the player. Another tab (or a place in the side bar) shows at once, with no fade.
+- Rows and covers come in one after another as a page is opened from another (`entrance`): only
+  the first few wait their turn (30 ms apart), so all have landed within about a quarter of a
+  second. A tab switched to, or a page gone back to, shows its rows at once; rows scrolled to
+  just appear.
 - On album and playlist pages, the cover shrinks toward its top and fades as the page scrolls;
   the artist picture moves slower than the page. A bar with the name fades in once the top has
   gone.
 - Progress is a wave while music plays and a flat line while it rests.
 - Presses shrink a little and spring back. Nothing bounces for show.
-- Back: the back swipe shows the page behind as the page slides off to the right, and goes there
-  on release (predictive back); let go early, the page slides back.
+- Back: the back swipe shows the page behind as the page slides off to the right, under the
+  thumb (no easing while it is held), and goes there on release (predictive back); let go early,
+  the page slides back.
 - Rows in the queue and in playlists slide to their new places when a song is taken out or moved
   (not after a drag, whose rows are in place already).
 - The dock's open tab sits on a soft light that slides from tab to tab; the Library's chosen word

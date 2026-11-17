@@ -5,7 +5,9 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
+import kotlinx.coroutines.flow.first
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -169,8 +171,16 @@ fun NeedleRoot() {
     // is not redrawn for nothing.
     val rootStack = remember(tab) { listOf(tab.root) }
     val stack = stacks[tab] ?: rootStack
+    // When each page was opened from another (by its key in the stack): only a page just opened
+    // brings its rows in one after another (Motion.kt entrance), not one switched or gone back to.
+    val pushed = remember { HashMap<String, Long>() }
     // A second tap while the page slides in (or OK pressed twice) does not open it twice.
-    val open: (Route) -> Unit = { if (stack.lastOrNull() != it) stacks[tab] = stack + it }
+    val open: (Route) -> Unit = {
+        if (stack.lastOrNull() != it) {
+            pushed[pageKey(tab, stack.size, it)] = android.os.SystemClock.uptimeMillis()
+            stacks[tab] = stack + it
+        }
+    }
     val snackbar = remember { SnackbarHostState() }
     // What the floating glass blurs (Dock.kt).
     val haze = dev.chrisbanes.haze.rememberHazeState()
@@ -197,6 +207,7 @@ fun NeedleRoot() {
     androidx.compose.runtime.SideEffect {
         val live = Tab.entries.flatMap { t -> (stacks[t] ?: listOf(t.root)).mapIndexed { i, r -> pageKey(t, i, r) } }.toSet()
         (kept - live).forEach { pageStates.removeState(it); scrolledPages.remove(it) }
+        pushed.keys.retainAll(live)
         kept.clear()
         kept += live
     }
@@ -294,10 +305,12 @@ fun NeedleRoot() {
     var lastKey by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     LaunchedEffect(tab, stack.last()) { if (inPage) toPage++ }
     LaunchedEffect(covered) { if (!covered) toPage++ }
+    val shownPages by androidx.compose.runtime.rememberUpdatedState(pageTarget)
     LaunchedEffect(toPage, keys, covered) {
         if (!keys || covered) return@LaunchedEffect
-        // After the page slides in, so the focus lands on the new page, not the old.
-        kotlinx.coroutines.delay(350)
+        // Once the page has come in, so the focus lands on the new page, not the old: as soon as
+        // it is there, not after a fixed wait a quick press could beat.
+        androidx.compose.runtime.snapshotFlow { pageMotion.currentState == shownPages && pageMotion.targetState == shownPages }.first { it }
         // A page can take a moment to load its first buttons, the first time most.
         repeat(60) {
             // Something in the page has it already (its Play): asking the page again would
@@ -380,9 +393,10 @@ fun NeedleRoot() {
                                 reduce -> fadeIn(tween(120)) togetherWith fadeOut(tween(120))
                                 // A back swipe: the page slides off to the right, solid, over the
                                 // page behind, which comes in from a little to the left.
+                                // Linear, so the page stays under the thumb all the way.
                                 swiping && fromTab == toTab && to.size < from.size ->
-                                    ((slideInHorizontally(tween(300)) { -it / 10 } + fadeIn(tween(300))) togetherWith
-                                        slideOutHorizontally(tween(300)) { it }).apply { targetContentZIndex = -1f }
+                                    ((slideInHorizontally(tween(300, easing = LinearEasing)) { -it / 10 } + fadeIn(tween(300, easing = LinearEasing))) togetherWith
+                                        slideOutHorizontally(tween(300, easing = LinearEasing)) { it }).apply { targetContentZIndex = -1f }
                                 // Deeper pages slide in from the side, as Android's shared axis.
                                 fromTab == toTab && to.size > from.size ->
                                     (slideInHorizontally(tween(300)) { it / 5 } + fadeIn(tween(250))) togetherWith
@@ -390,15 +404,17 @@ fun NeedleRoot() {
                                 fromTab == toTab && to.size < from.size ->
                                     (slideInHorizontally(tween(300)) { -it / 10 } + fadeIn(tween(250))) togetherWith
                                         (slideOutHorizontally(tween(300)) { it / 5 } + fadeOut(tween(200)))
-                                // Tabs fade through.
-                                else -> fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120))
+                                // Another tab (or a place in the side bar) shows at once.
+                                else -> androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
                             }
                         },
                     ) { (pageTab, pages) ->
                         val opened = remember { android.os.SystemClock.uptimeMillis() }
+                        val pushedAt = remember { pushed[pageKey(pageTab, pages.lastIndex, pages.last())] ?: 0L }
                         CompositionLocalProvider(
                             LocalAnimated provides this,
                             LocalPageOpened provides opened,
+                            LocalPagePushed provides pushedAt,
                             LocalCanGoBack provides (pages.size > 1),
                             // Covers fly only between pages of one tab, never across tabs.
                             LocalSharedScope provides pageTab.name,
