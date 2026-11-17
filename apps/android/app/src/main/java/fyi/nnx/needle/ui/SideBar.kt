@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.foundation.layout.heightIn
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -331,7 +333,8 @@ private fun SideRow(
         Modifier
             .padding(vertical = 1.dp)
             .fillMaxWidth()
-            .height(34.dp)
+            // Taller with large text, so its words are never cut.
+            .heightIn(min = 34.dp)
             .softRing(interaction, 8.dp)
             .clip(RowCorners)
             .background(fill)
