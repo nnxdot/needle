@@ -159,6 +159,9 @@ struct NowPlayingView: View {
     @State private var coverThrows = 0
     /// The player's size: how far a thrown cover goes to leave, and how far a pull closes.
     @State private var playerSize = CGSize(width: 400, height: 800)
+    /// How far the grabber pulls the player down (with Reduce motion, where the zoom and its own
+    /// pull to close are off).
+    @State private var pull: CGFloat = 0
     /// Counts the hinge's changes (iPhone Duo), so the parts are placed again.
     @State private var hingeChanges = 0
     /// Wider than tall (a phone on its side, the iPhone Duo open).
@@ -268,6 +271,7 @@ struct NowPlayingView: View {
         // theme (light text and glass on them, and a light status bar), and its signs white.
         .tint(.white)
         .preferredColorScheme(.dark)
+        .offset(y: pull)
     }
 
     /// One part, as on a phone: the look, then the song and its controls (side by side on a
@@ -438,12 +442,31 @@ struct NowPlayingView: View {
                 .accessibilityLabel("Close the player")
             }
         }
-        .gesture(DragGesture(minimumDistance: 10).onEnded { g in
-            if g.translation.height > 80 { dismiss() }
-        })
+        // The zoom the player opens with closes by a pull down itself, following the finger.
+        // Without it (Reduce motion) the grabber pulls the player down.
+        .gesture(reduceMotion ? pullToClose : nil)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Close the player")
         .padding(.top, 4)
+    }
+
+    /// The grabber's pull: the player follows the finger (it gives less and less upward), and
+    /// closes after a quarter of its height or a flick down.
+    private var pullToClose: some Gesture {
+        // Measured on the screen: the grabber moves with the player it pulls.
+        DragGesture(minimumDistance: 10, coordinateSpace: .global)
+            .onChanged { g in
+                let down = g.translation.height
+                pull = down >= 0 ? down : Motion.rubberBand(down, limit: 60)
+            }
+            .onEnded { g in
+                let down = g.translation.height, speed = g.velocity.height
+                if (down > playerSize.height * 0.25 && speed > -800) || speed > 900 {
+                    dismiss()
+                } else {
+                    withAnimation(Motion.thrown(speed, over: -pull, duration: 0.3)) { pull = 0 }
+                }
+            }
     }
 
     /// The Look button: steps through Cover, Record, Lyrics, and Visualizer (kept in `big_look`).

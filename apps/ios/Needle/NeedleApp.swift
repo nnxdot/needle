@@ -653,7 +653,8 @@ private struct PlayerZoom: ViewModifier {
 
     func body(content: Content) -> some View {
         if systemReduceMotion || store.app.reduceMotion {
-            content
+            // The page under it shows while the grabber pulls the player down.
+            content.presentationBackground(.clear)
         } else {
             content.navigationTransition(.zoom(sourceID: "player", in: space))
         }
