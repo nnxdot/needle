@@ -107,9 +107,11 @@ struct MiniLyricLine: View {
                 .foregroundStyle(text.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                 .lineLimit(1)
                 .id(index)
-                .transition(.opacity)
+                // The old line blurs away as the new one comes clear, in 0.2 s: never two
+                // sharp lines over each other.
+                .transition(Motion.transition(AnyTransition(.blurReplace)))
         }
-        .animation(Motion.fade(.easeOut(duration: 0.35)), value: index)
+        .animation(Motion.fade(.easeOut(duration: 0.2)), value: index)
     }
 }
 
@@ -563,7 +565,7 @@ struct NowPlayingView: View {
         // Under the finger it follows the finger, also with Reduce motion: it is the finger's
         // own move, not an animation.
         .offset(x: swipe)
-        .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.62), value: playing)
+        .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.8), value: playing)
         .frame(maxHeight: coverMost)
         .gesture(store.app.swipeCover ? skipDrag : nil)
     }
