@@ -473,6 +473,7 @@ private fun LazyListScope.songList(
 ) {
     // Keys that follow each song, so a row moved with a remote keeps its focus as it moves.
     val keys = songKeys(list)
+    reorder?.keys = keys
     itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
         // A list that changes in place (a playlist's): its rows slide when one goes or moves.
         val moving = if (reorder != null || remove != null) Modifier.movingRow(this, reorder) else Modifier
@@ -653,7 +654,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     val written: (fyi.nnx.needle.core.PlaylistSaved) -> Unit = { tellSaved(route.id, it, null) }
     // Put in order: each row gets a handle to drag it by.
     var arranging by remember { mutableStateOf(false) }
-    val reorder = rememberReorder(list.size) { from, to ->
+    val reorder = rememberReorder(list.size, state) { from, to ->
         val positions = d?.positions.orEmpty()
         // One change at a time: until the list is read again, its places are the old ones.
         if (!writing && from in positions.indices && to in positions.indices) {

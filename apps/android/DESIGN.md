@@ -241,7 +241,9 @@ plays and the one main button.
   thumb (no easing while it is held), and goes there on release (predictive back); let go early,
   the page slides back.
 - Rows in the queue and in playlists slide to their new places when a song is taken out or moved
-  (not after a drag, whose rows are in place already).
+  (not after a drag, whose rows are in place already). While a row is dragged by its handle, it
+  lifts, the rows it passes slide aside, and the list scrolls when it is held near the list's top
+  or foot; let go, it slides from the finger into its place.
 - The dock's open tab sits on a soft light that slides from tab to tab; the Library's chosen word
   has the same light.
 - "Reduce motion" (or Android's own setting) turns it into cross-fades: pages, the player, the

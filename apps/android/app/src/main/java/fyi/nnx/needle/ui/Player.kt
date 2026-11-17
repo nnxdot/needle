@@ -1691,15 +1691,17 @@ private fun UpNextPanel(version: ULong, titled: Boolean = true) {
         core.removeUpNext(i.toUInt())
     }
     // Up next on this phone can be put in order by dragging a song's handle.
-    val reorder = rememberReorder(list.size) { from, to -> move(from, to) }
+    val upNextList = androidx.compose.foundation.lazy.rememberLazyListState()
+    val reorder = rememberReorder(list.size, upNextList) { from, to -> move(from, to) }
     Column(Modifier.fillMaxHeight()) {
         if (titled) Text("Up next", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
         if (songs != null && list.isEmpty()) {
             Text("Nothing up next", color = Color.White.copy(alpha = 0.6f))
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = upNextList) {
             val keys = songKeys(list)
+            reorder.keys = keys
             itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
                 // Swiped away, a song leaves the queue.
                 // Fresh each time the queue's length changes: a row's key can pass to another
