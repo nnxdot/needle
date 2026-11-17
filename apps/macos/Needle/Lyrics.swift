@@ -144,6 +144,7 @@ struct LyricsView: View {
                             }
                         }
                         .id(index)
+                        .hoverHighlight(outset: 8)
                         .onTapGesture { store.seek(l.time) }
                         .contextMenu {
                             if !l.text.trimmingCharacters(in: .whitespaces).isEmpty {

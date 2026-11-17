@@ -340,6 +340,31 @@ enum Radius {
     static let large: CGFloat = 22
 }
 
+/// The soft highlight under the pointer on a row that can be clicked, as on search songs:
+/// at once, with no animation. `outset` draws it that far past the row's sides (and half that
+/// above and below), so the row's own layout does not change.
+struct HoverHighlight: ViewModifier {
+    var outset: CGFloat = 0
+    @State private var hover = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if hover {
+                    RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                        .fill(Color.primary.opacity(0.07))
+                        .padding(.horizontal, -outset)
+                        .padding(.vertical, -outset / 2)
+                }
+            }
+            .onHover { hover = $0 }
+    }
+}
+
+extension View {
+    func hoverHighlight(outset: CGFloat = 0) -> some View { modifier(HoverHighlight(outset: outset)) }
+}
+
 /// How much of the page's right side the open side panel covers: pages that run a picture on
 /// under its glass keep their words this far from the edge.
 private struct PanelInset: EnvironmentKey {

@@ -762,7 +762,10 @@ struct ArtistPage: View {
                     .padding(.vertical, 5)
                     .overlay(alignment: .bottom) { Rectangle().fill(colors.lineSoft).frame(height: 1).padding(.leading, 56) }
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { store.play(top.map(\.asTrack), from: index, reason: "From \(name)") }
+                    .hoverHighlight(outset: 6)
+                    // One click plays, as on search songs.
+                    .onTapGesture { store.play(top.map(\.asTrack), from: index, reason: "From \(name)") }
+                    .accessibilityAddTraits(.isButton)
                     .contextMenu { SongMenu(tracks: [song.fullTrack]) }
                 }
             }

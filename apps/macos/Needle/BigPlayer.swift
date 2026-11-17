@@ -609,6 +609,7 @@ struct MiniHistory: View {
                     .font(.needle(.caption2)).foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
+            .hoverHighlight(outset: 4)
             .onTapGesture(count: 2) { if let song = item.song { store.play([song.asTrack], reason: "Played again from your history") } }
         }
         .listStyle(.plain)
