@@ -292,8 +292,9 @@ private struct SearchSongRow: View {
         .background(hover ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
-        .onTapGesture(count: 2, perform: play)
-        .onTapGesture { if hover { play() } }
+        // One click plays at once: no double-click gesture beside it, which made SwiftUI hold
+        // every single click for the double-click time.
+        .onTapGesture(perform: play)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: "Play") { play() }

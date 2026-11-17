@@ -215,7 +215,8 @@ struct SongsHeader: View {
         .padding(.horizontal, 28)
         .padding(.top, store.headerFolded ? 14 : 30)
         .padding(.bottom, store.headerFolded ? 12 : 22)
-        .animation(store.motion ? .smooth(duration: 0.3) : nil, value: store.headerFolded)
+        // Folds at once, never in an animation: the header sits over the table, and a header
+        // that shrank over 300 ms pulled the songs away from the pointer mid-scroll.
         .padding(.trailing, panelInset)
         .background(alignment: .top) { HeaderBackdrop(path: album.artwork, seed: seed) }
         .task(id: album.artwork ?? seed) {

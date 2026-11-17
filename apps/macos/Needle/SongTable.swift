@@ -77,8 +77,12 @@ struct SongTable: View {
             }
         }
         .tableStyle(.inset(alternatesRowBackgrounds: false))
-        // Scrolled down, the page's header folds into the title bar.
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 48 } action: { _, folded in
+        // Scrolled down, the page's header folds into the title bar: past 48 points it folds,
+        // and it opens again only back near the top (under 8), so it never flickers between
+        // the two at one place.
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            store.headerFolded ? geometry.contentOffset.y >= 8 : geometry.contentOffset.y > 48
+        } action: { _, folded in
             if store.headerFolded != folded { store.headerFolded = folded }
         }
         .scrollContentBackground(.hidden)
