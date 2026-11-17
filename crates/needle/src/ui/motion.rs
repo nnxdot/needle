@@ -229,6 +229,35 @@ pub fn animate<E: IntoElement + 'static>(
         .into_any_element()
 }
 
+/// A fade in that waits `delay` ms first, for parts that arrive one after another. The curve
+/// is on the fade itself, so the waits stay as long as asked. With motion reduced, every part
+/// fades in together, briefly.
+pub fn stagger_fade<E: IntoElement + Styled + 'static>(
+    element: E,
+    id: impl Into<ElementId>,
+    delay: u64,
+    ms: u64,
+    cx: &App,
+) -> AnyElement {
+    let id = id.into();
+    if still_by_key(&id) {
+        return element.into_any_element();
+    }
+    let (delay, ms) = if enabled(cx) {
+        (delay as f32, ms as f32)
+    } else {
+        (0., STILL_FADE_MS as f32)
+    };
+    let total = delay + ms;
+    element
+        .with_animation(
+            id,
+            Animation::new(Duration::from_millis(total as u64)),
+            move |el, t| el.opacity(ease_out(((t * total - delay) / ms).clamp(0., 1.))),
+        )
+        .into_any_element()
+}
+
 /// The longest fade kept with motion reduced.
 const STILL_FADE_MS: u64 = 150;
 

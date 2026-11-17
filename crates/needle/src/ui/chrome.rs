@@ -776,12 +776,12 @@ impl AppView {
                 .flex()
                 .items_center()
                 .bg(p.back)
-                .child(super::motion::animate(
+                .child(super::motion::fade(
                     text,
                     ("player-lyric", serial),
                     220,
                     cx,
-                    |el, t| el.opacity(t),
+                    |el, f, _| el.opacity(f),
                 ))
                 .into_any_element(),
         )

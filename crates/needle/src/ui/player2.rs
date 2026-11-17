@@ -310,7 +310,7 @@ impl AppView {
                                         })),
                                 )
                                 .child(match sung {
-                                    Some(line) => super::motion::animate(
+                                    Some(line) => super::motion::fade(
                                         div()
                                             .max_w_full()
                                             .text_size(px(11.5))
@@ -321,7 +321,7 @@ impl AppView {
                                         ("now-lyric", serial),
                                         220,
                                         cx,
-                                        |el, t| el.opacity(t),
+                                        |el, f, _| el.opacity(f),
                                     )
                                     .into_any_element(),
                                     None => div()
@@ -534,8 +534,8 @@ impl AppView {
                 cx.notify();
             }))
             .children(rows);
-        let body = motion::animate(body, ("player-menu-in", serial), 140, cx, |el, t| {
-            el.opacity(t).mb(px(6. * (1. - t)))
+        let body = motion::fade(body, ("player-menu-in", serial), 140, cx, |el, f, m| {
+            el.opacity(f).mb(px(6. * (1. - m)))
         });
         Some(
             deferred(
