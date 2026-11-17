@@ -505,11 +505,12 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
     val pulled: (Float) -> Float = { if (it < 0f) rubberBand(it, stretch) else it }
     val letGo: (Float) -> Unit = { velocity ->
         val from = pulled(pull)
-        dragging = false
-        pull = 0f
         val down = with(density) { flickWay(from, velocity, tall) } > 0
         closer.launch {
+            // Taken over where the finger left it, in the same frame: no flash back to the top.
             shown.snapTo(from)
+            dragging = false
+            pull = 0f
             when {
                 // Reduce motion: the player fades (Root.kt).
                 down && stillPlayer -> onClose()
@@ -1851,11 +1852,12 @@ class SkipSwipe(private val scope: kotlinx.coroutines.CoroutineScope) {
 
     fun release(velocity: Float, cancelled: Boolean = false) {
         val from = drag
-        dragging = false
         // Positive is to the right: the song before.
         val way = if (cancelled) 0 else with(density) { flickWay(from, velocity, width) }
         scope.launch {
+            // Taken over where the finger left it, before it is drawn from the animation.
             slide.snapTo(from)
+            dragging = false
             val skip = -way
             if (way == 0 || skipBringsSong(skip) == false) {
                 if (reduce) slide.snapTo(0f) else slide.animateTo(0f, snapBackSpring(), initialVelocity = velocity)
