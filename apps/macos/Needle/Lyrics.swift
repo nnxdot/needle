@@ -332,7 +332,7 @@ struct TimingPage: View {
         let title = store.current.map { "\($0.title) · \($0.artist)" } ?? ""
         return HStack(alignment: .bottom, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Time the lyrics").font(store.display(28))
+                Text("Time the lyrics").font(store.display(28)).tracking(store.displayTracking(28))
                 if !title.isEmpty { Text(title).foregroundStyle(colors.ink2).lineLimit(1) }
             }
             Spacer()

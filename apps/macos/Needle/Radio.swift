@@ -20,7 +20,7 @@ struct RadioPage: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 30) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Radio").font(store.display(28))
+                Text("Radio").font(store.display(28)).tracking(store.displayTracking(28))
                 Text("Stations that start with a song and flow on from it, and mixes of your whole library.")
                     .font(.needle(.callout)).foregroundStyle(store.colors.ink2)
             }

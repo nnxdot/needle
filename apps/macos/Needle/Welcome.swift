@@ -14,7 +14,7 @@ struct ImportPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Bring your music history").font(store.display(28))
+                    Text("Bring your music history").font(store.display(28)).tracking(store.displayTracking(28))
                     Text("Ratings, play counts, listening history, and playlists come across. Your files are never changed, and importing again skips what is already here.")
                         .foregroundStyle(colors.ink2)
                     Text("Listens for songs you don't have are kept in your history, so your statistics stay complete. Imported listens are never sent to Last.fm or ListenBrainz.")
@@ -133,7 +133,7 @@ struct Welcome: View {
         VStack(alignment: .leading, spacing: 16) {
             switch step {
             case 0:
-                Text("Welcome to Needle").font(store.display(32))
+                Text("Welcome to Needle").font(store.display(32)).tracking(store.displayTracking(32))
                 Text("Needle plays the music files you own. First, show it where they are. It watches the folder, so new music shows up by itself. Your files are never moved or changed unless you ask.")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
@@ -145,7 +145,7 @@ struct Welcome: View {
                     Text("Reading \(store.scan.scanned.formatted()) songs… \(store.scan.current)").font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             case 1:
-                Text("Your privacy").font(store.display(28))
+                Text("Your privacy").font(store.display(28)).tracking(store.displayTracking(28))
                 Text("Needle needs no account, and your library stays on this Mac. Choose what may go online. You can change these later in Settings.")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Toggle(isOn: Binding(get: { s.onlineMedia }, set: { store.set(["online_media": $0]) })) {
@@ -175,13 +175,13 @@ struct Welcome: View {
                     }
                 }
             case 2:
-                Text("Choose a look").font(store.display(28))
+                Text("Choose a look").font(store.display(28)).tracking(store.displayTracking(28))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 14) {
                     ForEach(Palette.bases, id: \.0) { mode, name, about in ThemeCard(mode: mode, name: name, about: about, theme: nil) }
                 }
                 Text("You can change it, and much more, in Settings › Appearance.").font(.needle(.callout)).foregroundStyle(.secondary)
             default:
-                Text("A few things to know").font(store.display(28))
+                Text("A few things to know").font(store.display(28)).tracking(store.displayTracking(28))
                 tip("command", "⌘K", "Go anywhere, run anything, and find songs, albums, and artists.")
                 tip("text.magnifyingglass", "Search", "The search box takes rules too. Save a rule as a playlist that keeps itself up to date.")
                 tip("slider.vertical.3", "Sound", "The equalizer button next to the volume opens the equalizer and effects.")

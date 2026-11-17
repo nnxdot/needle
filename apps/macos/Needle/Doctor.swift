@@ -41,7 +41,7 @@ struct DoctorPage: View {
     private func page(toolHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Fix my library").font(store.display(28))
+                Text("Fix my library").font(store.display(28)).tracking(store.displayTracking(28))
                 if let healthError {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Label("Could not read your library: \(healthError)", systemImage: "exclamationmark.triangle")

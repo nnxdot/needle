@@ -199,7 +199,7 @@ struct SongsHeader: View {
                 if !store.headerFolded {
                     Text("Album").font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.ink2)
                 }
-                Text(title).font(store.display(store.headerFolded ? 22 : 44)).lineLimit(store.headerFolded ? 1 : 2).foregroundStyle(colors.ink)
+                Text(title).font(store.display(store.headerFolded ? 22 : 44)).tracking(store.displayTracking(store.headerFolded ? 22 : 44)).lineLimit(store.headerFolded ? 1 : 2).foregroundStyle(colors.ink)
                 Button(album.displayAlbumArtist) { store.navigate(.artist(album.displayAlbumArtist)) }
                     .buttonStyle(.plain)
                     .font(.needle(.title2).weight(.medium))
@@ -242,6 +242,7 @@ struct SongsHeader: View {
                 if case .folder(let path) = route { Breadcrumbs(path: path) }
                 Text(title)
                     .font(big ? store.display(40) : store.display(28))
+                    .tracking(store.displayTracking(big ? 40 : 28))
                     .lineLimit(2)
                     .foregroundStyle(colors.ink)
                 if let album {

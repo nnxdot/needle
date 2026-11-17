@@ -97,7 +97,7 @@ struct BigPlayer: View {
                     .padding(48)
                 } else {
                     VStack(spacing: 8) {
-                        Text("Nothing playing").font(store.display(28)).foregroundStyle(.white)
+                        Text("Nothing playing").font(store.display(28)).tracking(store.displayTracking(28)).foregroundStyle(.white)
                         Text("Pick something from your library.").foregroundStyle(.white.opacity(0.7))
                     }
                 }

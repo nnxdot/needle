@@ -12,7 +12,7 @@ struct HomePage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
-                Text(greeting).font(store.display(34))
+                Text(greeting).font(store.display(34)).tracking(store.displayTracking(34))
                 NowCard()
                 if let reviewYear { YearHomeCard(year: reviewYear) }
                 if let home {
@@ -352,7 +352,7 @@ struct ArtistsPage: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(store.search.isEmpty ? "Artists" : "Artists matching “\(store.search)”").font(store.display(28))
+                            Text(store.search.isEmpty ? "Artists" : "Artists matching “\(store.search)”").font(store.display(28)).tracking(store.displayTracking(28))
                             Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                         }
                         Spacer()
@@ -507,7 +507,7 @@ struct TileGrid<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(store.search.isEmpty ? title : "\(title) matching “\(store.search)”").font(store.display(28))
+                    Text(store.search.isEmpty ? title : "\(title) matching “\(store.search)”").font(store.display(28)).tracking(store.displayTracking(28))
                     Text(summary ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
@@ -648,7 +648,7 @@ struct ArtistPage: View {
                     } else {
                         Text(name.isEmpty ? "Unknown artist" : name)
                             .font(store.display(64))
-                            .tracking(-1.2)
+                            .tracking(store.displayTracking(64, system: -1.2))
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                             .minimumScaleFactor(0.5)
@@ -794,7 +794,7 @@ struct FoldersPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Folders").font(store.display(28))
+                    Text("Folders").font(store.display(28)).tracking(store.displayTracking(28))
                     Text("Your music folders, as they are on disk.").foregroundStyle(store.colors.ink2)
                 }
                 if roots.isEmpty {

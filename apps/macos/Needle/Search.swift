@@ -35,7 +35,7 @@ struct SearchPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(query.isEmpty ? "Search" : "“\(query)”").font(store.display(28)).lineLimit(1)
+                    Text(query.isEmpty ? "Search" : "“\(query)”").font(store.display(28)).tracking(store.displayTracking(28)).lineLimit(1)
                     chips(query)
                 }
                 if query.isEmpty {

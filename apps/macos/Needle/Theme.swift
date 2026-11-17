@@ -311,6 +311,15 @@ extension Store {
         Self.titleFont(displayFont, size: size, weight: weight)
     }
 
+    /// The letter spacing for a title in `display(size)`. The system font spaces itself by
+    /// size; a chosen title font does not, so from 28 points up its letters close in a little
+    /// (1.5 % of the size), as large type should. `system`: the system font's own, where a
+    /// page sets one.
+    func displayTracking(_ size: CGFloat, system: CGFloat = 0) -> CGFloat {
+        guard NeedleFonts.family(displayFont, in: NeedleFonts.titles) != nil else { return system }
+        return size >= 28 ? -size * 0.015 : 0
+    }
+
     /// A title font by its settings name (see `NeedleFonts.titles`; "own:<family>" for one on
     /// this Mac).
     static func titleFont(_ name: String, size: CGFloat, weight: Font.Weight = .bold) -> Font {
