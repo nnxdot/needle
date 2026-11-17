@@ -168,6 +168,8 @@ struct NowPlayingView: View {
     @State private var sideways = false
     /// The lit glass at the player's foot moves from Lyrics to Up Next as one piece.
     @Namespace private var footGlass
+    /// The cover shrinks into its small place over the lyrics or the queue, and grows back.
+    @Namespace private var coverSpace
     /// A wide window (an iPad's, on its side): the cover and the controls at the left, and the
     /// lyrics or the queue in a pane of their own beside them.
     @State private var twoParts = false
@@ -242,7 +244,6 @@ struct NowPlayingView: View {
         .modifier(HingeWatch(changes: $hingeChanges))
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { sideways = $0 }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { playerSize = $0 }
-        .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
         .task(id: song?.id) {
             pendingLoop = nil
             // The new song's star at once, with no empty star between.
@@ -549,6 +550,7 @@ struct NowPlayingView: View {
                 // cropped to it, while the cover pane shows.
                 .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion && shownPane == .cover) }
                 .clipShape(round ? AnyShape(.circle) : AnyShape(.soft(Corner.player)))
+                .matchedGeometryEffect(id: "cover", in: coverSpace)
                 .overlay { if round { Circle().fill(.black).frame(width: 26).overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2)) } }
         }
         .shadow(color: .black.opacity(0.5), radius: 30, y: 20)
@@ -687,6 +689,7 @@ struct NowPlayingView: View {
             Artwork(path: song?.artwork, seed: seed, size: 240)
                 .frame(width: 72, height: 72)
                 .clipShape(.soft(Corner.cover))
+                .matchedGeometryEffect(id: "cover", in: coverSpace)
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                 .padding(.trailing, 4)
             VStack(alignment: .leading, spacing: 2) {
@@ -801,7 +804,13 @@ struct NowPlayingView: View {
         let name = which == .lyrics ? "lyrics" : "queue"
         let on = twoParts ? side == name : pane == which
         return Button {
-            if twoParts { side = on ? "" : name } else { pane = on ? .cover : which }
+            if twoParts {
+                side = on ? "" : name
+            } else {
+                // Only what the pane change moves animates (the cover to its small place, the
+                // lit glass), not every part of the player that changes in the same moment.
+                withMotion(.spring(response: 0.45, dampingFraction: 0.85)) { pane = on ? .cover : which }
+            }
         } label: {
             Image(systemName: on && which == .lyrics ? "quote.bubble.fill" : symbol)
                 .font(.needle(.title3).weight(on ? .semibold : .regular))
