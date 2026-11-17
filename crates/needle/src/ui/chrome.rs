@@ -921,6 +921,7 @@ impl AppView {
                                         .text_size(px(13.5))
                                         .font_weight(FontWeight::MEDIUM)
                                         .truncate()
+                                        .map(|el| full_text(el, track.title.clone()))
                                         .cursor_pointer()
                                         .hover(|s| s.underline())
                                         .child(track.title.clone())
@@ -934,6 +935,7 @@ impl AppView {
                                         .text_size(px(12.))
                                         .text_color(p.ink_2)
                                         .truncate()
+                                        .map(|el| full_text(el, track.display_artist().to_string()))
                                         .cursor_pointer()
                                         .hover(|s| s.underline().text_color(p.ink))
                                         .child(track.display_artist().to_string())
@@ -1786,6 +1788,16 @@ impl AppView {
                                                         .min_w_0()
                                                         .text_size(px(12.5))
                                                         .truncate()
+                                                        .map(|el| {
+                                                            full_text(
+                                                                el,
+                                                                format!(
+                                                                    "{} · {}",
+                                                                    track.title,
+                                                                    track.display_artist()
+                                                                ),
+                                                            )
+                                                        })
                                                         .cursor_pointer()
                                                         .hover(|s| s.underline())
                                                         .child(format!(
@@ -1975,6 +1987,14 @@ impl AppView {
                 ),
         )
     }
+}
+
+/// A name that may be cut short with an ellipsis: its tip shows it in full.
+pub(super) fn full_text(el: Stateful<Div>, text: impl Into<SharedString>) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    el.tooltip(move |window, cx| {
+        gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+    })
 }
 
 /// The sidebar folded to a strip of icons, as in Apple Music.

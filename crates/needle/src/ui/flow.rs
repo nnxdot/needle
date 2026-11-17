@@ -32,7 +32,8 @@ impl Render for DragPreview {
             .text_size(px(12.5))
             .text_color(p.ink)
             .child(glyph("songs").size(px(14.)).text_color(p.accent))
-            .child(self.label.clone())
+            // A long title is cut short: the preview stays a small tag.
+            .child(div().max_w(px(280.)).truncate().child(self.label.clone()))
             .when(self.count > 1, |el| {
                 el.child(
                     div()

@@ -17,7 +17,7 @@ pub enum TrayAction {
 /// The icon, while hide to tray is on.
 pub struct Tray {
     #[cfg(any(windows, target_os = "macos"))]
-    _icon: tray_icon::TrayIcon,
+    icon: tray_icon::TrayIcon,
     #[cfg(target_os = "linux")]
     handle: ksni::blocking::Handle<LinuxTray>,
 }
@@ -28,6 +28,8 @@ pub struct Tray {
 pub struct LinuxTray {
     sender: crossbeam_channel::Sender<Event>,
     icons: Vec<ksni::Icon>,
+    /// The tip: the song playing, or "Needle".
+    tip: String,
 }
 
 #[cfg(target_os = "linux")]
@@ -50,7 +52,7 @@ impl ksni::Tray for LinuxTray {
     }
     fn tool_tip(&self) -> ksni::ToolTip {
         ksni::ToolTip {
-            title: "Needle".into(),
+            title: self.tip.clone(),
             ..Default::default()
         }
     }
@@ -112,6 +114,21 @@ impl Drop for Tray {
 }
 
 impl Tray {
+    /// The icon's tip: the song playing, or "Needle".
+    fn set_tip(&self, text: &str) {
+        #[cfg(any(windows, target_os = "macos"))]
+        {
+            let _ = self.icon.set_tooltip(Some(text));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let text = text.to_string();
+            self.handle.update(move |tray| tray.tip = text);
+        }
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+        let _ = text;
+    }
+
     #[cfg(any(windows, target_os = "macos"))]
     fn new(sender: crossbeam_channel::Sender<Event>) -> anyhow::Result<Self> {
         use tray_icon::{
@@ -168,7 +185,7 @@ impl Tray {
             };
             let _ = sender.send(Event::Tray(action));
         }));
-        Ok(Self { _icon: tray })
+        Ok(Self { icon: tray })
     }
     #[cfg(target_os = "linux")]
     fn new(sender: crossbeam_channel::Sender<Event>) -> anyhow::Result<Self> {
@@ -176,6 +193,7 @@ impl Tray {
         let tray = LinuxTray {
             sender,
             icons: tray_icons(),
+            tip: "Needle".into(),
         };
         let handle = tray.spawn().map_err(|e| {
             anyhow::anyhow!("{e}. The desktop may not show tray icons (on GNOME, add the AppIndicator extension)")
@@ -210,7 +228,45 @@ pub fn set_window_shown(window: &Window, shown: bool) {
     }
 }
 
+/// Cut `text` to at most `units` UTF-16 units (Windows' limit for a tray tip is 127), ending
+/// with "…" when it was longer.
+pub(super) fn cut_utf16(text: &str, units: usize) -> String {
+    if text.encode_utf16().count() <= units {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    // One unit is kept for the ellipsis.
+    let mut used = 1;
+    for c in text.chars() {
+        used += c.len_utf16();
+        if used > units {
+            break;
+        }
+        out.push(c);
+    }
+    out.trim_end().to_string() + "…"
+}
+
 impl AppView {
+    /// While a song plays, the window's title (the taskbar, Alt+Tab) and the tray icon's tip
+    /// name it in full: "Title – Artist". Otherwise they say "Needle".
+    pub(super) fn follow_title(&mut self, window: &mut Window) {
+        let title = match &self.playback.current {
+            Some(item) if self.playback.playing => {
+                format!("{} – {}", item.track.title, item.track.display_artist())
+            }
+            _ => "Needle".to_string(),
+        };
+        if title == self.window_title {
+            return;
+        }
+        window.set_window_title(&title);
+        if let Some(tray) = &self.tray {
+            tray.set_tip(&cut_utf16(&title, 127));
+        }
+        self.window_title = title;
+    }
+
     /// Add or remove the tray icon to match the setting.
     pub(super) fn apply_tray(&mut self) {
         if !self.settings.tray {
@@ -219,7 +275,10 @@ impl AppView {
         }
         if self.tray.is_none() {
             match Tray::new(self.sender.clone()) {
-                Ok(tray) => self.tray = Some(tray),
+                Ok(tray) => {
+                    tray.set_tip(&cut_utf16(&self.window_title, 127));
+                    self.tray = Some(tray)
+                }
                 Err(error) => {
                     needle_core::logfile::error(format!("Tray icon: {error:#}"));
                     // Saved off, so the next start does not fail the same way again.
@@ -263,5 +322,24 @@ impl AppView {
                 cx.quit();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cut_utf16;
+
+    #[test]
+    fn tray_tip_fits_windows_limit() {
+        assert_eq!(cut_utf16("Short", 127), "Short");
+        let long = "Symphony No. 9 in D minor ".repeat(10);
+        let cut = cut_utf16(&long, 127);
+        assert!(cut.encode_utf16().count() <= 127);
+        assert!(cut.ends_with('\u{2026}'));
+        // Characters outside the basic plane take two units and are never split.
+        let wide = "\u{1F3B5}".repeat(100);
+        let cut = cut_utf16(&wide, 127);
+        assert!(cut.encode_utf16().count() <= 127);
+        assert_eq!(cut.chars().filter(|c| *c == '\u{1F3B5}').count(), 63);
     }
 }

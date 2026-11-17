@@ -682,6 +682,8 @@ pub struct AppView {
     /// The wave seek bar's height: whether it is on its way to moving (or flat), from what
     /// height, and since when. It grows and flattens over 250 ms.
     wave_amp: std::cell::Cell<(bool, f32, Instant)>,
+    /// The window's title as last set (the song playing, or "Needle").
+    window_title: String,
     /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
     /// gathered for.
     playlist_art: std::collections::HashMap<String, Vec<String>>,
@@ -1415,6 +1417,7 @@ impl AppView {
             polled_redraw: Instant::now(),
             waveform_asked: Instant::now(),
             wave_amp: std::cell::Cell::new((false, 0., Instant::now())),
+            window_title: "Needle".into(),
             thumbs_seen: 0,
             server_songs: vec![],
             playlist_art: Default::default(),
@@ -2179,6 +2182,7 @@ impl AppView {
             }
         }
         self.follow_playlist_art();
+        self.follow_title(window);
         if self.drain_playlist_saves(window, cx) {
             events = true;
         }
