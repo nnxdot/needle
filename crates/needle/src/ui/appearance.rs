@@ -766,7 +766,7 @@ impl AppView {
                     "reduce-motion",
                     "Reduce motion",
                     if !system_still {
-                        "Turns off slides and bounces; only short fades stay."
+                        "No slides or movement. Short fades stay."
                     } else if cfg!(windows) {
                         "Windows has animations turned off, so Needle keeps still too."
                     } else {
