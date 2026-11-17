@@ -95,7 +95,6 @@ impl AppView {
         self.back.push(self.page.clone());
         self.forward.clear();
         self.page = page;
-        self.page_offset = 0;
         self.refresh(cx);
         cx.notify();
     }

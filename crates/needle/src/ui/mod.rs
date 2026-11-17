@@ -164,7 +164,10 @@ const MIN_WINDOW: (f32, f32) = (900., 620.);
 
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
-const PAGE_SIZE: usize = 1000;
+/// A song list shows its first 1,000 songs at once; the rest come in blocks of 5,000 in the
+/// background, into the same list (its scroll bar covers the whole list from the start).
+const FIRST_ROWS: usize = 1000;
+const MORE_ROWS: usize = 5000;
 /// How long a load runs before its grey placeholder rows show.
 const SKELETON_AFTER: Duration = Duration::from_millis(300);
 
@@ -410,6 +413,8 @@ enum Event {
     FolderRemoved(String, Result<usize, String>),
     Error(String),
     Loaded(u64, Vec<Track>, usize),
+    /// More of the same list: its generation, where the block starts, and the songs.
+    LoadedMore(u64, usize, Vec<Track>),
     Groups(u64, Vec<library::Group>),
     History(Box<needle_core::history::HistoryStats>, Vec<Listen>, usize),
     MoreHistory(usize, Vec<Listen>),
@@ -620,7 +625,8 @@ pub struct AppView {
     sort: Sort,
     total: usize,
     matched_total: usize,
-    page_offset: usize,
+    /// The list load running now (its generation), so an older one stops early.
+    load_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     loop_start: Option<f64>,
     search: Entity<InputState>,
     /// The names of fonts on this computer, for the title and the text font (Settings ›
@@ -1207,7 +1213,6 @@ impl AppView {
         let subscriptions = vec![
             cx.subscribe_in(&search, window, |this, _, event, window, cx| match event {
                 InputEvent::Change => {
-                    this.page_offset = 0;
                     let typing = !this.search.read(cx).value().is_empty();
                     if typing
                         && !matches!(
@@ -1373,7 +1378,7 @@ impl AppView {
             palette,
             sort: Sort::Default,
             matched_total: 0,
-            page_offset: 0,
+            load_generation: Default::default(),
             loop_start: None,
             search,
             own_font,
@@ -1853,9 +1858,20 @@ impl AppView {
                         self.tracks = tracks;
                         self.matched_total = total;
                         self.loading = false;
-                        self.reconcile_selection();
+                        // A selection further down waits for the rest of the list.
+                        if self.tracks.len() >= total {
+                            self.reconcile_selection();
+                        }
                         if std::mem::take(&mut self.scroll_on_load) {
                             self.restore_scroll();
+                        }
+                    }
+                }
+                Event::LoadedMore(generation, from, tracks) => {
+                    if generation == self.generation && from == self.tracks.len() {
+                        self.tracks.extend(tracks);
+                        if self.tracks.len() >= self.matched_total {
+                            self.reconcile_selection();
                         }
                     }
                 }
@@ -2343,8 +2359,10 @@ impl AppView {
         let library = self.library.clone();
         let sender = self.sender.clone();
         let manual = self.manual_playlist();
-        let offset = self.page_offset;
         let filter = self.search_text(cx);
+        self.load_generation
+            .store(generation, std::sync::atomic::Ordering::Relaxed);
+        let current = self.load_generation.clone();
         if self.page.is_grid() {
             let page = self.page.clone();
             // Grid pages have no loaded tracks; playing them fetches every match.
@@ -2367,6 +2385,10 @@ impl AppView {
             cx.notify();
             return;
         }
+        // A shuffled or spread rule is read in one go: its order is only the same within one
+        // read.
+        let whole = query::compile(&expression, chrono::Utc::now().timestamp())
+            .is_ok_and(|q| q.order.contains("random") || q.spread.is_some());
         std::thread::spawn(move || {
             let result = (|| -> Result<needle_core::database::SearchPage> {
                 if let Some(list) = manual {
@@ -2380,16 +2402,36 @@ impl AppView {
                         tracks.retain(|t| ids.contains(&t.id));
                     }
                     let total = tracks.len();
-                    let tracks = tracks.into_iter().skip(offset).take(PAGE_SIZE).collect();
                     Ok(needle_core::database::SearchPage { tracks, total })
+                } else if whole {
+                    library.search_page(&expression, 0, usize::MAX)
                 } else {
-                    library.search_page(&expression, offset, PAGE_SIZE)
+                    library.search_page(&expression, 0, FIRST_ROWS)
                 }
             })();
-            let _ = sender.send(match result {
-                Ok(page) => Event::Loaded(generation, page.tracks, page.total),
-                Err(e) => Event::SearchFailed(generation, format!("{e:#}")),
-            });
+            let total = match result {
+                Ok(page) => {
+                    let (shown, total) = (page.tracks.len(), page.total);
+                    let _ = sender.send(Event::Loaded(generation, page.tracks, total));
+                    (shown, total)
+                }
+                Err(e) => {
+                    let _ = sender.send(Event::SearchFailed(generation, format!("{e:#}")));
+                    return;
+                }
+            };
+            // The rest of the list, a block at a time, while it is still the one asked for.
+            let (mut from, total) = total;
+            while from < total && current.load(std::sync::atomic::Ordering::Relaxed) == generation {
+                match library.search_page(&expression, from, MORE_ROWS) {
+                    Ok(page) if !page.tracks.is_empty() => {
+                        let count = page.tracks.len();
+                        let _ = sender.send(Event::LoadedMore(generation, from, page.tracks));
+                        from += count;
+                    }
+                    _ => break,
+                }
+            }
         });
         cx.notify();
     }
@@ -2483,8 +2525,8 @@ impl AppView {
         self.confirm_delete = false;
         self.menu = None;
         self.sort = Sort::Default;
-        self.page_offset = 0;
         self.tracks.clear();
+        self.matched_total = 0;
         self.selection = Selection::default();
         self.search.update(cx, |s, cx| s.set_value("", window, cx));
         if self.page == Page::History {
@@ -2773,8 +2815,8 @@ impl AppView {
         } else {
             self.reason(cx)
         };
-        let start = self.page_offset + index;
-        let complete = self.page_offset == 0 && self.tracks.len() >= self.matched_total;
+        let start = index;
+        let complete = self.tracks.len() >= self.matched_total;
         let sender = self.sender.clone();
         let finish = move |mut tracks: Vec<Track>, start: usize, truncated: bool| {
             let notice = truncated.then(|| {

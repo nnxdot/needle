@@ -58,7 +58,6 @@ fn type_search(view: &mut AppView, tick: u32, window: &mut Window, cx: &mut Cont
     let text = &"the love song"[..((tick / 9) as usize % 13) + 1];
     view.search
         .update(cx, |s, cx| s.set_value(text, window, cx));
-    view.page_offset = 0;
     view.refresh(cx);
     view.update_suggestions(cx);
 }
@@ -133,7 +132,6 @@ fn steps() -> Vec<Step> {
             start: |v, w, cx| {
                 open(v, Page::Songs, w, cx);
                 v.sort = super::Sort::Asc("title");
-                v.page_offset = 0;
                 v.refresh(cx);
             },
             tick: None,

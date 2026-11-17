@@ -269,7 +269,6 @@ impl AppView {
                             Sort::Desc(f) if f == field => Sort::Default,
                             _ => Sort::Asc(field),
                         };
-                        this.page_offset = 0;
                         this.refresh(cx);
                     }))
                     .on_drag(DraggedColumn(key.to_string()), move |_, _, _, cx| {
