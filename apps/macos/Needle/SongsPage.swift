@@ -581,8 +581,22 @@ struct Problem: View {
 struct Skeleton: View {
     private var store: Store { .shared }
     @State private var on = false
+    /// Shown only once the load has taken 300 ms: a quick local load shows nothing new, not a
+    /// grey flicker.
+    @State private var late = false
 
     var body: some View {
+        if late {
+            bars
+        } else {
+            Color.clear.task {
+                try? await Task.sleep(for: .milliseconds(300))
+                if !Task.isCancelled { late = true }
+            }
+        }
+    }
+
+    private var bars: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(0..<9, id: \.self) { i in
                 HStack(spacing: 12) {
