@@ -1219,7 +1219,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             onDone = { update { it.copy(textScale = scale) } },
         )
         Divider()
-        SwitchRow("Reduce motion", "Fades in place of slides and moving covers", app.reduceMotion, icon = Icons.Rounded.MotionPhotosOff) { on -> update { it.copy(reduceMotion = on) } }
+        SwitchRow("Reduce motion", "No slides or movement. Short fades stay.", app.reduceMotion, icon = Icons.Rounded.MotionPhotosOff) { on -> update { it.copy(reduceMotion = on) } }
         Divider()
         SwitchRow("Vibration", "A light tap on play, pause, and long presses", app.haptics, icon = Icons.Rounded.Vibration) { on -> update { it.copy(haptics = on) } }
     }
