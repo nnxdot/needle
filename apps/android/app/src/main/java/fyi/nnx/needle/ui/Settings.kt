@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.foundation.gestures.detectTapGestures
+
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Description
@@ -901,7 +903,11 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                     softWrap = false,
                 )
                 val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                // The knob glides only to a place tapped on the track; dragged, it stays under the
+                // finger, and moved by keys it is there at once.
+                var glide by remember { mutableStateOf(false) }
                 val nudge: (Float) -> Unit = { by ->
+                    glide = false
                     live = live.toMutableList().also { it[i] = (it[i] + by).coerceIn(-12f, 12f) }
                     save(live)
                 }
@@ -941,6 +947,7 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                         .focusable(interactionSource = focus)
                         .pointerInput(i, gains) {
                             detectVerticalDragGestures(
+                                onDragStart = { glide = false },
                                 onDragEnd = { haptics(false); save(live) },
                             ) { change, _ ->
                                 val y = change.position.y.coerceIn(0f, size.height.toFloat())
@@ -948,10 +955,25 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                                 val snapped = (Math.round(value * 2) / 2f).coerceIn(-12f, 12f)
                                 live = live.toMutableList().also { it[i] = snapped }
                             }
+                        }
+                        // A tap on the track sets the band there.
+                        .pointerInput(i, gains) {
+                            detectTapGestures(onTap = { at ->
+                                val y = at.y.coerceIn(0f, size.height.toFloat())
+                                val value = (Math.round((12f - 24f * y / size.height) * 2) / 2f).coerceIn(-12f, 12f)
+                                glide = true
+                                haptics(false)
+                                live = live.toMutableList().also { it[i] = value }
+                                save(live)
+                            })
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    val fraction by animateFloatAsState((gain + 12f) / 24f, label = "band")
+                    val fraction by animateFloatAsState(
+                        (gain + 12f) / 24f,
+                        if (glide && !reduceMotion()) androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 600f) else androidx.compose.animation.core.snap(),
+                        label = "band",
+                    )
                     // The track, the level from the middle, and the knob.
                     Box(Modifier.width(6.dp).fillMaxHeight().clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
                     val knobY = maxHeight * (1f - fraction) - maxHeight / 2
