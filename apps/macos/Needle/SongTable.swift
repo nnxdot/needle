@@ -291,9 +291,11 @@ struct TitleCell: View {
                         .accessibilityLabel("From your music server")
                 }
                 if track.missing {
+                    // Never squeezed: the title is what gets cut.
                     Text("Missing file").font(.needle(.caption2)).padding(.horizontal, 5).padding(.vertical, 1)
                         .background(colors.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
                         .foregroundStyle(colors.danger)
+                        .fixedSize()
                 }
             }
             if compact {
