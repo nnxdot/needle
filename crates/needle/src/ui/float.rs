@@ -19,6 +19,9 @@ pub struct FloatView {
     app: WeakEntity<AppView>,
     main: AnyWindowHandle,
     hovered: bool,
+    /// The buttons' fade as the pointer comes and goes: their strength when it started, and
+    /// when. It goes on from where it is.
+    buttons_fade: (f32, std::time::Instant),
     /// The window glass last asked of the system, and whether it was dark.
     glass_applied: Option<(super::glass::Material, bool)>,
     /// Pressed and not yet moved: moving now moves the window; letting go is a click.
@@ -60,6 +63,7 @@ impl AppView {
                     app: weak.clone(),
                     main,
                     hovered: false,
+                    buttons_fade: (0., std::time::Instant::now()),
                     glass_applied: None,
                     pressed: None,
                     _observe: cx.observe(&app, |_, _, cx| cx.notify()),
@@ -189,6 +193,16 @@ impl FloatView {
     }
 }
 
+impl FloatView {
+    /// How strong the buttons are now (0 to 1) on their way in or out.
+    fn buttons_strength(&self) -> f32 {
+        let target = if self.hovered { 1. } else { 0. };
+        let (from, since) = self.buttons_fade;
+        let t = (since.elapsed().as_secs_f32() * 1000. / 120.).min(1.);
+        from + (target - from) * super::motion::ease_out(t)
+    }
+}
+
 impl Render for FloatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
@@ -245,6 +259,10 @@ impl Render for FloatView {
                     this.send(command(), cx);
                 }))
         };
+        let strength = self.buttons_strength();
+        if strength != if self.hovered { 1. } else { 0. } {
+            window.request_animation_frame();
+        }
         let buttons = div()
             .flex()
             .items_center()
@@ -332,6 +350,9 @@ impl Render for FloatView {
             .gap(px(12.))
             .p(px(12.))
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if this.hovered != *hovered {
+                    this.buttons_fade = (this.buttons_strength(), std::time::Instant::now());
+                }
                 this.hovered = *hovered;
                 cx.notify();
             }))
@@ -392,7 +413,9 @@ impl Render for FloatView {
                             .truncate()
                             .child(track.map_or(String::new(), |t| t.display_artist().to_string())),
                     )
-                    .when(self.hovered && track.is_some(), |el| el.child(buttons)),
+                    // The buttons always keep their room, so the title does not hop as the
+                    // pointer comes and goes; they fade in and out (120 ms).
+                    .when(track.is_some(), |el| el.child(buttons.opacity(strength))),
             )
             .when(playing, |el| {
                 el.child(
