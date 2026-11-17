@@ -1,5 +1,5 @@
 use super::{
-    AppView, BIG_MS, Page, album_page, motion, pal,
+    AppView, Page, album_page, motion, pal,
     widgets::{artwork, faint, glyph, icon_button, meta, quality},
 };
 use gpui::{prelude::*, *};
@@ -173,7 +173,6 @@ impl AppView {
         lift: f32,
         cx: &App,
     ) -> AnyElement {
-        let closing = !self.big;
         let canvas = pal(cx).canvas;
         // Open and still: drawn in its own place, without the opening again (the move from the
         // layer it grew in started the animation a second time).
@@ -193,27 +192,66 @@ impl AppView {
                 )
                 .into_any_element();
         }
-        // Where the cover sits in the player bar, measured from the body's edges.
-        let art = [22., h - 77., w - 78., 21.];
-        let edge = move |t: f32, i: usize| art[i] * (1. - if closing { 1. - t } else { t });
-        let serial = self.big_serial;
-        let inner = motion::animate(
-            div().absolute().w(px(w)).h(px(h + lift)).child(player),
-            ("big-inner", serial),
-            BIG_MS,
-            cx,
-            move |el, t| el.left(px(-edge(t, 0))).top(px(-edge(t, 1) - lift)),
-        );
-        let clip = div().absolute().overflow_hidden().bg(canvas).child(inner);
-        motion::animate(clip, ("big-reveal", serial), BIG_MS, cx, move |el, t| {
-            let shown = if closing { 1. - t } else { t };
-            el.left(px(edge(t, 0)))
-                .top(px(edge(t, 1)))
-                .right(px(edge(t, 2)))
-                .bottom(px(edge(t, 3)))
-                .rounded(px(8. * (1. - shown)))
-                .opacity((shown * 1.6).min(1.))
-        })
+        // Where the cover that opened it sits, measured from the body's edges (as last
+        // drawn); the player bar's usual place if it was not drawn yet.
+        let art = self
+            .big_art_edges(w, h)
+            .unwrap_or([22., h - 77., w - 78., 21.]);
+        let shown = self.big_shown_toward(self.big);
+        let edge = move |i: usize| art[i] * (1. - shown);
+        let inner = div()
+            .absolute()
+            .w(px(w))
+            .h(px(h + lift))
+            .left(px(-edge(0)))
+            .top(px(-edge(1) - lift))
+            .child(player);
+        div()
+            .absolute()
+            .overflow_hidden()
+            .bg(canvas)
+            .left(px(edge(0)))
+            .top(px(edge(1)))
+            .right(px(edge(2)))
+            .bottom(px(edge(3)))
+            .rounded(px(8. * (1. - shown)))
+            .opacity((shown * 1.6).min(1.))
+            .child(inner)
+            .into_any_element()
+    }
+
+    /// How far open the big player is (0 to 1) on its way to `open` (the side it moves to).
+    pub(super) fn big_shown_toward(&self, open: bool) -> f32 {
+        let target = if open { 1. } else { 0. };
+        if !self.big_moving {
+            return target;
+        }
+        let (from, since, ms) = self.big_from;
+        let t = if ms > 0. {
+            (since.elapsed().as_secs_f32() * 1000. / ms).min(1.)
+        } else {
+            1.
+        };
+        from + (target - from) * motion::ease_out(t)
+    }
+
+    /// Notes where the cover that opens the big player is drawn (put inside that cover).
+    pub(super) fn big_art_probe(&self) -> impl IntoElement {
+        let cell = self.big_art.clone();
+        canvas(move |bounds, _, _| cell.set(Some(bounds)), |_, _, _, _| {})
+            .absolute()
+            .size_full()
+    }
+
+    /// The cover's place as distances from the body's left, top, right and bottom edges, in a
+    /// body `w` by `h`.
+    fn big_art_edges(&self, w: f32, h: f32) -> Option<[f32; 4]> {
+        let (art, body) = (self.big_art.get()?, self.body_bounds.get()?);
+        let left = f32::from(art.left() - body.left());
+        let top = f32::from(art.top() - body.top());
+        let right = w - f32::from(art.right() - body.left());
+        let bottom = h - f32::from(art.bottom() - body.top());
+        Some([left, top, right, bottom])
     }
 
     pub(super) fn big_player(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {

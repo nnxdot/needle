@@ -689,8 +689,17 @@ impl AppView {
         if fold == 0 || since.elapsed() > std::time::Duration::from_millis(300) {
             return element.into_any_element();
         }
-        super::motion::animate(element, ("sidebar-fold", fold), 220, cx, move |el, t| {
-            el.w(px(from + (width - from) * t))
+        // The sidebar is drawn at its new width at once, inside a clip that opens or closes
+        // to it: its rows keep their final layout, so no label runs through "S…", "Se…".
+        let margin = if pane { super::SIDEBAR_INSET } else { 0. };
+        let clip = div()
+            .flex_shrink_0()
+            .flex()
+            .overflow_hidden()
+            .when(!pane, |el| el.h_full())
+            .child(element);
+        super::motion::animate(clip, ("sidebar-fold", fold), 220, cx, move |el, t| {
+            el.w(px(margin + from + (width - from) * t))
         })
     }
 
@@ -868,10 +877,12 @@ impl AppView {
                     .child(
                         div()
                             .id("open-big")
+                            .relative()
                             .cursor_pointer()
                             .rounded(px(4.))
                             .hover(|s| s.opacity(0.85))
                             .child(artwork(current.as_ref(), 56., cx))
+                            .child(self.big_art_probe())
                             .tooltip(|window, cx| {
                                 gpui_component::tooltip::Tooltip::new(super::widgets::keys(
                                     "Open the big player · Ctrl+P",

@@ -250,7 +250,9 @@ impl AppView {
                             }),
                         )
                     })
+                    .relative()
                     .child(artwork(current.as_ref(), 36., cx))
+                    .child(self.big_art_probe())
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new(super::widgets::keys(
                             "Open the big player · Ctrl+P",

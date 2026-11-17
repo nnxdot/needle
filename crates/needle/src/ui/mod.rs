@@ -165,8 +165,9 @@ const MIN_WINDOW: (f32, f32) = (900., 620.);
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
-/// How long the big player takes to grow or shrink.
+/// How long the big player takes to grow; shrinking is quicker.
 const BIG_MS: u64 = 260;
+const BIG_OUT_MS: u64 = 200;
 
 /// Windows and Linux glass: how far the floating sidebar and the page sheet keep from the
 /// window's edges and from each other.
@@ -727,6 +728,13 @@ pub struct AppView {
     /// The window's size before immersive mode, given back when it ends.
     immersive_restore: Option<Size<Pixels>>,
     big_serial: usize,
+    /// The big player's move: how far open it was when it started (0 to 1), when, and how
+    /// long it takes (ms). A second press goes on from where it is.
+    big_from: (f32, Instant, f32),
+    /// Where the cover that opens the big player was drawn, and the body under the title
+    /// bar, so the player grows out of that cover in every layout.
+    big_art: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
+    body_bounds: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
     /// Big player background: the colour it is fading from, to, and a counter for the fade.
     big_tint: (Hsla, Hsla, usize),
     looks: ambient::Looks,
@@ -1422,6 +1430,9 @@ impl AppView {
             immersive_restore: None,
             immersive_toggled: false,
             big_serial: 0,
+            big_from: (0., Instant::now(), 0.),
+            big_art: Default::default(),
+            body_bounds: Default::default(),
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
@@ -1631,11 +1642,15 @@ impl AppView {
     }
     fn toggle_sidebar(&mut self) {
         self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
-        self.sidebar_fold = (
-            self.sidebar_fold.0 + 1,
-            self.sidebar_drawn.get(),
-            Instant::now(),
-        );
+        // From Ctrl+B the new width shows at once; from a click it moves there.
+        let now = Instant::now();
+        let since = if motion::by_key() {
+            // Long enough ago that the sidebar does not move.
+            now.checked_sub(Duration::from_secs(1)).unwrap_or(now)
+        } else {
+            now
+        };
+        self.sidebar_fold = (self.sidebar_fold.0 + 1, self.sidebar_drawn.get(), since);
         self.persist_settings();
     }
     fn persist_settings(&mut self) {
@@ -3503,23 +3518,26 @@ impl Render for AppView {
         let ambient_layer = self.ambient_layer(window, cx);
         self.glide_lyrics(window, cx);
         if self.big != self.big_was {
+            // Turned around mid-way, it goes on from where it is; from a key (or with Reduce
+            // motion) it is there at once.
+            let from = self.big_shown_toward(self.big_was);
             self.big_was = self.big;
             self.big_serial += 1;
-            self.big_moving = motion::enabled(cx);
-            if self.big_moving {
-                let serial = self.big_serial;
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(BIG_MS + 20))
-                        .await;
-                    let _ = this.update(cx, |this, cx| {
-                        if this.big_serial == serial {
-                            this.big_moving = false;
-                            cx.notify();
-                        }
-                    });
-                })
-                .detach();
+            let (target, ms) = if self.big {
+                (1., BIG_MS)
+            } else {
+                (0., BIG_OUT_MS)
+            };
+            let ms = ms as f32 * (target - from).abs();
+            self.big_moving = motion::enabled(cx) && !motion::by_key() && ms > 1.;
+            self.big_from = (from, Instant::now(), ms);
+        }
+        if self.big_moving {
+            let (_, since, ms) = self.big_from;
+            if ms > 0. && since.elapsed().as_secs_f32() * 1000. >= ms {
+                self.big_moving = false;
+            } else {
+                window.request_animation_frame();
             }
         }
         // The big player grows over the page, under the usual title bar; once open, it fills the
@@ -3808,6 +3826,12 @@ impl Render for AppView {
                     .flex()
                     .flex_col()
                     .relative()
+                    .child({
+                        let cell = self.body_bounds.clone();
+                        canvas(move |bounds, _, _| cell.set(Some(bounds)), |_, _, _, _| {})
+                            .absolute()
+                            .size_full()
+                    })
                     .when(self.immersive, |el| {
                         el.child(self.immersive_view(window, cx))
                     })
