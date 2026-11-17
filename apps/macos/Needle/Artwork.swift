@@ -242,17 +242,29 @@ struct Artwork: View {
             .overlay {
                 if let image {
                     Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
+                        // Each picture its own view, so a new one fades over the old (see `show`).
+                        .id(ObjectIdentifier(image))
+                        .transition(.opacity)
                 } else {
                     Placeholder(seed: seed)
                 }
             }
             .clipped()
             .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
-                guard let path else { image = nil; return }
-                if let hit = Covers.cached(path, size: size) { image = hit; return }
+                guard let path else { show(nil); return }
+                if let hit = Covers.cached(path, size: size) { show(hit); return }
                 let found = await Covers.load(path, size: size)
-                if !Task.isCancelled { image = found }
+                if !Task.isCancelled { show(found) }
             }
+    }
+
+    /// A large picture (the big player's, an artist's) that takes another's place fades over it,
+    /// so a new song does not flash the whole window; still a short fade with Reduce motion, as
+    /// it does not move. Small covers and a first picture change at once.
+    private func show(_ new: NSImage?) {
+        guard new !== image else { return }
+        let fade = size >= 1000 && image != nil
+        withAnimation(fade ? .easeInOut(duration: Store.shared.motion ? 0.5 : 0.2) : nil) { image = new }
     }
 }
 
@@ -528,6 +540,9 @@ struct CoverBackdrop: View {
                             .frame(width: side, height: side)
                             .rotationEffect(.degrees(angle))
                     }
+                    // A new song's colours fade over the last one's (see `Artwork.show`).
+                    .id(ObjectIdentifier(image))
+                    .transition(.opacity)
                 } else {
                     // No cover file: the name's colours, blurred, held still.
                     Placeholder(seed: seed)
@@ -555,7 +570,9 @@ struct CoverBackdrop: View {
         .clipped()
         .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
             guard let path else { image = nil; return }
-            image = await Covers.backdrop(path)
+            let found = await Covers.backdrop(path)
+            guard !Task.isCancelled, found !== image else { return }
+            withAnimation(image != nil ? .easeInOut(duration: Store.shared.motion ? 0.5 : 0.2) : nil) { image = found }
         }
         .onChange(of: moving, initial: true) { _, now in
             if now {
