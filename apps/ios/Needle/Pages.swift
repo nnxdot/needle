@@ -748,8 +748,14 @@ struct HeaderGlow: View {
     let path: String?
     let seed: String
     let look: PageColors
+    /// Reduce Transparency: no glow; the page's own plain colour.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
+        if !reduceTransparency { glow }
+    }
+
+    private var glow: some View {
         Artwork(path: path, seed: seed, size: 200)
             .aspectRatio(contentMode: .fill)
             .frame(height: 460)

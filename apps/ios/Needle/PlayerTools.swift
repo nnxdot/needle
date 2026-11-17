@@ -35,6 +35,7 @@ extension SpeedPitch {
 struct SleepMoon: View {
     @Environment(Store.self) private var store
     @Environment(WindowState.self) private var window
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         let running = store.sleep
@@ -46,7 +47,7 @@ struct SleepMoon: View {
                     Text(sleepClock(running.remaining)).font(.needle(.footnote).monospacedDigit().weight(.semibold))
                 }
             }
-            .foregroundStyle(running == nil ? .white.opacity(0.7) : ThemeColors.amber)
+            .foregroundStyle(running == nil ? .white.opacity(contrast.sign(0.7)) : ThemeColors.amber)
             .frame(minWidth: 44, minHeight: 44)
             .padding(.horizontal, running == nil ? 0 : 8)
             // Glass only while the timer runs, in the cover's colour as the player's other lit

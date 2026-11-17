@@ -120,6 +120,10 @@ struct NowPlayingView: View {
     @Environment(WindowState.self) private var window
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    /// Increase Contrast: the player's dim signs and grey words brighter.
+    @Environment(\.colorSchemeContrast) private var contrast
+    /// Reduce Transparency: the cover's plain colours behind the player, not its blurred picture.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var pane = Pane.cover
     /// Translate in the lyrics (the lyrics pane reads the same switch).
     @AppStorage("translateLyrics") private var translateLyrics = false
@@ -213,7 +217,7 @@ struct NowPlayingView: View {
                     .animation(Motion.fade(.easeInOut(duration: 0.45)), value: immersive)
                 if !immersive {
                     Group {
-                        if app.coverBackdrop {
+                        if app.coverBackdrop && !reduceTransparency {
                             CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
                         } else {
                             LinearGradient(colors: [(store.coverColor ?? .gray).opacity(0.55), .black], startPoint: .top, endPoint: .bottom)
@@ -223,7 +227,7 @@ struct NowPlayingView: View {
                     }
                     .transition(.opacity)
                 }
-            } else if app.coverBackdrop {
+            } else if app.coverBackdrop && !reduceTransparency {
                 CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
             } else {
                 LinearGradient(colors: [(store.coverColor ?? .gray).opacity(0.55), .black], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
@@ -420,9 +424,9 @@ struct NowPlayingView: View {
     /// the computer, a word that it plays there).
     private func top(_ song: Song?) -> some View {
         VStack(spacing: 6) {
-            Capsule().fill(.white.opacity(0.4)).frame(width: 38, height: 5)
+            Capsule().fill(.white.opacity(contrast.sign(0.4))).frame(width: 38, height: 5)
             if store.onComputer {
-                Text("Playing on your computer").font(.needle(.caption).weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                Text("Playing on your computer").font(.needle(.caption).weight(.semibold)).foregroundStyle(.white.opacity(contrast.sign(0.7)))
             }
         }
         .frame(maxWidth: .infinity)
@@ -581,11 +585,11 @@ struct NowPlayingView: View {
     private func artistButton(_ song: Song?) -> some View {
         if let song, !song.onComputer, !isPlaceholderArtist(song.artist) {
             Button { window.opening = .artist(song.artist) } label: {
-                Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
+                Text(song.artist).foregroundStyle(contrast.quiet).lineLimit(1)
             }
             .buttonStyle(.plain)
         } else {
-            Text(song?.artist ?? "").foregroundStyle(.secondary).lineLimit(1)
+            Text(song?.artist ?? "").foregroundStyle(contrast.quiet).lineLimit(1)
         }
     }
 
@@ -738,12 +742,12 @@ struct NowPlayingView: View {
         case "shuffle":
             let stays = store.choices.shuffleStays && !store.onComputer
             BigButton(symbol: "shuffle", size: 22, bounce: shufflePresses) { shufflePresses += 1; store.shuffleButton() }
-                .opacity(stays ? (store.shuffleOn ? 1 : 0.55) : 0.8)
+                .opacity(stays ? (store.shuffleOn ? 1 : contrast.sign(0.55)) : contrast.sign(0.8))
                 .accessibilityLabel(stays ? "Shuffle" : "Shuffle up next")
                 .accessibilityValue(stays ? (store.shuffleOn ? "On" : "Off") : "")
         case "repeat":
             BigButton(symbol: repeatMode == .one ? "repeat.1" : "repeat", size: 22, bounce: repeatPresses) { repeatPresses += 1; store.cycleRepeat() }
-                .opacity(repeatMode == .off ? 0.55 : 1)
+                .opacity(repeatMode == .off ? contrast.sign(0.55) : 1)
                 .accessibilityLabel("Repeat")
                 .accessibilityValue(repeatMode == .off ? "Off" : repeatMode == .all ? "All" : "One")
         default:
@@ -779,7 +783,7 @@ struct NowPlayingView: View {
         switch name {
         case "lyrics": paneButton(.lyrics, symbol: "quote.bubble")
         case "queue": paneButton(.queue, symbol: "list.bullet")
-        default: RoutePicker().frame(width: 44, height: 44).opacity(0.75)
+        default: RoutePicker().frame(width: 44, height: 44).opacity(contrast.sign(0.75))
         }
     }
 
@@ -790,7 +794,7 @@ struct NowPlayingView: View {
         } label: {
             Image(systemName: "translate")
                 .font(.needle(.title3).weight(translateLyrics ? .semibold : .regular))
-                .foregroundStyle(.white.opacity(translateLyrics ? 1 : 0.7))
+                .foregroundStyle(.white.opacity(translateLyrics ? 1 : contrast.sign(0.7)))
                 .frame(width: 44, height: 44)
                 .glassEffect(translateLyrics ? .regular.tint((store.coverColor ?? .clear).opacity(0.35)) : .identity, in: .circle)
                 .contentShape(.circle)
@@ -814,7 +818,7 @@ struct NowPlayingView: View {
         } label: {
             Image(systemName: on && which == .lyrics ? "quote.bubble.fill" : symbol)
                 .font(.needle(.title3).weight(on ? .semibold : .regular))
-                .foregroundStyle(.white.opacity(on ? 1 : 0.7))
+                .foregroundStyle(.white.opacity(on ? 1 : contrast.sign(0.7)))
                 .frame(width: 44, height: 44)
                 // One lit glass for Lyrics and Up Next: it moves across when the other opens.
                 .litGlass(on, id: "pane", in: footGlass, tint: store.coverColor)
@@ -1018,6 +1022,18 @@ private extension View {
     }
 }
 
+extension ColorSchemeContrast {
+    /// A dim white sign over the cover's colours: nearly full with Increase Contrast.
+    func sign(_ opacity: Double) -> Double {
+        self == .increased ? max(opacity, 0.9) : opacity
+    }
+
+    /// Grey words over the cover's colours: brighter with Increase Contrast.
+    var quiet: AnyShapeStyle {
+        self == .increased ? AnyShapeStyle(HierarchicalShapeStyle.primary.opacity(0.85)) : AnyShapeStyle(.secondary)
+    }
+}
+
 /// Turns its content slowly, as a record on a turntable, while `on`.
 struct RecordSpin<Content: View>: View {
     let on: Bool
@@ -1106,6 +1122,7 @@ struct SeekBar: View {
     /// The song's loud and quiet shape, once measured.
     @State private var shape: [Float] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotionSystem
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         let position = dragged ?? store.position
@@ -1169,7 +1186,7 @@ struct SeekBar: View {
                 Text("-" + clock(max(0, duration - position)))
             }
             .font(.needle(.caption).weight(.semibold).monospacedDigit())
-            .foregroundStyle(.secondary)
+            .foregroundStyle(contrast.quiet)
         }
         .task(id: store.playback?.current?.id) {
             shape = []
@@ -1659,6 +1676,8 @@ private struct LyricsFade: View {
 private struct TimedLyrics: View {
     @Environment(Store.self) private var store
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    /// Increase Contrast: the other lines brighter and sharp.
+    @Environment(\.colorSchemeContrast) private var contrast
     let lines: [LyricLine]
     let stage: Bool
     /// Each line in your language, by its place (Translate on).
@@ -1697,8 +1716,8 @@ private struct TimedLyrics: View {
                                     .multilineTextAlignment(stage ? .center : .leading)
                             }
                         }
-                        .opacity(i == current ? 1 : 0.32)
-                        .blur(radius: i == current || reduce ? 0 : 1)
+                        .opacity(i == current ? 1 : contrast == .increased ? 0.6 : 0.32)
+                        .blur(radius: i == current || reduce || contrast == .increased ? 0 : 1)
                         // Room for the playing line to grow without going past the edge.
                         .padding(.horizontal, stage ? 8 : 0)
                         .padding(.trailing, stage ? 0 : 16)
