@@ -109,6 +109,7 @@ struct SleepSheet: View {
     @State private var chosen = 1
     @State private var fade = true
     @Namespace private var chips
+    @Environment(\.dynamicTypeSize) private var textSize
 
     /// The chips: their names, and what they start.
     private static let choices: [(String, String, UInt32)] = [
@@ -117,6 +118,26 @@ struct SleepSheet: View {
     ]
 
     var body: some View {
+        // At very large text it scrolls, and may grow to the screen's height: Start can always
+        // be reached. When it fits, it is the plain sheet (and popover) as before.
+        ViewThatFits(in: .vertical) {
+            form
+            ScrollView { form }
+                .scrollBounceBehavior(.basedOnSize)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .presentationDetents(textSize.isAccessibilitySize ? [.medium, .large] : [.medium])
+        .toolSheet(store)
+        .onAppear {
+            fade = store.core.sleepFade()
+            if let running = store.sleep, let i = Self.choices.firstIndex(where: { $0.1 == running.kind && ($0.1 != "minutes" || $0.2 == running.minutes) }) {
+                chosen = i
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var form: some View {
         let colors = store.colors
         let running = store.sleep
         let choice = Self.choices[chosen]
@@ -165,15 +186,6 @@ struct SleepSheet: View {
             }
         }
         .padding(22)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.medium])
-        .toolSheet(store)
-        .onAppear {
-            fade = store.core.sleepFade()
-            if let running, let i = Self.choices.firstIndex(where: { $0.1 == running.kind && ($0.1 != "minutes" || $0.2 == running.minutes) }) {
-                chosen = i
-            }
-        }
     }
 
     /// "Start · stops at 22:18".

@@ -95,6 +95,8 @@ struct FloatingPlayer: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // Large text grows the bar, up to a size that still fits beside its buttons.
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility2)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -116,7 +118,8 @@ struct FloatingPlayer: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 10)
-        .frame(height: 60)
+        // Grows with large text, so the song's name is never cut in half.
+        .frame(minHeight: 60)
         .frame(maxWidth: 820)
         // One layer of glass, in the playing cover's colour as Home's card (the accent until it
         // is known); the signs on it are plain.
