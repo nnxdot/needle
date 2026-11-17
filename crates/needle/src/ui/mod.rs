@@ -773,6 +773,8 @@ pub struct AppView {
     lyric_glide: bool,
     /// Frames waited for newly opened lyrics to be laid out before gliding.
     lyric_glide_waits: u8,
+    /// When the lyrics were last scrolled by hand: they then stay put for 3 seconds.
+    lyrics_hand: Option<Instant>,
     /// Whether the big (or full screen) lyrics and the side panel's were on screen.
     lyrics_shown: (bool, bool),
     artist_images: std::collections::HashMap<String, Option<String>>,
@@ -1458,6 +1460,7 @@ impl AppView {
             mini_lyric_glide: false,
             lyric_glide: false,
             lyric_glide_waits: 0,
+            lyrics_hand: None,
             lyrics_shown: (false, false),
             artist_images: Default::default(),
             artist_view: Default::default(),
