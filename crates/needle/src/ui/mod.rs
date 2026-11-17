@@ -2906,8 +2906,13 @@ impl AppView {
     }
 
     fn set_rating(&mut self, ids: &[String], rating: i64) {
+        // The heart pops for a click, not for Ctrl+D.
+        if motion::by_key() {
+            self.heart_pop = None;
+        }
         if let [id] = ids
             && rating >= 4
+            && !motion::by_key()
         {
             let serial = self.heart_pop.as_ref().map_or(0, |(_, n)| n + 1);
             self.heart_pop = Some((id.clone(), serial));
