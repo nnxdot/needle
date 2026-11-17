@@ -73,7 +73,9 @@ private struct ToolChip: View {
     let action: () -> Void
 
     var body: some View {
-        Button { withMotion(.smooth(duration: 0.35), action) } label: {
+        // What the chip starts changes at once; only the lit glass glides, from its
+        // container's animation.
+        Button(action: action) {
             Text(label)
                 .font(.needle(.subheadline).weight(.medium))
                 .foregroundStyle(on ? AnyShapeStyle(store.colors.onAccent) : enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
@@ -137,6 +139,7 @@ struct SleepSheet: View {
                     }
                 }
             }
+            .motion(.smooth(duration: 0.22), value: chosen)
             Divider()
             Toggle(isOn: Binding(get: { running?.fade ?? fade }, set: { fade = $0; store.setSleepFade($0) })) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -218,6 +221,7 @@ struct SpeedSheet: View {
                         }
                     }
                 }
+                .motion(.smooth(duration: 0.22), value: tempo.speed)
                 HStack {
                     Text("Pitch").font(.needle(.body).weight(.semibold))
                     Spacer()

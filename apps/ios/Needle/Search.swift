@@ -154,7 +154,8 @@ struct SearchView: View {
                 HStack(spacing: 8) {
                     ForEach(Kind.allCases, id: \.self) { chip in
                         let on = kind == chip
-                        Button { withMotion(.smooth(duration: 0.35)) { kind = chip } } label: {
+                        // The results change at once; only the lit glass glides (below).
+                        Button { kind = chip } label: {
                             Text(chip.rawValue)
                                 .font(.needle(.subheadline).weight(.semibold))
                                 .padding(.horizontal, 14).padding(.vertical, 7)
@@ -168,6 +169,7 @@ struct SearchView: View {
                     }
                 }
             }
+            .motion(.smooth(duration: 0.22), value: kind)
             .padding(.horizontal, Tiles.margin(wide))
             // Room for the glass's edge and its spring when pressed.
             .padding(.vertical, 2)
