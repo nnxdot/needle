@@ -50,18 +50,18 @@ impl AppView {
             .child(self.panel(width, window, cx));
         let (opened, since) = self.panel_opened;
         match self.panel_closing {
-            Some(closing) if !shown => motion::animate(
+            Some(closing) if !shown => motion::fade(
                 pane.occlude(),
                 ("panel-out", closing),
                 super::PANEL_OUT_MS,
                 cx,
-                |el, t| el.opacity(1. - t).relative().left(px(28. * t)),
+                |el, f, m| el.opacity(1. - f).relative().left(px(20. * m)),
             ),
             // Only just after it opened: a panel drawn again later (after the big player)
             // does not slide in again.
             _ if opened > 0 && since.elapsed() < std::time::Duration::from_millis(400) => {
-                motion::animate(pane, ("panel-open", opened), 220, cx, |el, t| {
-                    el.opacity(t).relative().left(px(28. * (1. - t)))
+                motion::fade(pane, ("panel-open", opened), 200, cx, |el, f, m| {
+                    el.opacity(f).relative().left(px(20. * (1. - m)))
                 })
             }
             _ => pane.into_any_element(),
@@ -160,7 +160,8 @@ impl AppView {
                     ),
             )
             .child({
-                // As the panel opens or changes tab, its content slides in from the right.
+                // The pane moves as it opens; its content does not move again. A new tab fades
+                // in (not from a key).
                 let body = div()
                     .flex_1()
                     .min_h_0()
@@ -180,9 +181,12 @@ impl AppView {
                             .child(self.lyrics_view(super::lyrics::LyricsKind::Side, cx))
                             .into_any_element(),
                     });
-                motion::animate(body, ("panel-in", self.panel_serial), 200, cx, |el, t| {
-                    el.ml(px(20. * (1. - t))).mr(px(-20. * (1. - t))).opacity(t)
-                })
+                let (tab, since) = self.panel_tab;
+                if tab == 0 || since.elapsed() > std::time::Duration::from_millis(300) {
+                    body.into_any_element()
+                } else {
+                    motion::fade(body, ("panel-tab", tab), 120, cx, |el, f, _| el.opacity(f))
+                }
             })
     }
 

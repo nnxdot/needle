@@ -567,13 +567,13 @@ pub struct AppView {
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
     panel: Panel,
-    /// The side panel as last drawn (`None` when hidden), and a count that goes up each time
-    /// it opens or changes tab, so its content slides in once.
+    /// The side panel as last drawn (`None` when hidden).
     panel_shown: Option<Panel>,
     /// Details was picked in the panel on a page that is not a song list, so it stays open
     /// there until the page changes.
     details_here: bool,
-    panel_serial: u64,
+    /// The side panel's tab changed: a count, and when (the new tab fades in once).
+    panel_tab: (u64, Instant),
     /// The side panel's openings so far, and when the last one was.
     panel_opened: (u64, Instant),
     /// The side panel is sliding out (the opening it closes).
@@ -1321,7 +1321,7 @@ impl AppView {
             panel: Panel::Details,
             panel_shown: None,
             details_here: false,
-            panel_serial: 0,
+            panel_tab: (0, Instant::now()),
             panel_opened: (0, Instant::now()),
             panel_closing: None,
             queue_move: None,
@@ -3496,7 +3496,7 @@ impl Render for AppView {
                     self.panel_opened = (self.panel_opened.0 + 1, Instant::now());
                     self.panel_closing = None;
                 }
-                (Some(_), None) if motion::enabled(cx) => {
+                (Some(_), None) if !motion::by_key() => {
                     let serial = self.panel_opened.0;
                     self.panel_closing = Some(serial);
                     cx.spawn(async move |this, cx| {
@@ -3514,10 +3514,11 @@ impl Render for AppView {
                 }
                 _ => {}
             }
-            self.panel_shown = shown;
-            if shown.is_some() {
-                self.panel_serial += 1;
+            // A change of tab (not the panel opening) fades the new tab in.
+            if shown.is_some() && self.panel_shown.is_some() {
+                self.panel_tab = (self.panel_tab.0 + 1, Instant::now());
             }
+            self.panel_shown = shown;
         }
         // The page and the side panel share one content surface to the right of the sidebar.
         // Windows and Linux glass: the sheet keeps clear of the sidebar and the window's edge.
