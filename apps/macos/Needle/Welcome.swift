@@ -151,27 +151,27 @@ struct Welcome: View {
                 Toggle(isOn: Binding(get: { s.onlineMedia }, set: { store.set(["online_media": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Look up lyrics, covers, and artist photos")
-                        Text("Sends only the artist, album, and song title.").font(.needle(.caption)).foregroundStyle(.secondary)
+                        Text("Sends only the artist, album, and song title.").font(.needle(.caption)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 if !Store.fromAppStore {
                     Toggle(isOn: Binding(get: { s.checkUpdates }, set: { store.set(["check_updates": $0]) })) {
                         VStack(alignment: .leading) {
                             Text("Check for new versions")
-                            Text("Once a day, asks needle.nnx.fyi for the newest version number.").font(.needle(.caption)).foregroundStyle(.secondary)
+                            Text("Once a day, asks needle.nnx.fyi for the newest version number.").font(.needle(.caption)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
                 Toggle(isOn: Binding(get: { s.discordPresence }, set: { store.set(["discord_presence": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Show what you play on Discord")
-                        Text("While Discord runs on this Mac, your profile shows the song. Finding its cover asks Apple's iTunes catalog by artist and title.").font(.needle(.caption)).foregroundStyle(.secondary)
+                        Text("While Discord runs on this Mac, your profile shows the song. Finding its cover asks Apple's iTunes catalog by artist and title.").font(.needle(.caption)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Toggle(isOn: Binding(get: { s.crashReports }, set: { store.set(["crash_reports": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Send crash reports")
-                        Text("If Needle crashes, it tells us where, without file paths, your name, or anything about your music.").font(.needle(.caption)).foregroundStyle(.secondary)
+                        Text("If Needle crashes, it tells us where, without file paths, your name, or anything about your music.").font(.needle(.caption)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             case 2:
@@ -200,7 +200,9 @@ struct Welcome: View {
             }
         }
         .padding(28)
-        .frame(width: 560, height: 440)
+        // At least 440 high, and taller when a wide font or larger text needs it: no line cut.
+        .frame(width: 560)
+        .frame(minHeight: 440)
     }
 
     private func tip(_ icon: String, _ title: String, _ text: String) -> some View {
