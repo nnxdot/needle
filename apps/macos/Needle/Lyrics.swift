@@ -131,13 +131,19 @@ struct LyricsView: View {
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, l in
                         let state: LyricLineView.State = index == line ? .sung : (line.map { index < $0 } ?? false) ? .past : .ahead
                         VStack(alignment: center ? .center : .leading, spacing: 4) {
-                            if state == .sung, !l.words.isEmpty {
-                                SungLine(line: l, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
-                                         size: size, ink: ink, center: center)
-                            } else {
-                                LyricLineView(text: l.text, state: state, size: size, ink: ink, center: center, motion: store.motion)
-                                    .equatable()
+                            // One scale and one timing for the sung line, word-timed or not: the
+                            // line grows the same way when it changes from one view to the other.
+                            Group {
+                                if state == .sung, !l.words.isEmpty {
+                                    SungLine(line: l, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
+                                             size: size, ink: ink, center: center)
+                                } else {
+                                    LyricLineView(text: l.text, state: state, size: size, ink: ink, center: center)
+                                        .equatable()
+                                }
                             }
+                            .scaleEffect(state == .sung && store.motion ? 1.02 : 1, anchor: center ? .center : .leading)
+                            .animation(store.motion ? .smooth(duration: 0.3) : nil, value: state)
                             // The line in your language, under it (Translate on).
                             if translate, let translated = translations[index] {
                                 Text(translated)
@@ -222,15 +228,13 @@ struct LyricLineView: View, Equatable {
     let size: CGFloat
     let ink: Color
     let center: Bool
-    let motion: Bool
 
     var body: some View {
+        // Its scale and timing are its row's (see `LyricsView.timed`), shared with `SungLine`.
         Text(text.isEmpty ? "♪" : text)
             .font(.system(size: size, weight: .bold))
             .foregroundStyle(ink.opacity(state == .sung ? 1 : state == .past ? 0.42 : 0.3))
             .multilineTextAlignment(center ? .center : .leading)
-            .scaleEffect(state == .sung && motion ? 1.02 : 1, anchor: center ? .center : .leading)
-            .animation(motion ? .smooth(duration: 0.3) : nil, value: state)
             .contentShape(Rectangle())
     }
 }
@@ -258,7 +262,6 @@ struct SungLine: View {
         return Text(text)
             .font(.system(size: size, weight: .bold))
             .multilineTextAlignment(center ? .center : .leading)
-            .scaleEffect(store.motion ? 1.02 : 1, anchor: center ? .center : .leading)
             .contentShape(Rectangle())
     }
 }
