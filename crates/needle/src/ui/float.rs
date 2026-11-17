@@ -253,6 +253,7 @@ impl Render for FloatView {
                 .justify_center()
                 .cursor_pointer()
                 .hover(|s| s.bg(p.raised_hover))
+                .active(|s| super::glass::press_round(s, 26.))
                 .child(glyph(name).size(px(15.)).text_color(p.ink))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -279,6 +280,7 @@ impl Render for FloatView {
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
+                    .active(|s| super::glass::press_round(s, 28.))
                     .child(
                         glyph(if playing { "pause" } else { "play" })
                             .size(px(14.))
@@ -303,6 +305,7 @@ impl Render for FloatView {
                     .justify_center()
                     .cursor_pointer()
                     .hover(|s| s.bg(p.raised_hover))
+                    .active(|s| super::glass::press_round(s, 26.))
                     .child(
                         glyph(if favorite { "heart-fill" } else { "heart" })
                             .size(px(15.))

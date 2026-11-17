@@ -469,6 +469,18 @@ pub fn hover_fill(p: &super::theme::Palette) -> Hsla {
     }
 }
 
+/// A pressed row: its fill over the hover capsule (half as strong again), so a click answers
+/// on mouse-down.
+pub fn press_fill(p: &super::theme::Palette) -> Hsla {
+    hover_fill(p).opacity(0.5)
+}
+
+/// Pressed, a round button shrinks to 95 % inside its own space (nothing around it moves),
+/// the same for every player button.
+pub fn press_round(s: gpui::StyleRefinement, size: f32) -> gpui::StyleRefinement {
+    s.size(px(size * 0.95)).m(px(size * 0.025)).opacity(0.8)
+}
+
 /// A chosen (or keyboard-marked) row's fill: the glass capsule, or the plain look's raised
 /// fill.
 pub fn active_fill(p: &super::theme::Palette) -> Hsla {

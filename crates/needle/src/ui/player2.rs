@@ -242,6 +242,7 @@ impl AppView {
                     .flex_shrink_0()
                     .cursor_pointer()
                     .hover(|s| s.opacity(0.85))
+                    .active(|s| s.opacity(0.7))
                     .when_some(current.clone(), |el, track| {
                         el.on_mouse_down(
                             MouseButton::Right,

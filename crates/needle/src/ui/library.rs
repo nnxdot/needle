@@ -1498,10 +1498,13 @@ impl AppView {
             .cursor_pointer()
             .child(
                 div()
+                    .id(("tile-cover", index))
                     .relative()
                     .mb_2()
                     .rounded(if round { px(size) } else { px(8.) })
                     .shadow_md()
+                    // Pressed, the cover dims a little at once.
+                    .group_active("tile", |s| s.opacity(0.85))
                     .when(super::motion::enabled(cx), |el| {
                         let glow = self.cover_glow(group.artwork.as_deref(), cx);
                         el.group_hover("tile", move |s| s.top(px(-2.)).shadow(glow.clone()))

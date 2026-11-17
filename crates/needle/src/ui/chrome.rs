@@ -221,6 +221,7 @@ impl AppView {
                 el.text_color(if glass { p.ink } else { p.ink_2 })
                     .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
                     .hover(move |s| s.text_color(p.ink))
+                    .active(move |s| s.bg(super::glass::press_fill(&p)))
                     .map(|el| super::glass::hover_row(el, radius, cx))
             })
             .child(picture.unwrap_or_else(|| {
@@ -881,6 +882,7 @@ impl AppView {
                             .cursor_pointer()
                             .rounded(px(4.))
                             .hover(|s| s.opacity(0.85))
+                            .active(|s| s.opacity(0.7))
                             .child(artwork(current.as_ref(), 56., cx))
                             .child(self.big_art_probe())
                             .tooltip(|window, cx| {
@@ -1232,7 +1234,7 @@ impl AppView {
                     .cursor_pointer()
                     .hover(|s| s.opacity(0.88))
                     // Pressed: shrink inside the same space so nothing around it moves.
-                    .active(move |s| s.size(px(play - 4.)).m(px(2.)).opacity(0.8))
+                    .active(move |s| super::glass::press_round(s, play))
                     .child(
                         glyph(if playing { "pause" } else { "play" })
                             .size(px((play * 0.45).round()))
@@ -2012,7 +2014,8 @@ fn rail_item(
             el.rounded_full()
                 .when(active, |el| el.bg(super::glass::capsule(&p, false)))
                 .when(!active, |el| {
-                    el.map(|el| super::glass::hover_row(el, 20., cx))
+                    el.active(move |s| s.bg(super::glass::press_fill(&p)))
+                        .map(|el| super::glass::hover_row(el, 20., cx))
                 })
         })
         .when(!p.glass, |el| {
@@ -2029,7 +2032,10 @@ fn rail_item(
                             .bg(p.accent),
                     )
                 })
-                .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
+                .when(!active, |el| {
+                    el.hover(|s| s.bg(p.raised.opacity(0.6)))
+                        .active(|s| s.bg(p.raised))
+                })
         })
         .child(picture.unwrap_or_else(|| {
             glyph(glyph_name)

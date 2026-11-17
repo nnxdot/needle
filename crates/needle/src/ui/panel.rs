@@ -712,6 +712,7 @@ impl AppView {
                         range
                             .map(|index| {
                                 let item = &this.playback.queue[index];
+                                let press = super::glass::press_fill(&pal(cx));
                                 let row = div()
                                     .id(("queue-row", index))
                                     .group("queue-row")
@@ -723,6 +724,7 @@ impl AppView {
                                     .items_center()
                                     .gap_3()
                                     .cursor_pointer()
+                                    .active(move |s| s.bg(press))
                                     .map(|el| super::glass::hover_row(el, super::glass::SMALL, cx))
                                     .on_click(cx.listener(move |this, event: &ClickEvent, _, _| {
                                         if event.click_count() == 2 {
