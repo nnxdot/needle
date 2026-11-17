@@ -106,16 +106,24 @@ struct BigPlayer: View {
                     Spacer()
                 }
             }
-            .animation(store.motion ? .easeInOut(duration: 0.4) : nil, value: resting)
+            // The controls come back fast when the pointer moves, and go slowly when it rests.
+            .animation(store.motion ? (resting ? .easeInOut(duration: 0.6) : .easeOut(duration: 0.15)) : nil, value: resting)
             .onContinuousHover { _ in rest(false) }
         }
         .ignoresSafeArea()
         .environment(\.colorScheme, .dark)
-        .task(id: moved) {
-            // Full screen: the controls rest a while after the pointer stops.
-            guard store.immersive else { return }
+        // Also when full screen starts: from the big player with ⌃⌘F the pointer may not move.
+        .task(id: "\(moved.timeIntervalSinceReferenceDate)|\(store.immersive)") {
+            // Full screen: the controls rest a while after the pointer stops, and so does the
+            // pointer, until it moves again.
+            guard store.immersive else {
+                if resting { resting = false }
+                return
+            }
             try? await Task.sleep(for: .seconds(3))
-            if !Task.isCancelled { resting = true }
+            guard !Task.isCancelled else { return }
+            resting = true
+            NSCursor.setHiddenUntilMouseMoves(true)
         }
     }
 
