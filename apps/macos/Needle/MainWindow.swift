@@ -774,7 +774,7 @@ struct ToastView: View {
                 Image(systemName: toast.error ? "exclamationmark.triangle.fill" : "info.circle.fill")
                     .foregroundStyle(toast.error ? store.colors.danger : store.colors.accent)
                 Text(toast.text).lineLimit(4).frame(maxWidth: 520, alignment: .leading)
-                Button { store.toast = nil } label: { Image(systemName: "xmark").font(.needle(.caption).bold()) }
+                Button { store.closeToast() } label: { Image(systemName: "xmark").font(.needle(.caption).bold()) }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Close the message")
             }
@@ -782,8 +782,9 @@ struct ToastView: View {
             .padding(.horizontal, 16)
             .pane(shape, interactive: true, tinted: true)
             .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+            // One message box: a new message changes its text in place, it never slides out
+            // and in again.
             .transition(store.motion ? .move(edge: .bottom).combined(with: .opacity) : .opacity)
-            .id(toast.id)
         }
     }
 }

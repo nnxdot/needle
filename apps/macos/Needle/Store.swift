@@ -557,14 +557,21 @@ final class Store {
     }
 
     private func show(_ next: Toast) {
-        withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = next }
+        // A message already showing takes the new text in place; a first one comes in.
+        withAnimation(toast != nil ? nil : motion ? .smooth(duration: 0.3) : .easeInOut(duration: 0.2)) { toast = next }
         NSAccessibility.post(element: NSApp!, notification: .announcementRequested,
                              userInfo: [.announcement: next.text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         toastTask?.cancel()
         toastTask = Task {
             try? await Task.sleep(for: .seconds(next.error ? 14 : 6))
-            if !Task.isCancelled, toast?.id == next.id { withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = nil } }
+            if !Task.isCancelled, toast?.id == next.id { closeToast() }
         }
+    }
+
+    /// The message leaves, faster than it came.
+    func closeToast() {
+        toastTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) { toast = nil }
     }
 
     /// Runs `work` away from the window, then shows its error, if any.

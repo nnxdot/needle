@@ -166,7 +166,7 @@ struct AppearanceSettings: View {
             FontRow(titles: true)
             FontRow(titles: false)
             SettingRow(title: "Reduce motion",
-                       detail: store.systemStill ? "Your Mac has animations turned down." : "No fades, slides, or other animations.",
+                       detail: store.systemStill ? "Your Mac has animations turned down." : "No slides or movement. Short fades stay.",
                        icon: "figure.walk.motion") {
                 SettingSwitch(key: "reduce_motion", on: s.reduceMotion)
             }

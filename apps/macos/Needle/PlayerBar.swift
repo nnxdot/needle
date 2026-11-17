@@ -177,7 +177,9 @@ struct TopScreen: View {
                         Text("Needle").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(colors.ink2)
                     }
                 }
-                .padding(.horizontal, hover && has ? 40 : 8)
+                // Room for the times kept while a song plays, so the title never moves or cuts
+                // shorter under the pointer: only the times fade in.
+                .padding(.horizontal, has ? 40 : 8)
                 if hover, let p, has {
                     PlayTimes(held: held, duration: p.duration, apart: true)
                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
@@ -202,6 +204,7 @@ struct TopScreen: View {
         }
         .clipShape(shape)
         .contentShape(shape)
+        // Only an opacity fade (the times), so it stays with Reduce motion too.
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
         .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
     }
