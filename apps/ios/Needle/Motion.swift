@@ -17,7 +17,8 @@ enum Motion {
     }
 
     /// `animation`, or a short plain fade with Reduce motion: for what only appears or goes.
-    static func fade(_ animation: Animation = .easeInOut(duration: 0.3)) -> Animation {
+    /// What appears starts fast and settles (ease-out), never slow at first.
+    static func fade(_ animation: Animation = .easeOut(duration: 0.2)) -> Animation {
         reduced ? .easeInOut(duration: 0.2) : animation
     }
 
@@ -35,7 +36,7 @@ func withMotion<Result>(_ animation: Animation, _ body: () throws -> Result) ret
 
 /// `withAnimation` for a fade, through `Motion`: a plain short fade with Reduce motion.
 @MainActor
-func withFade<Result>(_ animation: Animation = .easeInOut(duration: 0.3), _ body: () throws -> Result) rethrows -> Result {
+func withFade<Result>(_ animation: Animation = .easeOut(duration: 0.2), _ body: () throws -> Result) rethrows -> Result {
     try withAnimation(Motion.fade(animation), body)
 }
 
