@@ -151,7 +151,14 @@ struct NowPlayingView: View {
         if let start = store.playback?.loopStart, let end = store.playback?.loopEnd { return [start, end] }
         return pendingLoop ?? []
     }
+    /// How far the cover is pulled sideways (or thrown, after a skip).
     @State private var swipe: CGFloat = 0
+    /// The pull on the cover goes sideways (true) or not (false), from its start; nil between.
+    @State private var swipeSideways: Bool?
+    /// Counts the covers thrown, so only the last throw brings the next cover in.
+    @State private var coverThrows = 0
+    /// The player's size: how far a thrown cover goes to leave, and how far a pull closes.
+    @State private var playerSize = CGSize(width: 400, height: 800)
     /// Counts the hinge's changes (iPhone Duo), so the parts are placed again.
     @State private var hingeChanges = 0
     /// Wider than tall (a phone on its side, the iPhone Duo open).
@@ -196,6 +203,7 @@ struct NowPlayingView: View {
                 // gone under their backdrop: left showing, its shapes came through the blurred
                 // cover (a large faint circle behind the lyrics' buttons).
                 ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion && pane == .cover)
+                    .offset(x: immersive ? swipe : 0)
                     .opacity(immersive ? 1 : 0)
                     .animation(Motion.fade(.easeInOut(duration: 0.45)), value: immersive)
                 if !immersive {
@@ -230,6 +238,7 @@ struct NowPlayingView: View {
         }
         .modifier(HingeWatch(changes: $hingeChanges))
         .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { sideways = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { playerSize = $0 }
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
         .task(id: song?.id) {
             pendingLoop = nil
@@ -354,7 +363,8 @@ struct NowPlayingView: View {
                 RecordDisc(side: max(120, min(wide ? 500 : 330, room.width - 16, room.height - 48)), spinning: store.playback?.playing == true && !reduceMotion) {
                     Artwork(path: song?.artwork, seed: seed, size: 500)
                 }
-                .gesture(swipeToSkip)
+                .offset(x: swipe)
+                .gesture(store.app.swipeCover ? skipDrag : nil)
                 Spacer(minLength: 16)
             } else if look == "lyrics" {
                 // Only the words, very large, lit as they are sung.
@@ -364,13 +374,14 @@ struct NowPlayingView: View {
                 Spacer(minLength: 8)
                 Visualizer().frame(maxWidth: wide ? 520 : 340)
                     .contentShape(.rect)
-                    .gesture(swipeToSkip)
+                    .offset(x: swipe)
+                    .gesture(store.app.swipeCover ? skipDrag : nil)
                 Spacer(minLength: 16)
             } else if immersive {
                 // The cover is the page itself: the words sit over its foot.
                 Spacer(minLength: 8)
                     .contentShape(.rect)
-                    .gesture(swipeToSkip)
+                    .gesture(store.app.swipeCover ? skipDrag : nil)
             } else {
                 Spacer(minLength: 8)
                 cover(song, seed: seed)
@@ -520,15 +531,12 @@ struct NowPlayingView: View {
         .shadow(color: .black.opacity(0.5), radius: 30, y: 20)
         // Smaller while paused, as Apple Music's; with Reduce motion it stays its size.
         .scaleEffect(playing || round || reduceMotion ? 1 : 0.84)
-        .offset(x: reduceMotion ? 0 : swipe)
+        // Under the finger it follows the finger, also with Reduce motion: it is the finger's
+        // own move, not an animation.
+        .offset(x: swipe)
         .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.62), value: playing)
         .frame(maxHeight: coverMost)
-        .gesture(store.app.swipeCover ? DragGesture(minimumDistance: 20)
-            .onChanged { g in if abs(g.translation.width) > abs(g.translation.height) { swipe = g.translation.width * 0.6 } }
-            .onEnded { g in
-                if g.translation.width < -80 { store.next() } else if g.translation.width > 80 { store.previous() }
-                withMotion(.spring(response: 0.4, dampingFraction: 0.75)) { swipe = 0 }
-            } : nil)
+        .gesture(store.app.swipeCover ? skipDrag : nil)
     }
 
     private func title(_ song: Song?, compact: Bool = false) -> some View {
@@ -556,13 +564,60 @@ struct NowPlayingView: View {
         }
     }
 
-    /// Sideways on the cover: the next or the last song.
-    private var swipeToSkip: some Gesture {
-        DragGesture(minimumDistance: 20)
-            .onEnded { g in
-                guard store.app.swipeCover, abs(g.translation.width) > abs(g.translation.height) else { return }
-                if g.translation.width < -80 { store.next() } else if g.translation.width > 80 { store.previous() }
+    /// Sideways on the cover (the record, the visualizer, the cover filling the page): it follows
+    /// the finger, and a long enough pull or a flick plays the next or the last song.
+    private var skipDrag: some Gesture {
+        // Measured on the screen: the cover moves under the finger.
+        DragGesture(minimumDistance: 20, coordinateSpace: .global)
+            .onChanged { g in
+                if swipeSideways == nil { swipeSideways = abs(g.translation.width) > abs(g.translation.height) }
+                guard swipeSideways == true else { return }
+                swipe = g.translation.width
             }
+            .onEnded { g in
+                let wasSideways = swipeSideways == true
+                swipeSideways = nil
+                guard wasSideways else { return }
+                let pulled = g.translation.width, speed = g.velocity.width
+                // As on every system: over 28% of the cover's width, or a flick of 800 points a
+                // second, unless the finger flicks back the other way.
+                let far = min(playerSize.width, coverMost) * 0.28
+                let ahead = speed < -800 || (pulled < -far && speed < 800)
+                let back = speed > 800 || (pulled > far && speed > -800)
+                if ahead || back {
+                    throwCover(ahead: ahead, speed: speed)
+                } else {
+                    withAnimation(Motion.thrown(speed, over: -swipe, duration: 0.4, bounce: 0.1)) { swipe = 0 }
+                }
+            }
+    }
+
+    /// The cover leaves the way it was thrown, at the finger's speed; then the song changes and
+    /// the next cover comes in from the other side.
+    private func throwCover(ahead: Bool, speed: CGFloat) {
+        let skip = { if ahead { store.next() } else { store.previous() } }
+        guard !Motion.reduced else {
+            skip()
+            withoutMotion { swipe = 0 }
+            return
+        }
+        coverThrows += 1
+        let run = coverThrows
+        let gone = (ahead ? -1 : 1) * max(playerSize.width, 320)
+        withAnimation(Motion.thrown(speed, over: gone - swipe, duration: 0.3), completionCriteria: .logicallyComplete) {
+            swipe = gone
+        } completion: {
+            skip()
+            // A new pull already holds the cover: it stays under the finger.
+            guard run == coverThrows, swipeSideways == nil else { return }
+            withoutMotion { swipe = -gone * 0.1 }
+            // A frame later, so the cover is drawn at its new side before it moves in.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(16))
+                guard run == coverThrows, swipeSideways == nil else { return }
+                withMotion(.spring(duration: 0.35, bounce: 0)) { swipe = 0 }
+            }
+        }
     }
 
     private func readFavorite(reset: Bool = false) async {
