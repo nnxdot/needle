@@ -217,7 +217,20 @@ plays and the one main button.
   the artist picture moves slower than the page. A bar with the name fades in once the top has
   gone.
 - Progress is a wave while music plays and a flat line while it rests.
-- Presses shrink a little and spring back. Nothing bounces for show.
+- Presses shrink the moment the finger is down (covers and tiles to 0.96, round buttons to 0.92,
+  in 100 ms) and spring back with no bounce (`pressScale`). Every button of the player (Play/Pause,
+  the skips, the toggles), the mini player's, and Home's Play press the same way. Nothing bounces
+  for show.
+- A heart or stars change the moment they are tapped; the library's answer follows, and a write
+  that fails puts them back.
+- A menu's action (Play next, Go to album, …) is done the moment it is tapped, while the sheet
+  slides away; only what opens another sheet waits for it to go.
+- The player's view (Cover, Lyrics, Up next) fades into the next; what comes and goes with it
+  (the small song over the lyrics, the name under the cover) opens or closes its room.
+- Lyrics scrolled by hand stay where the reader put them for 3 seconds after the finger lets go,
+  then follow the song again.
+- Home's "Playing now" card stays through the moment a new list has no song; it opens its room
+  for the first song played and closes it once nothing plays.
 - Drags that close or skip (the player pulled down; the mini player, the player's cover, and the
   immersive cover swiped sideways) follow the finger 1:1 and end one way (`flickWay` in
   Motion.kt): let go past a quarter of the way, or thrown faster than 900 dp a second, the thing
@@ -234,4 +247,6 @@ plays and the one main button.
 - "Reduce motion" (or Android's own setting) turns it into cross-fades: pages, the player, the
   side pane, the floating player, the dock's mini player, and the bar of chosen songs fade; sheets
   come and go without a slide; the loading shimmer and the tab lights stand still (they move to
-  the new tab at once).
+  the new tab at once). In the player, the song's name no longer slides along (it ends with …),
+  the cover's size on pause and the lyric line sung change at once, Play and Pause fade into each
+  other, and a swiped cover or mini player snaps; the welcome guide's steps fade.

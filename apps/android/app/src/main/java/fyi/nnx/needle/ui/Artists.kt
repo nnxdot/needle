@@ -264,9 +264,9 @@ fun ArtistPictures(name: String, shown: Boolean, onShown: (Boolean) -> Unit, onC
             MenuGroup {
                 MenuRow(Icons.Rounded.Image, "Choose picture…") {
                     choosing = kind
-                    act { tryOpen("file picker") { pick.launch(arrayOf("image/*")) } }
+                    act.after { tryOpen("file picker") { pick.launch(arrayOf("image/*")) } }
                 }
-                MenuRow(Icons.Rounded.Collections, "Pick from fanart.tv") { act { fanart = kind } }
+                MenuRow(Icons.Rounded.Collections, "Pick from fanart.tv") { act.after { fanart = kind } }
                 if (own.orEmpty().contains(kind)) {
                     MenuRow(Icons.Rounded.Restore, "Reset") {
                         act { offMain({ runCatching { core.resetArtistPicture(name, kind) } }, onChanged) }

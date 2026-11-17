@@ -499,7 +499,7 @@ private fun length(songs: List<Song>): String {
 @Composable
 fun AlbumScreen(album: Album, open: (Route) -> Unit) {
     // Its menus, and its songs' menus, know they are on this album already.
-    CompositionLocalProvider(LocalAlbumHere provides album.title) { AlbumPage(album, open) }
+    CompositionLocalProvider(LocalAlbumHere provides album) { AlbumPage(album, open) }
 }
 
 @Composable
@@ -1093,7 +1093,7 @@ fun HomeScreen(open: (Route) -> Unit) {
             item { HomeEmpty(scan.running, scan.scanned, open) }
             return@LazyColumn
         }
-        item { NowCard() }
+        item(key = "now") { NowCard(Modifier.animateItem()) }
         // In December: the year in review.
         item { YearReviewRow(open, december = true) }
         // Soft tiles hold the shelves' places while they are read.
@@ -1135,11 +1135,37 @@ private fun greeting(): String {
  * song, and a round Play/Pause, on a wash of the cover's colour.
  */
 @Composable
-private fun NowCard() {
+private fun NowCard(modifier: Modifier = Modifier) {
     val playbackState = NeedleApp.instance.playback.collectAsState()
     val song by remember { derivedStateOf { playbackState.value?.current } }
     val playing by remember { derivedStateOf { playbackState.value?.playing == true } }
-    val s = song ?: return
+    // A new list of songs has no song for a moment (Root.kt): the last song stays meanwhile, so
+    // the card does not blink and Home does not jump. It goes only once nothing plays for a
+    // while, and then closes its room; the first song played opens it.
+    var last by remember { mutableStateOf(song) }
+    val current = song
+    androidx.compose.runtime.SideEffect { if (current != null) last = current }
+    var gone by remember { mutableStateOf(current == null) }
+    androidx.compose.runtime.LaunchedEffect(current == null) {
+        if (current == null) {
+            kotlinx.coroutines.delay(1500)
+            gone = true
+        } else gone = false
+    }
+    val reduce = reduceMotion()
+    androidx.compose.animation.AnimatedVisibility(
+        visible = !gone && (current ?: last) != null,
+        modifier = modifier,
+        enter = if (reduce) androidx.compose.animation.fadeIn(tween(150)) else androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 400f)) + androidx.compose.animation.fadeIn(tween(200)),
+        exit = if (reduce) androidx.compose.animation.fadeOut(tween(150)) else androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 400f)) + androidx.compose.animation.fadeOut(tween(150)),
+    ) {
+        val s = current ?: last ?: return@AnimatedVisibility
+        NowCardBody(s, playing)
+    }
+}
+
+@Composable
+private fun NowCardBody(s: fyi.nnx.needle.core.Song, playing: Boolean) {
     val haptics = rememberHaptics()
     CoverTheme(s.artwork) {
         val scheme = MaterialTheme.colorScheme
@@ -1171,10 +1197,12 @@ private fun NowCard() {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             androidx.compose.material3.FilledIconButton(
                 onClick = { haptics(false); Controls.toggle() },
                 shape = CircleShape,
-                modifier = Modifier.size(52.dp).playPauseSemantics(playing) { haptics(false); Controls.toggle() },
+                interactionSource = press,
+                modifier = Modifier.size(52.dp).pressScale(press, ButtonPress).playPauseSemantics(playing) { haptics(false); Controls.toggle() },
             ) { PlayPauseIcon(playing, 28.dp) }
         }
     }

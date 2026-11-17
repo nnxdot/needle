@@ -87,9 +87,13 @@ fun rememberHaptics(): (strong: Boolean) -> Unit {
     }
 }
 
+/** How far a round button shrinks while pressed (covers and tiles keep 0.96). */
+const val ButtonPress = 0.92f
+
 /**
- * Shrinks a little while pressed, and springs back, as covers do in Apple Music. With a remote
- * it grows a little and takes a ring while it has the focus, as on a TV's home screen.
+ * Shrinks a little the moment it is pressed (0.96 for covers and tiles, 0.92 for round buttons),
+ * and springs back with no bounce, as covers do in Apple Music. With a remote it grows a little
+ * and takes a ring while it has the focus, as on a TV's home screen.
  */
 fun Modifier.pressScale(interaction: MutableInteractionSource, scale: Float = 0.96f): Modifier = composed {
     val pressed by interaction.collectIsPressedAsState()
@@ -102,7 +106,8 @@ fun Modifier.pressScale(interaction: MutableInteractionSource, scale: Float = 0.
             focused -> 1.04f
             else -> 1f
         },
-        spring(dampingRatio = 0.6f, stiffness = 600f),
+        // Down quickly, starting fast; back up (or caught halfway) on a spring with no bounce.
+        if (pressed) tween(100, easing = androidx.compose.animation.core.EaseOutCubic) else spring(dampingRatio = 1f, stiffness = 600f),
         label = "press",
     )
     graphicsLayer { scaleX = value; scaleY = value }.focusRing(interaction)
