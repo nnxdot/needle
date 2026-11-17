@@ -1911,6 +1911,16 @@ impl AppView {
                     div()
                         .id("toast")
                         .occlude()
+                        // While the pointer rests on it, it stays (its life goes on after).
+                        .on_hover(cx.listener(|this, hovered: &bool, _, _| {
+                            if let Some(toast) = &mut this.toast {
+                                match (*hovered, toast.hovered.take()) {
+                                    (true, _) => toast.hovered = Some(std::time::Instant::now()),
+                                    (false, Some(since)) => toast.shown += since.elapsed(),
+                                    (false, None) => {}
+                                }
+                            }
+                        }))
                         .max_w(px(560.))
                         .pl_4()
                         .pr_2()
@@ -1944,20 +1954,20 @@ impl AppView {
                                 })),
                         )
                         .map(|el| match toast.leaving {
-                            // It fades out where it is.
-                            Some(_) => super::motion::animate(
+                            // It fades out where it is, quicker than it came.
+                            Some(_) => super::motion::fade(
                                 el,
-                                ElementId::Name(format!("toast-out-{:?}", toast.shown).into()),
+                                ElementId::Name(format!("toast-out-{:?}", toast.entered).into()),
                                 super::TOAST_OUT_MS,
                                 cx,
-                                |el, t| el.opacity(1. - t),
+                                |el, t, _| el.opacity(1. - t),
                             ),
-                            None => super::motion::animate(
+                            None => super::motion::fade(
                                 el,
-                                ElementId::Name(format!("toast-{:?}", toast.shown).into()),
-                                180,
+                                ElementId::Name(format!("toast-{:?}", toast.entered).into()),
+                                240,
                                 cx,
-                                |el, t| el.opacity(t).mt(px(8. * (1. - t))),
+                                |el, f, m| el.opacity(f).mt(px(8. * (1. - m))),
                             ),
                         }),
                 ),

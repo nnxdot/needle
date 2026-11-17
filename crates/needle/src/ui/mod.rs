@@ -378,7 +378,12 @@ pub enum Sort {
 pub struct Toast {
     text: String,
     error: bool,
+    /// When its life started (a new message in its place starts it again).
     shown: Instant,
+    /// When it came in: its entrance plays once, and a new message only changes the text.
+    entered: Instant,
+    /// The pointer rests on it since then: its life waits meanwhile.
+    hovered: Option<Instant>,
     /// It is fading out, since then; it goes once the fade is over.
     leaving: Option<Instant>,
 }
@@ -1597,28 +1602,39 @@ impl AppView {
     }
 
     fn notify(&mut self, text: impl Into<String>) {
-        self.toast = Some(Toast {
-            text: text.into(),
-            error: false,
-            shown: Instant::now(),
-            leaving: None,
-        });
+        self.show_toast(text.into(), false);
     }
-    /// Let the message go: it fades out (at once with Reduce motion).
-    fn dismiss_toast(&mut self, cx: &App) {
-        if !motion::enabled(cx) {
-            self.toast = None;
-        } else if let Some(toast) = &mut self.toast {
+    /// Show a message. One already showing takes the new text where it is, without coming in
+    /// again (quick actions in a row no longer make it blink).
+    fn show_toast(&mut self, text: String, error: bool) {
+        let now = Instant::now();
+        match &mut self.toast {
+            Some(toast) if toast.leaving.is_none() => {
+                toast.text = text;
+                toast.error = error;
+                toast.shown = now;
+                toast.hovered = toast.hovered.map(|_| now);
+            }
+            _ => {
+                self.toast = Some(Toast {
+                    text,
+                    error,
+                    shown: now,
+                    entered: now,
+                    hovered: None,
+                    leaving: None,
+                })
+            }
+        }
+    }
+    /// Let the message go: it fades out (a short fade with Reduce motion).
+    fn dismiss_toast(&mut self, _cx: &App) {
+        if let Some(toast) = &mut self.toast {
             toast.leaving.get_or_insert_with(Instant::now);
         }
     }
     fn fail(&mut self, text: impl Into<String>) {
-        self.toast = Some(Toast {
-            text: without_repeats(&text.into()),
-            error: true,
-            shown: Instant::now(),
-            leaving: None,
-        });
+        self.show_toast(without_repeats(&text.into()), true);
     }
 
     /// Reads the online services' state on another thread: it asks the keyring, which on
@@ -1767,7 +1783,9 @@ impl AppView {
                     events = true;
                 }
                 Some(_) => {}
-                None if toast.shown.elapsed() > Duration::from_secs(life) => {
+                None if toast.hovered.is_none()
+                    && toast.shown.elapsed() > Duration::from_secs(life) =>
+                {
                     self.dismiss_toast(cx);
                     events = true;
                 }
