@@ -187,12 +187,10 @@ fun MiniPlayer(onOpen: () -> Unit, docked: Boolean = false) {
 @Composable
 private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, colored: Boolean, lyrics: Boolean, docked: Boolean) {
     val haptics = rememberHaptics()
-    // Swiped sideways, it skips: left for the next song, right for the one before.
-    var drag by remember { mutableFloatStateOf(0f) }
-    // Read only where it is drawn (graphicsLayer): the bar is not redrawn at each move.
-    var swiping by remember { mutableStateOf(false) }
-    val back = remember { androidx.compose.animation.core.Animatable(0f) }
-    val swipes = androidx.compose.runtime.rememberCoroutineScope()
+    // Swiped sideways, it skips: left for the next song, right for the one before. Thrown, it
+    // goes on that way, and the new song comes in from the other side.
+    val swipe = rememberSkipSwipe(haptics)
+    LaunchedEffect(song.id) { swipe.arrived() }
     // In the dock (DESIGN.md) it sits on the dock's glass, which gives it its fill and shadow;
     // its Play/Pause and progress keep the cover's colours.
     Surface(
@@ -208,33 +206,14 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = if (docked) 4.dp else 10.dp, vertical = if (docked) 4.dp else 8.dp)
+            .onSizeChanged { swipe.width = it.width.toFloat().coerceAtLeast(1f) }
+            // Read only where it is drawn (graphicsLayer): the bar is not redrawn at each move.
             .graphicsLayer {
-                val shift = if (swiping) drag else back.value
+                val shift = swipe.shift
                 translationX = shift
-                alpha = 1f - (kotlin.math.abs(shift) / 900f).coerceIn(0f, 0.5f)
+                alpha = 1f - (kotlin.math.abs(shift) / swipe.width).coerceIn(0f, 1f) * 0.9f
             }
-            .pointerInput(Unit) {
-                fun release() {
-                    val from = drag
-                    swiping = false
-                    drag = 0f
-                    swipes.launch {
-                        back.snapTo(from)
-                        back.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 500f))
-                    }
-                }
-                detectHorizontalDragGestures(
-                    onDragStart = { swiping = true },
-                    onDragEnd = {
-                        when {
-                            drag < -160f -> { haptics(false); Controls.next() }
-                            drag > 160f -> { haptics(false); Controls.previous() }
-                        }
-                        release()
-                    },
-                    onDragCancel = { release() },
-                ) { _, dx -> drag += dx }
-            }
+            .skipSwipe(swipe)
             .clip(RoundedCornerShape(if (docked) 22.dp else 20.dp))
             .clickable(onClickLabel = "Open the player", onClick = onOpen),
     ) {
@@ -443,7 +422,7 @@ private enum class Panel { Cover, Lyrics, UpNext, Visualizer }
 private val LocalCompactPlayer = androidx.compose.runtime.compositionLocalOf { false }
 
 @Composable
-fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
+fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit = onClose) {
     // Only what changes with the song or a press is read here. The position is read where it
     // shows (AtPosition), so the whole player is not redrawn five times a second as it plays.
     val playbackState = NeedleApp.instance.playback.collectAsState()
@@ -501,21 +480,47 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
         if (loopChanged > 0) kotlinx.coroutines.delay(80)
         value = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.loopRange() }.getOrDefault(emptyList()) }
     }
-    // Pulled down far enough, the player closes.
+    // Pulled down far enough, or thrown down, the player goes on down at the finger's speed and
+    // closes. Pulled up, it stretches a little (a rubber band).
     var pull by remember { mutableFloatStateOf(0f) }
     var searching by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
-    // Let go short of closing, the player springs back up; closed, it is ready again at the top.
+    // Let go short of closing, the player springs back up.
     // Read only where it is drawn (graphicsLayer): the player is not redrawn at each move.
     val shown = remember { androidx.compose.animation.core.Animatable(0f) }
+    var tall by remember { mutableFloatStateOf(1f) }
     val closer = androidx.compose.runtime.rememberCoroutineScope()
-    val springBack: () -> Unit = {
-        val from = pull
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val stillPlayer = reduceMotion()
+    val stretch = with(density) { 96.dp.toPx() }
+    val pulled: (Float) -> Float = { if (it < 0f) rubberBand(it, stretch) else it }
+    val letGo: (Float) -> Unit = { velocity ->
+        val from = pulled(pull)
         dragging = false
         pull = 0f
+        val down = with(density) { flickWay(from, velocity, tall) } > 0
         closer.launch {
             shown.snapTo(from)
-            shown.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 400f))
+            when {
+                // Reduce motion: the player fades (Root.kt).
+                down && stillPlayer -> onClose()
+                down -> {
+                    var gone = false
+                    shown.animateTo(tall, flickSpring(), initialVelocity = velocity.coerceAtLeast(0f)) {
+                        // All but off the screen: the rest of the way is not worth waiting for.
+                        if (!gone && value >= tall * 0.97f) {
+                            gone = true
+                            onThrown()
+                        }
+                    }
+                    if (!gone) onThrown()
+                    // Still here (a foldable held as a book keeps the player at its right): back up.
+                    kotlinx.coroutines.delay(300)
+                    shown.animateTo(0f, snapBackSpring())
+                }
+                stillPlayer -> shown.snapTo(0f)
+                else -> shown.animateTo(0f, snapBackSpring(), initialVelocity = velocity)
+            }
         }
     }
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -527,21 +532,20 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .graphicsLayer { translationY = (if (dragging) pull else shown.value).coerceAtLeast(0f) }
+            .onSizeChanged { tall = it.height.toFloat().coerceAtLeast(1f) }
+            .graphicsLayer { translationY = if (dragging) pulled(pull) else shown.value }
             .clickable(enabled = false) {}
             .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { dragging = true },
-                    onDragEnd = {
-                        if (pull > 220f) {
-                            onClose()
-                            // Kept where it was while it slides away, then back at the top.
-                            closer.launch { kotlinx.coroutines.delay(500); dragging = false; pull = 0f }
-                        } else {
-                            springBack()
-                        }
+                detectFlick(
+                    horizontal = false,
+                    // Caught on its way back: it goes on from where it is.
+                    onStart = {
+                        pull = shown.value
+                        dragging = true
+                        closer.launch { shown.stop() }
                     },
-                    onDragCancel = { springBack() },
+                    onCancel = { letGo(0f) },
+                    onEnd = letGo,
                 ) { _, dy -> pull += dy }
             },
     ) {
@@ -557,8 +561,11 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
         val screen = androidx.compose.ui.platform.LocalConfiguration.current
         val wideScreen = (screen.screenWidthDp >= 600 || screen.screenHeightDp < 480) && screen.screenWidthDp > screen.screenHeightDp
         val still = reduceMotion()
+        // The immersive cover follows a sideways swipe over its room, as the cover does.
+        val coverSwipe = rememberSkipSwipe(haptics)
+        LaunchedEffect(song.id) { coverSwipe.arrived() }
         androidx.compose.animation.Crossfade(immersive, label = "immersive cover") { on ->
-            if (on) ImmersiveCover(song, animated = look.animatedCovers && !still, wide = wideScreen)
+            if (on) ImmersiveCover(song, animated = look.animatedCovers && !still, wide = wideScreen, swipe = coverSwipe)
             else PlayerBackdrop(song, reading = panel != Panel.Cover)
         }
         CompositionLocalProvider(LocalContentColor provides Color.White) {
@@ -579,7 +586,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     // Immersive, the cover is behind: here only the room for it, which still
                     // skips when swiped sideways.
                     Panel.Cover -> when {
-                        immersive -> SwipeSpace(look.swipeCover, haptics)
+                        immersive -> SwipeSpace(look.swipeCover, coverSwipe)
                         bigLook == "record" -> PlayerCover(song, playing, haptics, record = true)
                         bigLook == "lyrics" -> BigLyrics(song, position, { open(Route.Timing(song.id)) }) { PlayerCover(song, playing, haptics) }
                         bigLook == "visualizer" -> Box(Modifier.fillMaxSize()) {
@@ -1186,21 +1193,10 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     val app by NeedleApp.instance.app.collectAsState()
     // The Record look: the round cover's turning record, whatever the cover shape chosen.
     val coverShape = if (record) "round" else app.coverShape
-    // Swiped sideways (when that is on), the cover goes with the finger; far enough, it slides
-    // off and the next song's (or the last one's) slides in from the other side.
-    val slide = remember { androidx.compose.animation.core.Animatable(0f) }
-    var width by remember { mutableFloatStateOf(1f) }
-    // Which way the last swipe went, until the song it asked for shows: 1 next, -1 back.
-    var swiped by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val swipes = androidx.compose.runtime.rememberCoroutineScope()
-    LaunchedEffect(song.id) {
-        val from = swiped
-        swiped = 0
-        if (from == 0) slide.snapTo(0f) else {
-            slide.snapTo(from * width)
-            slide.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 400f))
-        }
-    }
+    // Swiped sideways (when that is on), the cover goes with the finger; far enough or thrown,
+    // it goes on off and the next song's (or the last one's) slides in from the other side.
+    val swipe = rememberSkipSwipe(haptics)
+    LaunchedEffect(song.id) { swipe.arrived() }
     val scale by animateFloatAsState(if (playing) 1f else 0.82f, tween(350), label = "cover size")
     val reduce = reduceMotion()
     val still = reduce || coverShape == "square"
@@ -1224,42 +1220,13 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     val depth by animateFloatAsState(if (playing) 1f else 0.4f, tween(350), label = "shadow")
     BoxWithConstraints(
         Modifier
-            .onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
+            .onSizeChanged { swipe.width = it.width.toFloat().coerceAtLeast(1f) }
             .graphicsLayer {
-                translationX = slide.value
-                alpha = 1f - (kotlin.math.abs(slide.value) / width * 0.7f).coerceIn(0f, 0.7f)
+                val shift = swipe.shift
+                translationX = shift
+                alpha = 1f - (kotlin.math.abs(shift) / swipe.width * 0.7f).coerceIn(0f, 0.7f)
             }
-            .then(
-                if (!app.swipeCover) Modifier else Modifier.pointerInput(song.id) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            val moved = slide.value
-                            swipes.launch {
-                                if (kotlin.math.abs(moved) < width * 0.22f) {
-                                    slide.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 500f))
-                                    return@launch
-                                }
-                                val way = if (moved < 0) 1 else -1
-                                haptics(false)
-                                slide.animateTo(-way * width * 1.1f, tween(160))
-                                swiped = way
-                                if (way > 0) Controls.next() else Controls.previous()
-                                // No other song came (the end of the list, or the song began
-                                // again): the cover comes back.
-                                kotlinx.coroutines.delay(1500)
-                                if (swiped == way) {
-                                    swiped = 0
-                                    slide.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 400f))
-                                }
-                            }
-                        },
-                        onDragCancel = { swipes.launch { slide.animateTo(0f) } },
-                    ) { change, dx ->
-                        change.consume()
-                        swipes.launch { slide.snapTo(slide.value + dx) }
-                    }
-                },
-            ),
+            .then(if (!app.swipeCover) Modifier else Modifier.skipSwipe(swipe)),
         contentAlignment = Alignment.Center,
     ) {
         // As large as fits whichever way the room is shorter: across on a phone standing up,
@@ -1790,26 +1757,124 @@ private fun AtPosition(content: @Composable (Double) -> Unit) {
     content(playback?.position ?: 0.0)
 }
 
-/** The immersive cover's room in the player: swiped sideways, it skips, as the cover does. */
+/**
+ * The immersive cover's room in the player: swiped sideways, it skips, as the cover does; the
+ * cover behind (ImmersiveCover) moves with the finger.
+ */
 @Composable
-private fun SwipeSpace(swipe: Boolean, haptics: (Boolean) -> Unit) {
-    var drag by remember { mutableFloatStateOf(0f) }
-    Box(
-        Modifier.fillMaxSize().then(
-            if (!swipe) Modifier else Modifier.pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = {
-                        when {
-                            drag < -160f -> { haptics(false); Controls.next() }
-                            drag > 160f -> { haptics(false); Controls.previous() }
-                        }
-                        drag = 0f
-                    },
-                    onDragCancel = { drag = 0f },
-                ) { _, dx -> drag += dx }
-            },
-        ),
-    )
+private fun SwipeSpace(on: Boolean, swipe: SkipSwipe) {
+    Box(Modifier.fillMaxSize().then(if (on) Modifier.skipSwipe(swipe) else Modifier))
+}
+
+/**
+ * Something swiped sideways to skip songs: the mini player, the player's cover, the immersive
+ * cover. It follows the finger 1:1; let go far enough or fast enough (Motion.kt `flickWay`), it
+ * goes on that way at the finger's speed, the song skips, and the new song's comes in from the
+ * other side. At the end of the list it springs back instead.
+ */
+@androidx.compose.runtime.Stable
+class SkipSwipe(private val scope: kotlinx.coroutines.CoroutineScope) {
+    val slide = androidx.compose.animation.core.Animatable(0f)
+    /** The whole way across, in pixels. */
+    var width by mutableFloatStateOf(1f)
+    private var dragging by mutableStateOf(false)
+    private var drag by mutableFloatStateOf(0f)
+    /** Which way the last swipe skipped, until its song shows: 1 next, -1 back. */
+    private var swiped by androidx.compose.runtime.mutableIntStateOf(0)
+    var density: androidx.compose.ui.unit.Density = androidx.compose.ui.unit.Density(1f)
+    var reduce = false
+    var haptics: (Boolean) -> Unit = {}
+
+    /** Where it is drawn now (read in a graphicsLayer, so only the drawing follows it). */
+    val shift: Float get() = if (dragging) drag else slide.value
+
+    fun start() {
+        // Caught on its way: it goes on from where it is.
+        drag = slide.value
+        dragging = true
+        scope.launch { slide.stop() }
+    }
+
+    fun move(dx: Float) {
+        drag += dx
+    }
+
+    fun release(velocity: Float, cancelled: Boolean = false) {
+        val from = drag
+        dragging = false
+        // Positive is to the right: the song before.
+        val way = if (cancelled) 0 else with(density) { flickWay(from, velocity, width) }
+        scope.launch {
+            slide.snapTo(from)
+            val skip = -way
+            if (way == 0 || skipBringsSong(skip) == false) {
+                if (reduce) slide.snapTo(0f) else slide.animateTo(0f, snapBackSpring(), initialVelocity = velocity)
+                return@launch
+            }
+            haptics(false)
+            swiped = skip
+            if (reduce) {
+                skipNow(skip)
+                slide.snapTo(0f)
+                return@launch
+            }
+            var sent = false
+            slide.animateTo(way * width * 1.1f, flickSpring(), initialVelocity = velocity) {
+                if (!sent && kotlin.math.abs(value) >= width * 0.9f) {
+                    sent = true
+                    skipNow(skip)
+                }
+            }
+            if (!sent) skipNow(skip)
+            // No other song came (the song before may only start this one again): it comes back.
+            kotlinx.coroutines.delay(if (onComputer()) 1500 else 400)
+            if (swiped == skip) {
+                swiped = 0
+                slide.animateTo(0f, flickSpring())
+            }
+        }
+    }
+
+    private fun skipNow(skip: Int) {
+        if (skip > 0) Controls.next() else Controls.previous()
+    }
+
+    /** The song changed: after a swipe, the new one comes in from the side opposite the throw. */
+    suspend fun arrived() {
+        val from = swiped
+        swiped = 0
+        if (from == 0 || reduce) slide.snapTo(0f) else {
+            slide.snapTo(from * width)
+            slide.animateTo(0f, flickSpring())
+        }
+    }
+}
+
+@Composable
+private fun rememberSkipSwipe(haptics: (Boolean) -> Unit): SkipSwipe {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val swipe = remember { SkipSwipe(scope) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val reduce = reduceMotion()
+    androidx.compose.runtime.SideEffect {
+        swipe.density = density
+        swipe.reduce = reduce
+        swipe.haptics = haptics
+    }
+    return swipe
+}
+
+/** Swiping sideways moves [swipe] (1:1) and, let go, skips or springs back. */
+private fun Modifier.skipSwipe(swipe: SkipSwipe): Modifier = pointerInput(swipe) {
+    detectFlick(
+        horizontal = true,
+        onStart = { swipe.start() },
+        onCancel = { swipe.release(0f, cancelled = true) },
+        onEnd = { swipe.release(it) },
+    ) { change, dx ->
+        change.consume()
+        swipe.move(dx)
+    }
 }
 
 /** Who keeps the screen on now (each lyrics, player, visualizer shown): on while one does. */

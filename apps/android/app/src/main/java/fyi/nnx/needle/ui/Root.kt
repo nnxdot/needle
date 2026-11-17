@@ -140,6 +140,8 @@ fun NeedleRoot() {
     // background and starts it again (StacksSaver).
     val stacks = rememberSaveable(saver = StacksSaver) { mutableStateMapOf<Tab, List<Route>>() }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
+    // The player was thrown down and is already off the screen: it goes without its own slide.
+    var playerThrown by remember { mutableStateOf(false) }
     // Only whether a song is there, and its cover: the whole playback changes five times a
     // second as it plays, and would redraw every page with it.
     val playbackState = NeedleApp.instance.playback.collectAsState()
@@ -221,6 +223,7 @@ fun NeedleRoot() {
         if (t == tab) stacks[t] = listOf(t.root) else tab = t
     }
 
+    LaunchedEffect(playerOpen) { if (playerOpen) playerThrown = false }
     LaunchedEffect(Unit) { Ui.showPlayer.collect { if (hasSong) playerOpen = true } }
     LaunchedEffect(Unit) { Ui.openRoute.collect { open(it) } }
     // A change that went to a copy of a playlist: its page, where it shows, becomes the copy's.
@@ -528,11 +531,19 @@ fun NeedleRoot() {
                         Modifier.align(androidx.compose.ui.Alignment.TopEnd).then(Modifier.fillMaxHeight()).width((window.width - hinge.right).coerceAtLeast(0.dp))
                     } else Modifier,
                     enter = if (reduce) fadeIn(tween(150)) else slideInVertically(tween(380)) { it } + fadeIn(tween(200)),
-                    exit = if (reduce) fadeOut(tween(150)) else slideOutVertically(tween(300)) { it } + fadeOut(tween(250)),
+                    exit = when {
+                        reduce -> fadeOut(tween(150))
+                        playerThrown -> androidx.compose.animation.ExitTransition.None
+                        else -> slideOutVertically(tween(300)) { it } + fadeOut(tween(250))
+                    },
                 ) {
                     CompositionLocalProvider(LocalAnimated provides this) {
                         Box(Modifier.focusLayer()) {
-                            FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
+                            FullPlayer(
+                                onClose = { playerOpen = false },
+                                open = { playerOpen = false; open(it) },
+                                onThrown = { playerThrown = true; playerOpen = false },
+                            )
                         }
                     }
                 }

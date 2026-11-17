@@ -218,6 +218,12 @@ plays and the one main button.
   gone.
 - Progress is a wave while music plays and a flat line while it rests.
 - Presses shrink a little and spring back. Nothing bounces for show.
+- Drags that close or skip (the player pulled down; the mini player, the player's cover, and the
+  immersive cover swiped sideways) follow the finger 1:1 and end one way (`flickWay` in
+  Motion.kt): let go past a quarter of the way, or thrown faster than 900 dp a second, the thing
+  goes on at the finger's speed on a spring with no bounce; otherwise it springs back. A skipped
+  song's cover leaves the way it was thrown and the new one comes in from the other side; at the
+  end of the list it springs back. Pulled up, the player stretches like a rubber band.
 - Back: the back swipe shows the page behind as the page slides off to the right, under the
   thumb (no easing while it is held), and goes there on release (predictive back); let go early,
   the page slides back.

@@ -22,6 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.runtime.setValue
@@ -43,13 +45,21 @@ import kotlinx.coroutines.withContext
  * cover.gif) plays over it.
  */
 @Composable
-fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
+fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean, swipe: SkipSwipe? = null) {
     val tone = coverColor(song.artwork)
     val video = movingCover(song, animated)
     BoxWithConstraints(Modifier.fillMaxSize().background(tone)) {
         val height = maxHeight
         val picture: @Composable (Modifier, Shade) -> Unit = { frame, shade ->
-            Box(frame.clipToBounds()) {
+            // Swiped sideways over its room in the player, the picture goes with the finger.
+            val moves = if (swipe == null) Modifier else Modifier
+                .onSizeChanged { swipe.width = it.width.toFloat().coerceAtLeast(1f) }
+                .graphicsLayer {
+                    val shift = swipe.shift
+                    translationX = shift
+                    alpha = 1f - (kotlin.math.abs(shift) / swipe.width).coerceIn(0f, 1f) * 0.9f
+                }
+            Box(frame.then(moves).clipToBounds()) {
                 if (song.artwork != null) {
                     AsyncImage(
                         model = coverRequest(fileUri(song.artwork)),
