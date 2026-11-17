@@ -279,7 +279,7 @@ struct QueuePanel: View {
                 }
                 Spacer()
                 if store.playback?.queue ?? 0 > 0 {
-                    Button("Clear") { store.core.clearQueue() }.buttonStyle(.borderless).font(.needle(.caption))
+                    Button("Clear") { store.editQueue { store.core.clearQueue() } }.buttonStyle(.borderless).font(.needle(.caption))
                 }
             }
             .padding(.horizontal, 16)
@@ -296,10 +296,7 @@ struct QueuePanel: View {
                     ForEach(QueueItem.list(store.queue)) { item in
                         QueueRow(entry: item.entry, index: item.index)
                     }
-                    .onMove { from, to in
-                        guard let first = from.first else { return }
-                        store.core.moveUpNext(from: UInt32(first), to: UInt32(to > first ? to - 1 : to))
-                    }
+                    .onMove { from, to in store.moveQueueRow(from: from, to: to) }
                     if let n = store.playback?.queue, n > UInt32(store.queue.count) {
                         Text("And \((Int(n) - store.queue.count).formatted()) more").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
@@ -347,9 +344,9 @@ private struct QueueRow: View {
             }
             Spacer()
             if hover {
-                Button { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) } label: { Image(systemName: "arrow.up") }
+                Button { store.editQueue { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) } } label: { Image(systemName: "arrow.up") }
                     .buttonStyle(.borderless).disabled(index == 0).help("Move up").accessibilityLabel("Move up")
-                Button { store.core.removeUpNext(index: UInt32(index)) } label: { Image(systemName: "xmark") }
+                Button { store.editQueue { store.core.removeUpNext(index: UInt32(index)) } } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless).help("Remove").accessibilityLabel("Remove")
             } else {
                 Text(clock(entry.duration)).font(.needle(.caption)).monospacedDigit().foregroundStyle(store.colors.ink3)
@@ -366,8 +363,8 @@ private struct QueueRow: View {
         .help(entry.reason)
         .contextMenu {
             Button("Play Now") { store.core.jumpTo(id: entry.id, index: UInt32(index)) }
-            Button("Move Up") { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) }.disabled(index == 0)
-            Button("Remove") { store.core.removeUpNext(index: UInt32(index)) }
+            Button("Move Up") { store.editQueue { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) } }.disabled(index == 0)
+            Button("Remove") { store.editQueue { store.core.removeUpNext(index: UInt32(index)) } }
         }
         .accessibilityAction(named: "Play Now") { store.core.jumpTo(id: entry.id, index: UInt32(index)) }
         .accessibilityAction(named: "Move Up") { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) }

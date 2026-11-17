@@ -509,6 +509,10 @@ struct Transport: View {
     var icons: CGFloat?
     /// Clicks on Shuffle, for its bounce.
     @State private var shuffles = 0
+    /// Clicks on Repeat, for its bounce: ⌘R changes it with no bounce.
+    @State private var repeats = 0
+    /// The last click on Play (see `playMorph`).
+    @State private var playClicked = Date.distantPast
 
     var body: some View {
         let colors = store.colors
@@ -524,20 +528,20 @@ struct Transport: View {
             Button { store.previous() } label: { Image(systemName: "backward.fill") }
                 .help("Previous · ⌘←")
                 .accessibilityLabel("Previous")
-            Button { store.toggle() } label: {
+            Button { playClicked = .now; store.toggle() } label: {
                 if bare {
                     Image(systemName: playing ? "pause.fill" : "play.fill")
                         .font(.system(size: play * 0.7))
                         .frame(width: play, height: play)
                         .contentShape(Rectangle())
-                        .contentTransition(.symbolEffect(.replace))
+                        .contentTransition(playMorph(clicked: playClicked))
                 } else {
                     Image(systemName: playing ? "pause.fill" : "play.fill")
                         .font(.system(size: play * 0.42, weight: .bold))
                         .frame(width: play, height: play)
                         .foregroundStyle(light ? .black : colors.canvas)
                         .background(light ? .white : colors.ink, in: Circle())
-                        .contentTransition(.symbolEffect(.replace))
+                        .contentTransition(playMorph(clicked: playClicked))
                 }
             }
             .help(playing ? "Pause · Space" : "Play · Space")
@@ -546,10 +550,10 @@ struct Transport: View {
                 .help("Next · ⌘→")
                 .accessibilityLabel("Next")
             if !compact {
-                Button { store.cycleRepeat() } label: {
+                Button { repeats += 1; store.cycleRepeat() } label: {
                     Image(systemName: repeatMode == "one" ? "repeat.1" : "repeat")
                         .foregroundStyle(repeatMode == "off" ? (light ? .white.opacity(0.8) : colors.ink2) : colors.accent)
-                        .bounce(on: repeatMode)
+                        .bounce(on: repeats)
                 }
                 .help(repeatMode == "off" ? "Repeat is off" : repeatMode == "all" ? "Repeating the queue" : "Repeating this track")
                 .accessibilityLabel("Repeat")

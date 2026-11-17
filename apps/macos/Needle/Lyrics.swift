@@ -366,7 +366,7 @@ struct TimingPage: View {
                 }
                 .padding(6)
             }
-            .onChange(of: next.line) { _, line in withAnimation(store.motion ? .default : nil) { reader.scrollTo(line, anchor: .center) } }
+            .onChange(of: next.line) { _, line in reader.scrollTo(line, anchor: .center) }
         }
         .background(colors.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
     }

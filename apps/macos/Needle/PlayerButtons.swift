@@ -81,6 +81,10 @@ struct PlayerButton: View {
     var volumeWidth: CGFloat = 64
     /// Clicks on Shuffle, for its bounce (shuffling a view changes nothing it shows).
     @State private var shuffles = 0
+    /// Clicks on Repeat, for its bounce: ⌘R changes it with no bounce.
+    @State private var repeats = 0
+    /// The last click on Play: only a click morphs its sign, never Space or a media key.
+    @State private var playClicked = Date.distantPast
 
     var body: some View {
         let colors = store.colors
@@ -99,12 +103,12 @@ struct PlayerButton: View {
                 .help("Previous · ⌘←")
                 .accessibilityLabel("Previous")
         case "play":
-            Button { store.toggle() } label: {
+            Button { playClicked = .now; store.toggle() } label: {
                 Image(systemName: playing ? "pause.fill" : "play.fill")
                     .font(.system(size: play * 0.7))
                     .frame(width: play, height: play)
                     .contentShape(Rectangle())
-                    .contentTransition(.symbolEffect(.replace))
+                    .contentTransition(playMorph(clicked: playClicked))
             }
             .buttonStyle(.borderless)
             .help(playing ? "Pause · Space" : "Play · Space")
@@ -115,10 +119,10 @@ struct PlayerButton: View {
                 .help("Next · ⌘→")
                 .accessibilityLabel("Next")
         case "repeat":
-            Button { store.cycleRepeat() } label: {
+            Button { repeats += 1; store.cycleRepeat() } label: {
                 Image(systemName: repeatMode == "one" ? "repeat.1" : "repeat")
                     .foregroundStyle(repeatMode == "off" ? colors.ink2 : colors.accent)
-                    .bounce(on: repeatMode)
+                    .bounce(on: repeats)
             }
             .buttonStyle(.borderless)
             .help(repeatMode == "off" ? "Repeat is off" : repeatMode == "all" ? "Repeating the queue" : "Repeating this track")
@@ -286,6 +290,13 @@ extension View {
     func lit(_ on: Bool, _ color: Color) -> some View {
         if on { foregroundStyle(color) } else { self }
     }
+}
+
+/// The play sign's change to pause and back: a morph only just after a click on it (and not
+/// with Reduce motion); Space, a media key or the song's end change it at once.
+@MainActor
+func playMorph(clicked: Date) -> ContentTransition {
+    Store.shared.motion && clicked.timeIntervalSinceNow > -2 ? .symbolEffect(.replace) : .identity
 }
 
 extension View {
