@@ -261,6 +261,9 @@ struct AlbumMenu: View {
 struct SongRow: View {
     @Environment(Store.self) private var store
     @Environment(\.wide) private var wide
+    /// The table's time and number columns grow with the text size ("1:02:45", track 112).
+    @ScaledMetric(relativeTo: .subheadline) var timeWidth: CGFloat = 56
+    @ScaledMetric(relativeTo: .subheadline) var numberWidth: CGFloat = 28
     let song: Song
     var number: Int?
     var showCover = true
@@ -286,7 +289,7 @@ struct SongRow: View {
                         else { Text("\(number)") }
                     }
                     .font(.needle(.subheadline).monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
-                    .frame(width: 28)
+                    .frame(width: numberWidth)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
                         .frame(width: 40, height: 40)
@@ -312,7 +315,7 @@ struct SongRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Text(clock(song.duration)).font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.secondary)
-                    .frame(width: 56, alignment: .trailing)
+                    .frame(width: timeWidth, alignment: .trailing)
                 if !song.onComputer { HeartButton(song: song) }
                 Menu {
                     SongMenu(song: song)
