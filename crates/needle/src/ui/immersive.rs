@@ -189,9 +189,8 @@ impl AppView {
             let from = self.immersive_strength(self.immersive_shown);
             self.immersive_shown = shown;
             let target = if shown { 1. } else { 0. };
-            let ms = if !motion::enabled(cx) {
-                150.
-            } else if shown {
+            // With Reduce motion, a short fade both ways.
+            let ms = if shown || !motion::enabled(cx) {
                 150.
             } else {
                 600.
