@@ -118,12 +118,18 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit, 
     var focused by remember { mutableStateOf(false) }
     val unfolded = if (tv) focused else chosenOpen
     val reduce = reduceMotion()
+    // On a TV it opens with the remote, often: quickly. The words show in the last part of its
+    // opening, once there is room for them, and go first as it folds.
     val width by animateDpAsState(
         if (unfolded) Open else Folded,
-        if (reduce) snap() else spring(stiffness = Spring.StiffnessMediumLow),
+        when {
+            reduce -> snap()
+            tv -> spring(dampingRatio = 1f, stiffness = Spring.StiffnessMedium)
+            else -> spring(stiffness = Spring.StiffnessMediumLow)
+        },
         label = "side bar",
     )
-    val words by animateFloatAsState(if (unfolded) 1f else 0f, tween(if (reduce) 0 else 180), label = "side bar words")
+    val words = ((width - Folded) / (Open - Folded) - 0.6f).div(0.4f).coerceIn(0f, 1f)
     val playlists by rememberLoaded { playlists() }
     val serverMark = NeedleApp.instance.app.collectAsState().value.serverMark
     val inSettings = page == Route.Settings || page is Route.SettingsPage

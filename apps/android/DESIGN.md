@@ -179,11 +179,12 @@ plays and the one main button.
 - On Android TV the app is the tablet's: the side bar, the floating player, the wide player.
   A remote moves the focus (`TvFocus.kt`).
 - Home on a TV (`TvHome.kt`): the album in focus fills the screen behind (darkened at the left
-  and foot, a short fade as the focus moves); its shelf, name, artist, year, and songs large
+  and foot; a short fade, 220 ms, once the focus rests for 150 ms, so an arrow held along a shelf
+  does not fade at every step); its shelf, name, artist, year, and songs large
   with Play and Shuffle; one row of tiles under it, the one in focus a little larger with a
   3 dp ring in its cover's colour.
 - The side bar is folded to its icons and opens while the focus is in it (move left from the
-  page). Its focus ring follows the highlight's shape: a 2 dp ring inside the row's 8 dp
+  page), quickly (about a quarter of a second, no bounce); its words show once there is room. Its focus ring follows the highlight's shape: a 2 dp ring inside the row's 8 dp
   corners (`softRing`).
 - What has the focus shows plainly, from across a room: cards grow a little and take a ring in
   the text colour (`pressScale`, `focusRing`); other buttons take a ring or a deeper shade.
