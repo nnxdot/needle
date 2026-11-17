@@ -200,6 +200,16 @@ struct AlbumTile: View {
     /// The cover's own colour, for the light behind it under the pointer.
     @State private var glow: Color?
 
+    init(album: AlbumSummary, side: CGFloat, place: String = "") {
+        self.album = album
+        self.side = side
+        self.place = place
+        // A colour found before shows at once, so the light never starts black.
+        if let known = Covers.knownPageColor(album.artwork, seed: album.album + album.artist) {
+            _glow = State(initialValue: Color(nsColor: known))
+        }
+    }
+
     /// This tile, among others showing the same album (see `Store.travelingTile`).
     private var me: String { place + "|" + album.query }
 
@@ -233,13 +243,17 @@ struct AlbumTile: View {
                 .padding(8)
                 .frame(width: side, height: side, alignment: .bottomTrailing)
                 .offset(y: store.motion ? -2 : 0)
-                .transition(store.motion ? .scale.combined(with: .opacity) : .opacity)
+                // From its corner, never from nothing.
+                .transition(store.motion ? .scale(scale: 0.85, anchor: .bottomTrailing).combined(with: .opacity) : .opacity)
             }
         }
         .onHover { h in withAnimation(store.motion ? .snappy(duration: 0.15) : nil) { hover = h } }
-        .task(id: hover) {
-            guard hover, glow == nil else { return }
-            glow = Color(nsColor: await Covers.pageColor(album.artwork, seed: album.album + album.artist))
+        // The light's colour is found when the tile shows, not under the pointer, so the light
+        // lifts in its own colour and never turns from black to it.
+        .task(id: album.artwork ?? album.album + album.artist) {
+            guard glow == nil else { return }
+            let found = Color(nsColor: await Covers.pageColor(album.artwork, seed: album.album + album.artist))
+            withAnimation(hover ? .easeOut(duration: 0.15) : nil) { glow = found }
         }
         .accessibilityAction(named: "Play") { play() }
         .contextMenu { GroupMenu(route: album.route, title: album.title) }

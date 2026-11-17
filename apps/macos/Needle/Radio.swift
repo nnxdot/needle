@@ -212,6 +212,14 @@ struct StationTile: View {
     @State private var hover = false
     @State private var glow: Color?
 
+    init(seed: Ranked) {
+        self.seed = seed
+        // A colour found before shows at once, so the light never starts black.
+        if let known = Covers.knownPageColor(seed.artwork, seed: seed.album + seed.artist) {
+            _glow = State(initialValue: Color(nsColor: known))
+        }
+    }
+
     var body: some View {
         Button { start() } label: {
             VStack(alignment: .leading, spacing: 5) {
@@ -235,9 +243,11 @@ struct StationTile: View {
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(store.motion ? .snappy(duration: 0.15) : nil) { hover = h } }
-        .task(id: hover) {
-            guard hover, glow == nil else { return }
-            glow = Color(nsColor: await Covers.pageColor(seed.artwork, seed: seed.album + seed.artist))
+        // Found when the tile shows, not under the pointer (see `AlbumTile`).
+        .task(id: seed.artwork ?? seed.album + seed.artist) {
+            guard glow == nil else { return }
+            let found = Color(nsColor: await Covers.pageColor(seed.artwork, seed: seed.album + seed.artist))
+            withAnimation(hover ? .easeOut(duration: 0.15) : nil) { glow = found }
         }
         .help("\(seed.title) Radio")
         .accessibilityLabel("\(seed.title) Radio, by \(seed.artist)")
