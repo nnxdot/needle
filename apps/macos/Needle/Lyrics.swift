@@ -11,6 +11,9 @@ struct LyricsView: View {
     var light = false
     /// A line chosen to share as a picture.
     @State private var card: CardLine?
+    /// When the lyrics were last scrolled by hand, and whether they are being scrolled now.
+    @State private var handScrolled: Date?
+    @State private var handScrolling = false
     /// Each line in your language, under it, translated on this Mac (Apple's Translation).
     @AppStorage("translateLyrics") private var translate = false
     @State private var translations: [Int: String] = [:]
@@ -159,8 +162,21 @@ struct LyricsView: View {
                 .frame(maxWidth: .infinity, alignment: center ? .center : .leading)
             }
             .scrollIndicators(.never)
+            // Scrolled by hand, the lyrics stay where they were put: following the song stops,
+            // and comes back 3 seconds after the scrolling ends.
+            .onScrollPhaseChange { old, new in
+                let hand: (ScrollPhase) -> Bool = { $0 == .tracking || $0 == .interacting || $0 == .decelerating }
+                handScrolling = hand(new)
+                if hand(old) || hand(new) { handScrolled = .now }
+            }
             .onChange(of: line) { _, now in
-                guard let now else { return }
+                guard let now, !handScrolling, handScrolled.map({ Date().timeIntervalSince($0) >= 3 }) ?? true else { return }
+                withAnimation(store.motion ? .smooth(duration: 0.6) : nil) { reader.scrollTo(now, anchor: UnitPoint(x: 0.5, y: 0.38)) }
+            }
+            .task(id: handScrolled) {
+                guard handScrolled != nil else { return }
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled, !handScrolling, let now = store.lyricLine else { return }
                 withAnimation(store.motion ? .smooth(duration: 0.6) : nil) { reader.scrollTo(now, anchor: UnitPoint(x: 0.5, y: 0.38)) }
             }
             .onAppear { if let line { reader.scrollTo(line, anchor: UnitPoint(x: 0.5, y: 0.38)) } }
