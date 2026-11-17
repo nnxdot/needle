@@ -623,8 +623,8 @@ private struct WindowCommands: ViewModifier {
         content
             .focusedSceneValue(\.windowState, window)
             .focusedSceneValue(\.windowActions, actions)
-            // Esc closes it, as Done, Cancel, or a swipe down do.
-            .background { EscapeKey { dismiss() }.frame(width: 0, height: 0).accessibilityHidden(true) }
+            // Esc closes it, as Done, Cancel, or a swipe down do: at once, as every key acts.
+            .background { EscapeKey { withoutMotion { dismiss() } }.frame(width: 0, height: 0).accessibilityHidden(true) }
     }
 }
 
@@ -737,7 +737,7 @@ private struct ToolPopover: ViewModifier {
             }
             .presentationCompactAdaptation(.popover)
             .focusedSceneValue(\.windowState, window)
-            .background { EscapeKey { window.sheet = nil }.frame(width: 0, height: 0).accessibilityHidden(true) }
+            .background { EscapeKey { withoutMotion { window.sheet = nil } }.frame(width: 0, height: 0).accessibilityHidden(true) }
         }
     }
 }

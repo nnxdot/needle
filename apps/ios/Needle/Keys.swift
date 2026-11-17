@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The keyboard on an iPad, after the Mac's menus (apps/macos NeedleApp.swift): the same
 /// commands and keys, in the iPad's menu bar and the list that shows while ⌘ is held. A
-/// window's places come from its own root (`WindowActions`).
+/// window's places come from its own root (`WindowActions`). What a command opens, closes, or
+/// goes back to shows at once, with no zoom or slide (`withoutMotion`).
 struct NeedleCommands: Commands {
     @FocusedValue(\.windowActions) private var window
     /// What is open in that window: its player, sheets, and Settings.
@@ -12,7 +13,7 @@ struct NeedleCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { scene?.showSettings = true }
+            Button("Settings…") { withoutMotion { scene?.showSettings = true } }
                 .keyboardShortcut(",")
         }
         CommandGroup(after: .sidebar) {
@@ -26,7 +27,7 @@ struct NeedleCommands: Commands {
                 .keyboardShortcut("j")
                 .disabled(store?.playback?.current == nil)
             Divider()
-            Button("Search") { scene?.showPlayer = false; window?.search() }
+            Button("Search") { withoutMotion { scene?.showPlayer = false; window?.search() } }
                 .keyboardShortcut("f")
                 .disabled(window == nil)
         }
@@ -57,7 +58,7 @@ struct NeedleCommands: Commands {
             Button("Play On…") { scene?.sheet = .speakers }
         }
         CommandMenu("Go") {
-            Button("Back") { window?.back() }.keyboardShortcut("[")
+            Button("Back") { withoutMotion { window?.back() } }.keyboardShortcut("[")
             Divider()
             go("Home", .home, "1")
             go("Songs", .part(.songs), "2")
@@ -80,8 +81,10 @@ struct NeedleCommands: Commands {
 
     private func go(_ title: String, _ place: Place, _ key: KeyEquivalent?) -> some View {
         Button(title) {
-            scene?.showPlayer = false
-            window?.go(place)
+            withoutMotion {
+                scene?.showPlayer = false
+                window?.go(place)
+            }
         }
         .keyboardShortcut(key.map { KeyboardShortcut($0) })
         .disabled(window == nil)
@@ -97,14 +100,16 @@ struct NeedleCommands: Commands {
 
     private func togglePlayer() {
         guard let store, let scene else { return }
-        if scene.showPlayer { scene.showPlayer = false } else if store.playback?.current != nil { scene.showPlayer = true }
+        withoutMotion {
+            if scene.showPlayer { scene.showPlayer = false } else if store.playback?.current != nil { scene.showPlayer = true }
+        }
     }
 
     /// Opens the player with the lyrics or the queue beside the cover (in a narrow window, in
     /// its place).
     private func openPane(_ pane: String) {
         guard let store else { return }
-        scene?.openPlayer(with: pane, store: store)
+        withoutMotion { scene?.openPlayer(with: pane, store: store) }
     }
 
     private func toggleFavorite() {

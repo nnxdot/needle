@@ -46,6 +46,7 @@ enum Motion {
 
 /// What a key does shows at once: a keyboard command never waits for an animation.
 @MainActor
+@discardableResult
 func withoutMotion<Result>(_ body: () throws -> Result) rethrows -> Result {
     var transaction = Transaction()
     transaction.disablesAnimations = true
