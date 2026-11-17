@@ -713,23 +713,45 @@ struct Pressable: ButtonStyle {
     }
 }
 
-/// A short message at the top of the screen, on glass, that goes after a few seconds.
+/// A short message at the top of the screen, on glass, that goes after a few seconds (longer
+/// for a long one). A tap or a swipe up puts it away at once, so it never hides the buttons
+/// under it for long. A new message changes the words in place.
 struct Toast: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if let text = store.message {
-            Text(text)
-                .font(.needle(.subheadline).weight(.medium))
-                .padding(.horizontal, 18).padding(.vertical, 12)
-                .glassEffect(.regular, in: .capsule)
-                .padding(.top, 8)
-                .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
-                .task(id: store.messageCount) {
-                    try? await Task.sleep(for: .seconds(2.5))
-                    withFade { store.message = nil }
-                }
+        VStack(spacing: 0) {
+            if let text = store.message {
+                Text(text)
+                    .font(.needle(.subheadline).weight(.medium))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    // A capsule for one line; a longer message keeps the same soft corners.
+                    .glassEffect(.regular, in: .soft(Corner.large))
+                    .contentShape(.soft(Corner.large))
+                    .onTapGesture { close() }
+                    .gesture(DragGesture(minimumDistance: 8).onEnded { g in if g.translation.height < -12 { close() } })
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Closes the message")
+                    // Never against the screen's edges.
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
+                    .task(id: store.messageCount) {
+                        // Time to read it: 0.3 s a word, and 2.5 s at least.
+                        let words = text.split(whereSeparator: \.isWhitespace).count
+                        try? await Task.sleep(for: .seconds(max(2.5, Double(words) * 0.3)))
+                        if !Task.isCancelled { close() }
+                    }
+            }
         }
+        // In with a soft spring; out faster (0.18 s), the way it came.
+        .animation(Motion.fade(store.message == nil ? .easeOut(duration: 0.18) : .spring), value: store.message)
+    }
+
+    private func close() {
+        withFade(.easeOut(duration: 0.18)) { store.message = nil }
     }
 }
 

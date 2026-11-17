@@ -203,7 +203,7 @@ struct RootView: View {
                 .modifier(WindowCommands(window: window, actions: actions))
                 // In a wide window the player's tools are popovers from their buttons.
                 .sheet(item: Binding(get: { wide && window.sheet?.isTool == true ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
-                .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
+                .overlay(alignment: .top) { Toast() }
                 .modifier(QuestionAlert(shown: true))
         }
         .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest || window.welcomeAgain },
@@ -220,13 +220,13 @@ struct RootView: View {
                 .presentationSizing(.page)
                 .modifier(WindowCommands(window: window, actions: actions))
                 .sheet(item: Binding(get: { window.showPlayer ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
-                .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
+                .overlay(alignment: .top) { Toast() }
                 .modifier(QuestionAlert(shown: !window.showPlayer))
         }
         .sheet(isPresented: $window.newPlaylist) {
             NavigationStack { PlaylistEditor {} }.presentationSizing(.form).modifier(WindowCommands(window: window, actions: actions))
         }
-        .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
+        .overlay(alignment: .top) { Toast() }
         .modifier(QuestionAlert(shown: !window.showPlayer && !window.showSettings))
         .onChange(of: window.opening) { _, route in
             guard let route else { return }
