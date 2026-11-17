@@ -94,6 +94,12 @@ plays and the one main button.
   - All: a shelf of covers (Favorites, History, and Radio, each with a small round sign on its
     cover, then the playlists), "Recently added" with See all, and "Explore your library": Record
     crate, Genre map, In numbers, and Your year as plain tiles like the Radio page's quick mixes.
+  - The three places never show the same cover: Favorites, a mosaic of up to four different
+    albums from the favourites (spread over them); History, the cover of the song played last;
+    Radio, the next cover neither of them shows. A place with nothing to show is a quiet tile: its
+    sign in the middle on the page's raised tone, no letter (and no small sign); Radio, when every
+    cover it could take is shown already, the same tile on a soft accent tone.
+  - "Recently added" sits as the other section titles: 20 dp above its words, 8 dp below.
 - **Radio** (`Radio.kt`) is the iPhone's Radio tab, under Library on a phone (the dock keeps its
   three tabs) and in the side bar under Home: your station (a large cover, darkened at its foot,
   with a round Play), quick mixes as plain tiles in the page's raised colour (not glass, not

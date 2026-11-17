@@ -1,5 +1,8 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.layout.layout
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
@@ -489,25 +492,75 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier, seeAll: () -> Unit
     )
 }
 
-/** "Recently added", with a grey See all at its right: the Albums, newest first. */
+/**
+ * "Recently added", with a grey See all at its right: the Albums, newest first. As the other
+ * section titles: 20 dp above its words and 8 dp below them, whatever the grid's own gap between
+ * rows (the grid puts that gap on both sides of it).
+ */
 @Composable
 private fun RecentTitle(seeAll: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    val gap = LocalRows.current.grid
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .layout { measurable, constraints ->
+                val row = measurable.measure(constraints)
+                val g = gap.roundToPx()
+                val top = 20.dp.roundToPx() - g
+                val bottom = 8.dp.roundToPx() - g
+                layout(row.width, (top + row.height + bottom).coerceAtLeast(0)) { row.place(0, top) }
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
             "Recently added",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f).semantics { heading() },
         )
-        // Grey, not the accent: the accent marks only what plays and the one main button.
-        TextButton(onClick = seeAll, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
+        // Grey, not the accent: the accent marks only what plays and the one main button. Its
+        // 48 dp to touch reach over the room above and below, not into the title's own height.
+        TextButton(
+            onClick = seeAll,
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+            modifier = Modifier.layout { measurable, constraints ->
+                val button = measurable.measure(constraints.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+                layout(button.width, 0) { button.place(0, -button.height / 2) }
+            },
+        ) {
             Text("See all")
         }
     }
 }
 
-/** What the shelf shows of Favorites, History, and Radio: covers and a count, read off the main thread. */
-private class Places(val favorites: Int, val loved: List<String>, val played: List<String>, val station: String?)
+/**
+ * What the shelf shows of Favorites, History, and Radio, read off the main thread: Favorites'
+ * covers (up to four different albums), the cover of the song played last, and Radio's cover,
+ * one neither of the others shows. A place with nothing of its own shows its sign on a quiet
+ * tile ([PlaceTile]); Radio, when every cover it could take is shown already, on the accent.
+ */
+private class Places(
+    val favorites: Int,
+    val loved: List<String>,
+    val played: String?,
+    val station: String?,
+    /** Radio has covers to choose from, all shown by Favorites or History already. */
+    val stationTaken: Boolean,
+)
+
+/**
+ * Up to four covers of different albums among the songs, spread over the list (the core gives
+ * favourites in title order, not in the order they were hearted).
+ */
+private fun spreadCovers(songs: List<fyi.nnx.needle.core.Song>): List<String> {
+    val albums = songs
+        .filter { it.artwork != null }
+        .distinctBy { it.album.lowercase() to it.artist.lowercase() }
+        .mapNotNull { it.artwork }
+        .distinct()
+    if (albums.size <= 4) return albums
+    return (0 until 4).map { albums[it * albums.size / 4] }
+}
 
 /** A shelf card's width: three cards and a clear slice of the fourth on a phone. */
 @Composable
@@ -525,11 +578,17 @@ private fun shelfCardWidth(): Dp {
 private fun LibraryShelf(open: (Route) -> Unit) {
     val placesLoad = rememberLoaded {
         val hearted = favorites()
-        val loved = hearted.mapNotNull { it.artwork }.distinct()
-        // The covers of what played last, newest first; a song gone from the library has none.
-        val played = runCatching { history(0u, 60u) }.getOrDefault(emptyList()).mapNotNull { it.song?.artwork }.distinct().take(4)
-        // Radio's cover: one more from the favourites than Favorites shows, else one played lately.
-        Places(hearted.size, loved.take(4), played, loved.getOrNull(4) ?: played.firstOrNull() ?: loved.firstOrNull())
+        val loved = spreadCovers(hearted)
+        // A mosaic needs four; with fewer, Favorites shows its first cover alone.
+        val lovedShown = if (loved.size >= 4) loved else loved.take(1)
+        // What played, newest first; a song gone from the library has none.
+        val played = runCatching { history(0u, 60u) }.getOrDefault(emptyList()).mapNotNull { it.song }
+        val last = played.firstOrNull()?.artwork
+        // Radio's cover: the next one neither Favorites nor History shows.
+        val taken = (lovedShown + listOfNotNull(last)).toSet()
+        val choices = (hearted.mapNotNull { it.artwork } + played.mapNotNull { it.artwork }).distinct()
+        val station = choices.firstOrNull { it !in taken }
+        Places(hearted.size, lovedShown, last, station, stationTaken = station == null && choices.isNotEmpty())
     }
     val places by placesLoad
     val playlistsLoad = rememberLoaded { playlists().take(12) }
@@ -537,19 +596,36 @@ private fun LibraryShelf(open: (Route) -> Unit) {
     val list = playlists.orEmpty()
     val width = shelfCardWidth()
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Until the places are read, nothing is drawn in their covers (no tile that then changes).
+        val loved = places?.loved.orEmpty()
+        val favoritesTile = places != null && loved.isEmpty()
         item(key = "favorites") {
-            ShelfCard(width, "Favorites", places?.let { count(it.favorites, "song") }, Icons.Rounded.Favorite, 0, onClick = { open(Route.Favorites) }) {
-                Mosaic(places?.loved.orEmpty(), null, it, CoverShape, seed = "Favorites")
+            ShelfCard(width, "Favorites", places?.let { count(it.favorites, "song") }, Icons.Rounded.Favorite.takeUnless { favoritesTile }, 0, onClick = { open(Route.Favorites) }) {
+                when {
+                    places == null -> Box(it.clip(CoverShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    favoritesTile -> PlaceTile(Icons.Rounded.Favorite, accent = false, it)
+                    else -> Mosaic(loved, null, it, CoverShape)
+                }
             }
         }
+        val historyTile = places != null && places?.played == null
         item(key = "history") {
-            ShelfCard(width, "History", "What you played", Icons.Rounded.History, 1, onClick = { open(Route.History) }) {
-                Mosaic(places?.played.orEmpty(), null, it, CoverShape, seed = "History")
+            ShelfCard(width, "History", "What you played", Icons.Rounded.History.takeUnless { historyTile }, 1, onClick = { open(Route.History) }) {
+                when {
+                    places == null -> Box(it.clip(CoverShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    historyTile -> PlaceTile(Icons.Rounded.History, accent = false, it)
+                    else -> Cover(places?.played, it, CoverShape)
+                }
             }
         }
+        val radioTile = places != null && places?.station == null
         item(key = "radio") {
-            ShelfCard(width, "Radio", "Your station", Icons.Rounded.Radio, 2, darkFoot = true, onClick = { open(Route.Radio) }) {
-                Cover(places?.station, it, CoverShape, seed = "Radio")
+            ShelfCard(width, "Radio", "Your station", Icons.Rounded.Radio.takeUnless { radioTile }, 2, darkFoot = !radioTile && places != null, onClick = { open(Route.Radio) }) {
+                when {
+                    places == null -> Box(it.clip(CoverShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    radioTile -> PlaceTile(Icons.Rounded.Radio, accent = places?.stationTaken == true, it)
+                    else -> Cover(places?.station, it, CoverShape)
+                }
             }
         }
         items(list.size, key = { "playlist/" + list[it].id }) { i ->
@@ -621,6 +697,25 @@ private fun ShelfCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/**
+ * A place with no cover of its own (no favourites yet, nothing played): its sign, centred, on the
+ * page's raised tone; or on a soft accent tone ([accent]), for Radio when every cover it could
+ * show is on the shelf already. No letter: the card's name is under it.
+ */
+@Composable
+private fun PlaceTile(icon: ImageVector, accent: Boolean, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val fill = if (accent) scheme.primary.copy(alpha = 0.16f).compositeOver(scheme.surfaceContainer) else scheme.surfaceContainer
+    Box(modifier.clip(CoverShape).background(fill), contentAlignment = Alignment.Center) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (accent) scheme.primary else scheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxSize(0.32f),
+        )
     }
 }
 
