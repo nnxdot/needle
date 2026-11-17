@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.runtime.mutableIntStateOf
+
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -227,12 +229,17 @@ fun DetailHeader(
                     .shadow(28.dp, CoverShape, ambientColor = Color.Black, spotColor = Color.Black),
                 seed = title,
             )
+            // As it narrows with the scroll it keeps the lines it had, so the rows under the finger
+            // do not jump when a long name goes from two lines to one.
+            var lines by remember(title) { mutableIntStateOf(1) }
             Text(
                 title,
                 style = MaterialTheme.typography.displaySmall.copy(fontFamily = titleFamily(0.3f + squeeze * 0.7f)),
                 textAlign = TextAlign.Center,
+                minLines = lines,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (it.lineCount > lines) lines = it.lineCount },
                 modifier = Modifier.padding(top = 24.dp).semantics { heading() },
             )
             if (sub != null) {
@@ -311,11 +318,15 @@ private fun WideDetailHeader(
                 seed = title,
             )
             Column(Modifier.weight(1f)) {
+                // Keeps the lines it had as it narrows (see DetailHeader).
+                var lines by remember(title) { mutableIntStateOf(1) }
                 Text(
                     title,
                     style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.3f + squeeze * 0.7f)),
+                    minLines = lines,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (it.lineCount > lines) lines = it.lineCount },
                     modifier = Modifier.semantics { heading() },
                 )
                 if (sub != null) {
@@ -914,12 +925,16 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
                     modifier = Modifier.widthIn(max = 300.dp).heightIn(max = 120.dp).fillMaxWidth(),
                 )
             } else {
+                // Keeps the lines it had as it narrows with the scroll, so the page does not jump.
+                var lines by remember(name) { mutableIntStateOf(1) }
                 Text(
                     name,
                     style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.5f + squeeze * 0.5f)),
                     textAlign = TextAlign.Center,
+                    minLines = lines,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (it.lineCount > lines) lines = it.lineCount },
                     modifier = Modifier.semantics { heading() },
                 )
             }
