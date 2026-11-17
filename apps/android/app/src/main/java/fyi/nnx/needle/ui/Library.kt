@@ -187,10 +187,17 @@ private data class Spot(val left: Float, val width: Float)
  * them with left and right.
  */
 @Composable
-private fun FilterBar(filter: Filter, choose: (Filter) -> Unit) {
+private fun FilterBar(filter: Filter, choose: (Filter) -> Unit) = WordBar(Filter.entries, filter, { it.label }, choose)
+
+/**
+ * The Library's bar of words, for any set of choices (the Search page's kinds too), so "chosen"
+ * looks the same wherever it shows.
+ */
+@Composable
+internal fun <T : Any> WordBar(options: List<T>, filter: T, label: (T) -> String, choose: (T) -> Unit) {
     val reduce = reduceMotion()
     val scroll = rememberScrollState()
-    val spots = remember { mutableStateMapOf<Filter, Spot>() }
+    val spots = remember { mutableStateMapOf<T, Spot>() }
     val left = remember { Animatable(0f) }
     val width = remember { Animatable(0f) }
     var placed by remember { mutableStateOf(false) }
@@ -239,9 +246,9 @@ private fun FilterBar(filter: Filter, choose: (Filter) -> Unit) {
                 },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Filter.entries.forEach { f ->
+            options.forEach { f ->
                 FilterWord(
-                    f.label,
+                    label(f),
                     chosen = f == filter,
                     modifier = Modifier.onPlaced { c ->
                         val spot = Spot(c.positionInParent().x, c.size.width.toFloat())

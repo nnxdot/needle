@@ -104,7 +104,8 @@ plays and the one main button.
   their grey line a size smaller.
 - **Shelves:** a row of covers that scrolls sideways, 16 dp from the page's edge; on a phone the
   Library's shelf shows three cards and a slice of the fourth.
-- **Search** (`Search.kt`): the field, then chips (All, Songs, Albums, Artists, Lyrics). All
+- **Search** (`Search.kt`): the field, then the Library's bar of words (`WordBar`: All, Songs,
+  Albums, Artists, Lyrics), the chosen one shown the same way as in the Library. All
   shows the best match in a card (cover, kind, name, a round Play), then Songs (5), Albums and
   Artists as rows of tiles, In the lyrics (the words lit in amber), and Try a rule.
 - **The big player's looks:** the Look button at its top steps through Cover, Record (the round

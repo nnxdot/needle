@@ -161,27 +161,10 @@ private fun NothingMatches() {
     Text("Nothing matches", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 16.dp))
 }
 
-/** The chips, as the Library's pills: the page's tone a step up, the chosen one in amber. */
+/** The kinds: the Library's bar of words, the chosen one in the accent on its soft light. */
 @Composable
 private fun SearchKinds(kind: SearchKind, onKind: (SearchKind) -> Unit) {
-    val pill = FilterChipDefaults.filterChipColors(
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        labelColor = MaterialTheme.colorScheme.onSurface,
-        selectedContainerColor = MaterialTheme.colorScheme.primary,
-        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-    )
-    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(SearchKind.entries, key = { it.name }) { k ->
-            FilterChip(
-                selected = kind == k,
-                onClick = { onKind(k) },
-                label = { Text(k.label) },
-                shape = RoundedCornerShape(50),
-                colors = pill,
-                border = null,
-            )
-        }
-    }
+    WordBar(SearchKind.entries, kind, { it.label }, onKind)
 }
 
 /** The match that heads the results, large: its cover (an artist's photo, round), its kind, its name, and Play. */
