@@ -1,6 +1,6 @@
 //! The command palette (Ctrl+K): one place to go anywhere and do anything.
 use super::{
-    AppView, Event, Page, Panel, motion,
+    AppView, Event, Page, Panel,
     pages::SETTINGS_TABS,
     pal,
     widgets::{artwork, glyph},
@@ -51,7 +51,6 @@ pub struct PaletteState {
     pub active: usize,
     pub generation: u64,
     pub found: Vec<Item>,
-    pub serial: usize,
     _subscription: Subscription,
 }
 
@@ -72,7 +71,6 @@ impl PaletteState {
             active: 0,
             generation: 0,
             found: vec![],
-            serial: 0,
             _subscription: subscription,
         }
     }
@@ -102,7 +100,6 @@ impl AppView {
         self.palette.open = true;
         self.palette.active = 0;
         self.palette.found.clear();
-        self.palette.serial += 1;
         self.menu = None;
         self.palette.input.update(cx, |s, cx| {
             s.set_value("", window, cx);
@@ -738,13 +735,7 @@ impl AppView {
                     .child("Enter open")
                     .child("Esc close"),
             );
-        let panel = motion::animate(
-            panel,
-            ("palette-in", self.palette.serial),
-            160,
-            cx,
-            |el, t| el.opacity(t).mt(px(10. * (1. - t))),
-        );
+        // The palette opens at once, from a key or a click: it is a tool for speed.
         Some(
             deferred(
                 div()

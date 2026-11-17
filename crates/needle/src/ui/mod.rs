@@ -608,8 +608,6 @@ pub struct AppView {
     /// Settings cards opened with their arrow (by id).
     settings_open: std::collections::HashSet<&'static str>,
     palette: palette::PaletteState,
-    /// Changes whenever the visible page (or settings section) changes, to replay its fade.
-    page_serial: usize,
     sort: Sort,
     total: usize,
     matched_total: usize,
@@ -956,9 +954,8 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
             set_theme(&settings.theme, None, cx);
             theme::set_display_font(&settings.display_font);
             theme::set_text_font(&settings.text_font, cx);
-            cx.set_global(motion::Motion {
-                enabled: !settings.reduce_motion && motion::system_allows_animation(),
-            });
+            motion::refresh_system();
+            motion::set_reduce(settings.reduce_motion);
             timing::bind_keys(cx);
             // macOS: an app menu with Quit (Cmd+Q), and Control-Command-F for full screen.
             #[cfg(target_os = "macos")]
@@ -1346,7 +1343,6 @@ impl AppView {
             hidden: false,
             discord_idle_since: None,
             palette,
-            page_serial: 0,
             sort: Sort::Default,
             matched_total: 0,
             page_offset: 0,
@@ -1528,6 +1524,15 @@ impl AppView {
             }
         }
         cx.on_release(|_, cx| cx.quit()).detach();
+        // The system's animation setting may change while Needle runs: read it again each
+        // time the window comes to the front.
+        cx.observe_window_activation(window, |_, window, cx| {
+            if window.is_window_active() {
+                motion::refresh_system();
+                cx.notify();
+            }
+        })
+        .detach();
         {
             // With hide to tray on, closing hides the window instead; the music plays on.
             let weak = cx.entity().downgrade();
@@ -2407,7 +2412,6 @@ impl AppView {
         let _slow = bench::Slow::new("open");
         self.details_here = false;
         self.page = page;
-        self.page_serial += 1;
         self.page_scroll.set_offset(point(px(0.), px(0.)));
         self.pending_scroll = None;
         self.scroll_on_load = true;
@@ -3403,6 +3407,7 @@ fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        motion::begin_frame();
         self.window_height = f32::from(widgets::content_size(window).height);
         let _slow = bench::Slow::new("render");
         // The artist pictures sweep looks only with online lookups and its setting on, and not
@@ -3652,6 +3657,7 @@ impl Render for AppView {
             }))
             .on_action(cx.listener(|this, _: &EditTags, window, cx| this.edit_tags(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleFavorite, _, cx| {
+                motion::key_started();
                 let selected = this.selected_tracks();
                 let rating = if selected.iter().all(|t| t.rating >= 4) {
                     0
@@ -3663,21 +3669,32 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                motion::key_started();
                 this.toggle_sidebar();
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleQueue, _, cx| {
+                motion::key_started();
                 this.toggle_panel(Panel::Queue);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleLyrics, _, cx| {
+                motion::key_started();
                 this.toggle_panel(Panel::Lyrics);
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
-            .on_action(cx.listener(|this, _: &GoForward, window, cx| this.go_forward(window, cx)))
+            .on_action(cx.listener(|this, _: &GoBack, window, cx| {
+                motion::key_started();
+                this.go_back(window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &GoForward, window, cx| {
+                motion::key_started();
+                this.go_forward(window, cx)
+            }))
             // The mouse's side buttons, heard before anything under the pointer can keep them.
             .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                // What a click starts may move (a key's change shows at once).
+                motion::mouse_started();
                 match event.button {
                     MouseButton::Navigate(NavigationDirection::Back) => this.mouse_back(window, cx),
                     MouseButton::Navigate(NavigationDirection::Forward) => {
@@ -3688,6 +3705,7 @@ impl Render for AppView {
                 }
             }))
             .on_action(cx.listener(|this, _: &OpenPalette, window, cx| {
+                motion::key_started();
                 if this.palette.open {
                     this.close_palette(window, cx)
                 } else {
@@ -3695,6 +3713,7 @@ impl Render for AppView {
                 }
             }))
             .on_action(cx.listener(|this, _: &ToggleBigPlayer, _, cx| {
+                motion::key_started();
                 this.big = !this.big;
                 cx.notify();
             }))
@@ -3702,12 +3721,14 @@ impl Render for AppView {
                 cx.listener(|this, _: &OpenMiniPlayer, window, cx| this.open_mini(window, cx)),
             )
             .on_action(cx.listener(|this, _: &ToggleImmersive, window, cx| {
+                motion::key_started();
                 let on = !this.immersive;
                 this.set_immersive(on, window, cx);
             }))
             .on_action(|_: &FocusNext, window, _| window.focus_next())
             .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
             .on_action(cx.listener(|this, GoTo(index): &GoTo, window, cx| {
+                motion::key_started();
                 let page = match index {
                     0 => Page::Home,
                     1 => Page::Songs,
@@ -3721,6 +3742,7 @@ impl Render for AppView {
                 this.navigate(page, window, cx);
             }))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                motion::key_started();
                 // With the search field hidden, the command palette searches instead.
                 if this.settings.layout.search_hidden {
                     this.open_palette(window, cx);
@@ -3732,6 +3754,7 @@ impl Render for AppView {
                 cx.listener(|this, _: &ImportFolder, window, cx| this.import_folder(window, cx)),
             )
             .on_action(cx.listener(|this, _: &EscapePanel, window, cx| {
+                motion::key_started();
                 if this.immersive {
                     this.set_immersive(false, window, cx);
                     return;

@@ -162,6 +162,7 @@ impl AppView {
             Page::Artist(ref name) => self.artist_page(name, width, window, cx),
             _ => self.collection(width, window, cx).into_any_element(),
         };
+        // A new page shows at once: it is opened too often to wait for a fade.
         let page = div()
             .flex_1()
             .min_w_0()
@@ -169,19 +170,7 @@ impl AppView {
             .flex()
             .flex_col()
             .child(body);
-        // A short fade each time the page changes.
-        div()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .flex()
-            .child(motion::animate(
-                page,
-                ("page", self.page_serial),
-                200,
-                cx,
-                |el, t| el.opacity(t).pt(px((1. - t) * 10.)),
-            ))
+        div().flex_1().min_w_0().h_full().flex().child(page)
     }
 
     fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {

@@ -154,7 +154,10 @@ impl RenderOnce for Switch {
                                 .size(bar_width)
                                 .map(|this| {
                                     let prev_checked = toggle_state.read(cx);
-                                    if !self.disabled && *prev_checked != checked {
+                                    // Patched (Needle): with motion reduced the knob is at
+                                    // its place at once; it moves with an ease-out curve.
+                                    let moving = !crate::animation::reduce_motion();
+                                    if !self.disabled && *prev_checked != checked && moving {
                                         let duration = Duration::from_secs_f64(0.15);
                                         cx.spawn({
                                             let toggle_state = toggle_state.clone();
@@ -168,7 +171,9 @@ impl RenderOnce for Switch {
 
                                         this.with_animation(
                                             ElementId::NamedInteger("move".into(), checked as u64),
-                                            Animation::new(duration),
+                                            Animation::new(duration).with_easing(
+                                                crate::animation::cubic_bezier(0.23, 1., 0.32, 1.),
+                                            ),
                                             move |this, delta| {
                                                 let max_x = bg_width - bar_width - inset * 2;
                                                 let x = if checked {
@@ -181,6 +186,12 @@ impl RenderOnce for Switch {
                                         )
                                         .into_any_element()
                                     } else {
+                                        if *prev_checked != checked {
+                                            let toggle_state = toggle_state.clone();
+                                            cx.defer(move |cx| {
+                                                toggle_state.update(cx, |this, _| *this = checked)
+                                            });
+                                        }
                                         let max_x = bg_width - bar_width - inset * 2;
                                         let x = if checked { max_x } else { px(0.) };
                                         this.left(x).into_any_element()
