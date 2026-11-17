@@ -143,7 +143,7 @@ struct BigPlayer: View {
 
     private var topBar: some View {
         HStack(spacing: 14) {
-            Button { store.big = false; store.setImmersive(false) } label: { Image(systemName: "chevron.down").font(.needle(.title3).weight(.semibold)) }
+            Button { store.showBig(false) } label: { Image(systemName: "chevron.down").font(.needle(.title3).weight(.semibold)) }
                 .help("Close the player · Esc")
                 .accessibilityLabel("Close the player")
             Spacer()

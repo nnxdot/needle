@@ -66,7 +66,7 @@ private struct NowCard: View {
         if let p = store.playback, p.hasSong {
             let colors = store.colors
             HStack(spacing: 18) {
-                Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: 96, corner: 8) }
+                Button { store.showBig(true) } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: 96, corner: 8) }
                     .buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(p.playing ? "Playing now" : "Paused").font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.accent)
@@ -247,7 +247,8 @@ struct AlbumTile: View {
 
     private func open() {
         store.travelingTile = me
-        store.navigate(album.route)
+        // The one page change that animates: the clicked cover flies to the album's page.
+        withAnimation(store.motion ? .smooth(duration: 0.3) : nil) { store.navigate(album.route) }
     }
 
     private func play() {

@@ -212,13 +212,9 @@ struct NeedleCommands: Commands {
         }
     }
 
+    /// From the menu or its key (⌘J, ⌘L, ⌘I): at once.
     private func togglePanel(_ panel: Store.Panel) {
-        if store.settings.showInspector && store.panel == panel {
-            store.set(["show_inspector": false])
-        } else {
-            store.panel = panel
-            store.set(["show_inspector": true])
-        }
+        store.togglePanel(panel, animated: false)
     }
 
     private func importPlaylist() {

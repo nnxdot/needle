@@ -546,7 +546,7 @@ struct LyricStrip: View {
         .contentShape(Capsule())
         .pane(Capsule(), interactive: true, tinted: true, id: "lyrics", in: space)
         .animation(store.motion ? .easeOut(duration: 0.35) : nil, value: store.lyricLine)
-        .onTapGesture { store.panel = .lyrics; store.set(["show_inspector": true]) }
+        .onTapGesture { if !(store.settings.showInspector && store.panel == .lyrics) { store.togglePanel(.lyrics, animated: true) } }
         .help("Lyrics: click to see them all")
     }
 }

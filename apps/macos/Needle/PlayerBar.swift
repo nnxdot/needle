@@ -420,8 +420,7 @@ struct MoreButton: View {
 
     /// Opens a side panel, or closes it when it is the one open.
     private func panel(_ panel: Store.Panel) {
-        if store.settings.showInspector && store.panel == panel { store.set(["show_inspector": false]) }
-        else { store.panel = panel; store.set(["show_inspector": true]) }
+        store.togglePanel(panel, animated: true)
     }
 }
 
@@ -851,7 +850,7 @@ struct PanelButton: View {
     var body: some View {
         let open = store.settings.showInspector && store.panel == panel
         Button {
-            if open { store.set(["show_inspector": false]) } else { store.panel = panel; store.set(["show_inspector": true]) }
+            store.togglePanel(panel, animated: true)
         } label: {
             Image(systemName: icon).foregroundStyle(open ? store.colors.accent : store.colors.ink2)
         }

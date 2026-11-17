@@ -703,7 +703,35 @@ final class Store {
     func openBig() {
         Task { @MainActor in
             await Task.yield()
-            big = true
+            showBig(true)
+        }
+    }
+
+    /// Opens a side panel, or closes it when it is the one open. From a click (`animated`) the
+    /// panel slides in over 220 ms and out over 180 ms; from a key it shows and goes at once.
+    func togglePanel(_ panel: Panel, animated: Bool) {
+        let close = settings.showInspector && self.panel == panel
+        let animation: Animation? = animated && motion ? .easeOut(duration: close ? 0.18 : 0.22) : nil
+        withAnimation(animation) {
+            if close {
+                set(["show_inspector": false])
+            } else {
+                self.panel = panel
+                set(["show_inspector": true])
+            }
+        }
+    }
+
+    /// The big player opened or closed by a click: it slides in from its side, and leaves
+    /// faster than it came. Keys set `big` and `immersive` directly, with no animation.
+    func showBig(_ on: Bool) {
+        if on {
+            withAnimation(motion ? .smooth(duration: 0.28) : nil) { big = true }
+        } else {
+            withAnimation(motion ? .smooth(duration: 0.2) : nil) {
+                big = false
+                setImmersive(false)
+            }
         }
     }
 

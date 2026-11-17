@@ -67,13 +67,16 @@ struct MainWindow: View {
             }
 
             if store.big || store.immersive {
+                // From the side of the window its player sits on. It moves only when a click
+                // opens or closes it (`Store.showBig`); ⌘P, Esc and ⌃⌘F show it at once.
                 BigPlayer()
-                    .transition(store.motion ? .move(edge: .bottom).combined(with: .opacity) : .opacity)
+                    .transition(store.motion ? .move(edge: store.settings.layout.playerOnTop ? .top : .bottom).combined(with: .opacity) : .opacity)
                     .zIndex(2)
             }
             if store.palette {
+                // Shows and goes at once, as a command palette should.
                 CommandPalette()
-                    .transition(store.motion ? .opacity.combined(with: .scale(scale: 0.98)) : .opacity)
+                    .transition(.identity)
                     .zIndex(3)
             }
             if (store.grainPreview ?? store.settings.grain) > 0.001 {
@@ -82,8 +85,6 @@ struct MainWindow: View {
         }
         .overlay(alignment: .bottom) { ToastView().padding(.bottom, store.big ? 0 : 110).zIndex(5) }
         .containerBackground(for: .window) { WindowBackground() }
-        .animation(store.motion ? .smooth(duration: 0.28) : nil, value: store.big)
-        .animation(store.motion ? .smooth(duration: 0.18) : nil, value: store.palette)
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
         .frame(minWidth: Store.leastWidth(store.settings), minHeight: 620)
@@ -356,6 +357,9 @@ struct MainWindow: View {
                 // their words clear of it themselves; other pages stop beside it.
                 .safeAreaPadding(.trailing, Self.runsUnder(store.route) ? 0 : inset)
                 .environment(\.panelInset, Self.runsUnder(store.route) ? inset : 0)
+                // The page takes its new width at once when the panel comes or goes: only the
+                // panel moves, so the song table does not lay itself out again on every frame.
+                .transaction(value: open) { $0.animation = nil }
         }
         // The side panel: a pane of glass floating over the page's right side, as in Apple
         // Music, not a column of its own.
@@ -369,10 +373,10 @@ struct MainWindow: View {
                     .padding(.trailing, 10)
                     .padding(.bottom, 10)
                     .padding(.top, 4)
+                    // It slides only when a click opens it (`Store.togglePanel`); keys show it at once.
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(store.motion ? .smooth(duration: 0.3) : nil, value: open)
         .toolbar { toolbar }
         // The page's name stays the window's, but leaves the bar to the player, as in Apple Music.
         .toolbar(removing: store.settings.layout.playerOnTop ? .title : nil)
@@ -700,8 +704,9 @@ struct PageView: View {
             }
         }
         .id(store.route)
+        // A page changes at once. Only a click on an album tile animates (`AlbumTile.open`), for
+        // its cover's flight; keys, the side bar and the back buttons never start a fade.
         .transition(.opacity)
-        .animation(store.motion ? .smooth(duration: 0.4) : .easeInOut(duration: 0.2), value: store.route)
         .onAppear { store.coverSpace = covers }
         .task(id: store.libraryVersion) { total = await store.load { try $0.songCount() } }
     }
