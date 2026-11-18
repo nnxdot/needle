@@ -104,7 +104,9 @@ struct SearchView: View {
         }
         .task(id: "\(query)|\(kind)|\(store.ratingVersion)|\(store.libraryVersion)") {
             let typed = query
-            hints = await store.load { $0.suggest(input: typed, cursor: UInt32(typed.utf16.count)) } ?? []
+            // No hints for an empty field: the Rules chips are on the page then (as on Android).
+            hints = typed.trimmingCharacters(in: .whitespaces).isEmpty ? []
+                : await store.load { $0.suggest(input: typed, cursor: UInt32(typed.utf16.count)) } ?? []
             let words = self.words
             guard !words.isEmpty else { found = nil; songs = []; server = []; error = nil; return }
             try? await Task.sleep(for: .milliseconds(200))
