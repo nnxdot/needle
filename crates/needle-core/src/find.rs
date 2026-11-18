@@ -1,7 +1,8 @@
 //! Search across the whole library at once, for the Search page: the best match, songs,
 //! albums, artists, and lines of lyrics. And the lyrics index it reads: the words of every
 //! song's own lyrics (the file beside it and its tags), read slowly in the background, plus
-//! any lyrics shown since (from LRCLIB or a server). Nothing is fetched to fill it.
+//! any lyrics shown since (from LRCLIB or a server). Nothing is fetched to fill it. And what
+//! was looked for before: the words typed, and the results opened from Search.
 use crate::{
     browse::{AlbumSummary, ArtistSummary},
     database::Library,
@@ -32,7 +33,8 @@ const VERSION: i64 = 1;
 pub(crate) fn migrate(db: &Connection) -> Result<()> {
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS lyrics_text(track_id TEXT PRIMARY KEY, hash TEXT NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL);
-         CREATE VIRTUAL TABLE IF NOT EXISTS lyrics_fts USING fts5(text, track_id UNINDEXED, tokenize='trigram');",
+         CREATE VIRTUAL TABLE IF NOT EXISTS lyrics_fts USING fts5(text, track_id UNINDEXED, tokenize='trigram');
+         CREATE TABLE IF NOT EXISTS recent_searches(kind TEXT NOT NULL, key TEXT NOT NULL, UNIQUE(kind,key));",
     )?;
     Ok(())
 }
@@ -52,7 +54,7 @@ pub struct LyricMatch {
     pub line: String,
 }
 
-/// Everything a search finds, a few of each.
+/// Everything a search finds, a few of each, and how many of each there are in all.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Found {
     pub best: Option<Best>,
@@ -60,7 +62,29 @@ pub struct Found {
     pub albums: Vec<AlbumSummary>,
     pub artists: Vec<ArtistSummary>,
     pub lyrics: Vec<LyricMatch>,
+    /// All the songs the search matches, not only the ones in `songs`.
+    pub song_count: usize,
+    pub album_count: usize,
+    pub artist_count: usize,
+    /// All the songs whose lyrics hold the words.
+    pub lyric_count: usize,
 }
+
+/// Something looked for before, for Search's Recent list.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Recent {
+    /// Words typed and then searched for with the keyboard's Search or Enter key.
+    Words(String),
+    /// A result opened or played from Search.
+    Song(Box<Track>),
+    Album(AlbumSummary),
+    Artist(ArtistSummary),
+}
+
+/// The kinds [`Library::remember_search`] takes: what its key is for each is said there.
+pub const RECENT_KINDS: [&str; 4] = ["words", "song", "album", "artist"];
+/// How many recent searches are kept; an older one is dropped.
+pub const RECENT_KEPT: usize = 20;
 
 /// How well `name` answers `query` (both lowercase): the same, starting with it, or holding it.
 fn closeness(name: &str, query: &str) -> u32 {
@@ -173,8 +197,109 @@ impl Library {
         Ok(found)
     }
 
+    /// How many songs' kept lyrics hold `query` (three letters or more).
+    pub fn lyric_count(&self, query: &str) -> Result<usize> {
+        let query = query.trim();
+        if query.chars().count() < 3 {
+            return Ok(0);
+        }
+        let phrase = format!("\"{}\"", query.replace('"', "\"\""));
+        let count: i64 = self.connection()?.query_row(
+            "SELECT count(*) FROM lyrics_fts f JOIN tracks t ON t.id=f.track_id WHERE lyrics_fts MATCH ? AND t.missing=0",
+            [phrase],
+            |r| r.get(0),
+        )?;
+        Ok(count.max(0) as usize)
+    }
+
+    /// Keeps something looked for, as the newest: `kind` "words" (`key`: the words typed),
+    /// "song" (a song's id), "album" ([`AlbumSummary::key`]), or "artist" (the name). The one
+    /// kept before under the same kind and key moves to the front; only the newest
+    /// [`RECENT_KEPT`] stay.
+    pub fn remember_search(&self, kind: &str, key: &str) -> Result<()> {
+        let key = key.trim();
+        if !RECENT_KINDS.contains(&kind) {
+            anyhow::bail!("A recent search is \"words\", \"song\", \"album\", or \"artist\"");
+        }
+        if key.is_empty() || key.chars().count() > 300 {
+            return Ok(());
+        }
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        // Words are one search whatever their case.
+        if kind == "words" {
+            tx.execute(
+                "DELETE FROM recent_searches WHERE kind='words' AND key=? COLLATE NOCASE",
+                [key],
+            )?;
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO recent_searches(kind,key) VALUES(?,?)",
+            params![kind, key],
+        )?;
+        tx.execute(
+            "DELETE FROM recent_searches WHERE rowid NOT IN (SELECT rowid FROM recent_searches ORDER BY rowid DESC LIMIT ?)",
+            [RECENT_KEPT as i64],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Drops one recent search (the Recent list's ×).
+    pub fn forget_search(&self, kind: &str, key: &str) -> Result<()> {
+        self.connection()?.execute(
+            "DELETE FROM recent_searches WHERE kind=? AND key=? COLLATE NOCASE",
+            params![kind, key.trim()],
+        )?;
+        Ok(())
+    }
+
+    /// Drops every recent search (the Recent list's Clear).
+    pub fn clear_searches(&self) -> Result<()> {
+        self.connection()?
+            .execute("DELETE FROM recent_searches", [])?;
+        Ok(())
+    }
+
+    /// What was looked for, the newest first, at most `limit`. A song, album, or artist that
+    /// is no longer in the library is left out (it stays kept, and shows again if it returns).
+    pub fn recent_searches(&self, limit: usize) -> Result<Vec<Recent>> {
+        let rows: Vec<(String, String)> = self
+            .connection()?
+            .prepare("SELECT kind,key FROM recent_searches ORDER BY rowid DESC")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut recent = vec![];
+        for (kind, key) in rows {
+            if recent.len() >= limit {
+                break;
+            }
+            let found = match kind.as_str() {
+                "words" => Some(Recent::Words(key)),
+                "song" => self
+                    .tracks_by_ids(&[key])?
+                    .into_iter()
+                    .find(|t| !t.missing)
+                    .map(|t| Recent::Song(Box::new(t))),
+                "album" => self.album_by_key(&key).ok().flatten().map(Recent::Album),
+                "artist" => {
+                    let name = crate::query::quote(&key);
+                    let wanted = key.to_lowercase();
+                    self.artists(&format!("artist = {name} or album_artist = {name}"))
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(|a| a.name.to_lowercase() == wanted)
+                        .map(Recent::Artist)
+                }
+                _ => None,
+            };
+            recent.extend(found);
+        }
+        Ok(recent)
+    }
+
     /// What `query` finds: songs, albums, and artists it matches (it may be a rule), lines of
-    /// lyrics that hold it, and the best of them. `limit` of each.
+    /// lyrics that hold it, and the best of them. `limit` of each, and how many there are.
     pub fn find(&self, query: &str, limit: usize) -> Result<Found> {
         let query = query.trim();
         if query.is_empty() {
@@ -189,6 +314,8 @@ impl Library {
         let mut artists = self.artists(query)?;
         artists.sort_by_key(|a| std::cmp::Reverse(a.play_count));
         let lyrics = self.lyric_matches(query, limit)?;
+        let lyric_count = self.lyric_count(query)?.max(lyrics.len());
+        let (song_count, album_count, artist_count) = (songs.len(), albums.len(), artists.len());
 
         // The best: a name that answers the search most closely; albums, then artists, then
         // songs when two answer as closely, and the most played of each.
@@ -235,6 +362,10 @@ impl Library {
             albums,
             artists,
             lyrics,
+            song_count,
+            album_count,
+            artist_count,
+            lyric_count,
         })
     }
 }
@@ -386,5 +517,91 @@ mod tests {
         assert_eq!(library.lyrics_unread(10).unwrap().len(), 1);
         // Two letters are too few to look for.
         assert!(library.lyric_matches("ha", 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn counts_all_that_match_not_only_what_it_gives() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let music = dir.path().join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        for i in 0..7 {
+            let t = song(
+                &music,
+                &format!("s{i}"),
+                &format!("Moon {i}"),
+                &format!("Artist {i}"),
+                &format!("Moon Album {i}"),
+                i,
+            );
+            library.upsert(&t).unwrap();
+            std::fs::write(
+                music.join(format!("s{i}.lrc")),
+                "[00:01.00]Under the moon\n",
+            )
+            .unwrap();
+        }
+        library.read_lyrics(20).unwrap();
+        let found = library.find("moon", 3).unwrap();
+        assert_eq!(
+            (found.songs.len(), found.albums.len(), found.lyrics.len()),
+            (3, 3, 3)
+        );
+        assert_eq!(
+            (found.song_count, found.album_count, found.lyric_count),
+            (7, 7, 7)
+        );
+        // Artists are the ones the matching songs credit: more than `limit` here too.
+        assert_eq!((found.artists.len(), found.artist_count), (3, 7));
+        assert_eq!(library.find("", 3).unwrap().song_count, 0);
+    }
+
+    #[test]
+    fn keeps_recent_searches_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let music = dir.path().join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        let track = song(&music, "a", "Opening", "Mara Quinn", "Harbor Lights", 2);
+        library.upsert(&track).unwrap();
+        let album = library.albums("").unwrap().remove(0);
+
+        library.remember_search("words", "harbor").unwrap();
+        library.remember_search("song", "a").unwrap();
+        library.remember_search("album", &album.key).unwrap();
+        library.remember_search("artist", "Mara Quinn").unwrap();
+        // Gone from the library: kept, but not shown.
+        library.remember_search("song", "nothing").unwrap();
+        // The same words again, in another case: one search, now the newest.
+        library.remember_search("words", "Harbor").unwrap();
+        assert!(library.remember_search("genre", "x").is_err());
+        library.remember_search("words", "  ").unwrap();
+
+        let recent = library.recent_searches(10).unwrap();
+        assert_eq!(recent.len(), 4);
+        assert_eq!(recent[0], Recent::Words("Harbor".into()));
+        assert!(matches!(&recent[1], Recent::Artist(a) if a.name == "Mara Quinn"));
+        assert!(matches!(&recent[2], Recent::Album(a) if a.key == album.key));
+        assert!(matches!(&recent[3], Recent::Song(t) if t.id == "a"));
+        assert_eq!(library.recent_searches(2).unwrap().len(), 2);
+
+        library.forget_search("artist", "Mara Quinn").unwrap();
+        assert_eq!(library.recent_searches(10).unwrap().len(), 3);
+
+        // Only the newest are kept.
+        for i in 0..RECENT_KEPT + 5 {
+            library
+                .remember_search("words", &format!("search {i}"))
+                .unwrap();
+        }
+        let recent = library.recent_searches(100).unwrap();
+        assert_eq!(recent.len(), RECENT_KEPT);
+        assert_eq!(
+            recent[0],
+            Recent::Words(format!("search {}", RECENT_KEPT + 4))
+        );
+
+        library.clear_searches().unwrap();
+        assert!(library.recent_searches(10).unwrap().is_empty());
     }
 }

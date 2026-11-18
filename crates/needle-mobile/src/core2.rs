@@ -88,7 +88,8 @@ pub struct LyricHit {
     pub line: String,
 }
 
-/// What a search finds, for the Search page: the best match, then a few of each.
+/// What a search finds, for the Search page: the best match, then a few of each, and how many
+/// of each there are in all (for the chips, and "All 24").
 #[derive(Clone, uniffi::Record)]
 pub struct SearchFound {
     pub best: Option<SearchBest>,
@@ -96,6 +97,28 @@ pub struct SearchFound {
     pub albums: Vec<Album>,
     pub artists: Vec<Artist>,
     pub lyrics: Vec<LyricHit>,
+    #[uniffi(default = 0)]
+    pub song_count: u32,
+    #[uniffi(default = 0)]
+    pub album_count: u32,
+    #[uniffi(default = 0)]
+    pub artist_count: u32,
+    /// Songs whose lyrics hold the words.
+    #[uniffi(default = 0)]
+    pub lyric_count: u32,
+}
+
+/// Something looked for before, for Search's Recent list. `kind` is "words", "song", "album",
+/// or "artist". `key` is what [`Needle::remember_search`] and [`Needle::forget_search`] take
+/// for it: the words themselves for "words". The one of `song`, `album`, `artist` that `kind`
+/// names is set.
+#[derive(Clone, uniffi::Record)]
+pub struct RecentSearch {
+    pub kind: String,
+    pub key: String,
+    pub song: Option<Song>,
+    pub album: Option<Album>,
+    pub artist: Option<Artist>,
 }
 
 fn artist_of(a: needle_core::browse::ArtistSummary) -> Artist {
@@ -341,7 +364,65 @@ impl Needle {
                     line: m.line,
                 })
                 .collect(),
+            song_count: found.song_count as u32,
+            album_count: found.album_count as u32,
+            artist_count: found.artist_count as u32,
+            lyric_count: found.lyric_count as u32,
         })
+    }
+
+    /// Search's Recent list, the newest first, at most `limit`: the words searched for with
+    /// the keyboard's Search or Enter key, and the results opened or played from Search. What
+    /// is no longer in the library is left out.
+    pub fn recent_searches(&self, limit: u32) -> Result<Vec<RecentSearch>> {
+        use needle_core::find::Recent;
+        let none = |kind: &str, key: String| RecentSearch {
+            kind: kind.into(),
+            key,
+            song: None,
+            album: None,
+            artist: None,
+        };
+        Ok(self
+            .library
+            .recent_searches(limit as usize)?
+            .into_iter()
+            .map(|recent| match recent {
+                Recent::Words(words) => none("words", words),
+                Recent::Song(t) => RecentSearch {
+                    song: Some(Song::from(&*t)),
+                    ..none("song", t.id.clone())
+                },
+                Recent::Album(a) => RecentSearch {
+                    key: a.key.clone(),
+                    album: Some(Album::from(a)),
+                    ..none("album", String::new())
+                },
+                Recent::Artist(a) => RecentSearch {
+                    key: a.name.clone(),
+                    artist: Some(artist_of(a)),
+                    ..none("artist", String::new())
+                },
+            })
+            .collect())
+    }
+
+    /// Keeps something looked for as the newest recent search: `kind` "words" (`key`: the
+    /// words typed), "song" (the song's id), "album" (the album's key), or "artist" (the
+    /// name). Search calls it when a result is opened or played, and when the keyboard's
+    /// Search or Enter key is pressed.
+    pub fn remember_search(&self, kind: String, key: String) -> Result<()> {
+        Ok(self.library.remember_search(&kind, &key)?)
+    }
+
+    /// Drops one recent search (its ×): `kind` and `key` as [`RecentSearch`] gives them.
+    pub fn forget_search(&self, kind: String, key: String) -> Result<()> {
+        Ok(self.library.forget_search(&kind, &key)?)
+    }
+
+    /// Drops every recent search (Clear).
+    pub fn clear_searches(&self) -> Result<()> {
+        Ok(self.library.clear_searches()?)
     }
 
     /// Every button the player can show, in Needle's own order.
