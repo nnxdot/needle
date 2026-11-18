@@ -21,6 +21,8 @@ struct SearchView: View {
     @State private var examples: [String] = []
     /// The lit glass glides from the chip chosen before to the one chosen now.
     @Namespace private var chipGlass
+    /// The page's width: Top Result and the songs beside it share it.
+    @State private var pageWidth: CGFloat = 0
 
     enum Kind: String, CaseIterable { case all = "All", songs = "Songs", albums = "Albums", artists = "Artists", lyrics = "Lyrics" }
 
@@ -54,6 +56,7 @@ struct SearchView: View {
             }
             .padding(.bottom, 24)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
         .navigationTitle("Search")
         .themed()
         .searchable(text: $query, prompt: "Songs, albums, artists, lyrics")
@@ -183,20 +186,22 @@ struct SearchView: View {
     private func results(_ found: SearchFound, words: String) -> some View {
         switch kind {
         case .all:
-            if wide, let best = found.best, !found.songs.isEmpty {
-                // In a wide window, as Apple Music's: the best match at the left, the songs
-                // beside it.
+            // The row Top Result and the songs share, inside the page's margins.
+            let row = pageWidth - 2 * Tiles.margin(wide)
+            if wide, row >= 640, let best = found.best, !found.songs.isEmpty {
+                // In a wide window with room, as Apple Music's: the best match at the left
+                // (about 38% of the row), the songs beside it in short rows.
                 HStack(alignment: .top, spacing: 24) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Top Result").font(.needleTitle(size: 22)).accessibilityAddTraits(.isHeader)
                         bestMatch(best)
                     }
-                    .frame(width: 380)
+                    .frame(width: min(max(row * 0.38, 300), 380))
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Songs").font(.needleTitle(size: 22)).accessibilityAddTraits(.isHeader)
                         LazyVStack(spacing: 2) {
                             ForEach(Array(found.songs.prefix(5).enumerated()), id: \.element.id) { i, song in
-                                SongRow(song: song) { store.play(Array(found.songs.prefix(5)), from: i) }
+                                SongRow(song: song, stacked: true) { store.play(Array(found.songs.prefix(5)), from: i) }
                             }
                         }
                     }

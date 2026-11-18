@@ -25,6 +25,10 @@ struct FloatingPlayerBar: ViewModifier {
             }
         }
         .animation(Motion.fade(.smooth(duration: 0.35)), value: store.playingID == nil)
+        // The keyboard's room at the foot only while a field of Needle's is typed in. An iPad
+        // in a window was told of a keyboard (the size of the iPad mini's) that it never
+        // heard go: the bar then stood in the middle of the page, over an empty band.
+        .ignoresSafeArea(shown && !Typing.shared.active ? .keyboard : [], edges: .bottom)
     }
 }
 
