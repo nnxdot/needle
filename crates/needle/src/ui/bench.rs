@@ -390,12 +390,22 @@ impl AppView {
                         v.genre_by_plays = by == "plays";
                         open(v, Page::MoodMap, window, cx);
                     }
-                    // "search:harbor": the Search page, with that typed.
-                    Some(("search", text)) => {
-                        v.search
-                            .update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
-                        v.page = Page::Search;
-                        v.run_find(cx);
+                    // "search:harbor": the Search page, with that typed ("search:" before
+                    // typing); "search-songs:harbor" on its Songs chip.
+                    Some((how @ ("search" | "search-songs"), text)) => {
+                        if text.is_empty() {
+                            open(v, Page::Search, window, cx);
+                        } else {
+                            v.search
+                                .update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
+                            v.page = Page::Search;
+                            v.search_tab = if how == "search-songs" {
+                                super::search_page::SearchTab::Songs
+                            } else {
+                                Default::default()
+                            };
+                            v.run_find(cx);
+                        }
                         cx.notify();
                     }
                     // "long-album": an album page that holds every song, scrolled down

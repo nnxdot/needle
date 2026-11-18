@@ -460,10 +460,18 @@ enum Event {
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
     /// The year Home shows "Your year in music" for (December, with listening).
     HomeYear(Option<i32>),
-    /// What a search found (its generation, then the finds or the problem).
-    Found(u64, Result<Box<needle_core::find::Found>, String>),
-    /// Every line of lyrics that holds the search (its generation).
-    FoundLyrics(u64, Vec<needle_core::find::LyricMatch>),
+    /// What a search found (its generation, the chip it was asked for, then the finds or the
+    /// problem).
+    Found(
+        u64,
+        search_page::SearchTab,
+        Result<Box<needle_core::find::Found>, String>,
+    ),
+    /// Search before typing: the recent searches, and the genres to browse (once).
+    SearchHome(
+        Vec<needle_core::find::Recent>,
+        Option<Vec<search_page::GenreTile>>,
+    ),
     /// A song's shape for the waveform seek bar: its id and 120 heights, 0 to 1.
     Waveform(String, Vec<f32>),
     /// A song's lyrics translated, one line for each line: its id and the lines.
@@ -530,9 +538,14 @@ pub struct AppView {
     /// The Search page: what it shows, its newest answer, and that answer's number.
     search_tab: search_page::SearchTab,
     found: Option<Box<needle_core::find::Found>>,
+    /// The chip the answer in `found` was asked for, and the answer's number (for its fade).
+    found_for: search_page::SearchTab,
+    found_shown: u64,
     found_error: Option<String>,
-    found_lyrics: Vec<needle_core::find::LyricMatch>,
     find_generation: u64,
+    /// Search before typing: what was looked for before, and the genres (`None` until read).
+    search_recent: Vec<needle_core::find::Recent>,
+    search_genres: Option<std::rc::Rc<Vec<search_page::GenreTile>>>,
     /// The playing song's shape, for the waveform seek bar: its id and heights.
     waveform: Option<(String, Vec<f32>)>,
     /// Lyrics translated by a plugin, shown under each line while Translate is on.
@@ -1251,6 +1264,10 @@ impl AppView {
                 }
                 InputEvent::PressEnter { .. } => {
                     this.suggestions.clear();
+                    let text = this.search_text(cx);
+                    if this.page == Page::Search && !text.is_empty() {
+                        this.remember_search("words", &text);
+                    }
                     window.focus(&this.focus);
                     if this.selection.cursor.is_none() && !this.tracks.is_empty() {
                         this.select_single(0, cx);
@@ -1308,9 +1325,12 @@ impl AppView {
             home_year: None,
             search_tab: Default::default(),
             found: None,
+            found_for: Default::default(),
+            found_shown: 0,
             found_error: None,
-            found_lyrics: vec![],
             find_generation: 0,
+            search_recent: vec![],
+            search_genres: None,
             waveform: None,
             translate_lyrics: false,
             translation: None,
@@ -1910,12 +1930,8 @@ impl AppView {
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
                 Event::HomeYear(year) => self.home_year = year,
-                Event::Found(generation, found) => self.found(generation, found),
-                Event::FoundLyrics(generation, found) => {
-                    if generation == self.find_generation {
-                        self.found_lyrics = found;
-                    }
-                }
+                Event::Found(generation, tab, found) => self.found(generation, tab, found),
+                Event::SearchHome(recent, genres) => self.search_home(recent, genres),
                 Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
@@ -2559,6 +2575,9 @@ impl AppView {
         }
         if self.page == Page::Radio {
             self.load_radio();
+        }
+        if self.page == Page::Search {
+            self.load_search_home();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
