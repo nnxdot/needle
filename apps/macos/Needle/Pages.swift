@@ -196,14 +196,20 @@ struct AlbumTile: View {
     /// Where on its page the tile is (a shelf's title, "albums"): the same album may show on
     /// two shelves, and only the one clicked is the cover that flies to the album and back.
     var place = ""
+    /// Search's words: their letters lit in the name.
+    var words: [String] = []
+    /// Search: told when the album is opened or played, to remember it.
+    var opened: (() -> Void)?
     @State private var hover = false
     /// The cover's own colour, for the light behind it under the pointer.
     @State private var glow: Color?
 
-    init(album: AlbumSummary, side: CGFloat, place: String = "") {
+    init(album: AlbumSummary, side: CGFloat, place: String = "", words: [String] = [], opened: (() -> Void)? = nil) {
         self.album = album
         self.side = side
         self.place = place
+        self.words = words
+        self.opened = opened
         // A colour found before shows at once, so the light never starts black.
         if let known = Covers.knownPageColor(album.artwork, seed: album.album + album.artist) {
             _glow = State(initialValue: Color(nsColor: known))
@@ -223,7 +229,7 @@ struct AlbumTile: View {
                     // Under the pointer the cover lifts a little, with a soft light in its own colour.
                     .shadow(color: hover ? (glow ?? .black).opacity(0.55) : .black.opacity(0.15), radius: hover ? 16 : 6, y: hover ? 6 : 4)
                     .offset(y: hover && store.motion ? -2 : 0)
-                Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(words.isEmpty ? AttributedString(album.title) : litText(album.title, words)).font(.needle(.callout).weight(.medium)).lineLimit(1)
                 Text(album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist)
                     .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
@@ -260,12 +266,14 @@ struct AlbumTile: View {
     }
 
     private func open() {
+        opened?()
         store.travelingTile = me
         // The one page change that animates: the clicked cover flies to the album's page.
         withAnimation(store.motion ? .smooth(duration: 0.3) : nil) { store.navigate(album.route) }
     }
 
     private func play() {
+        opened?()
         let (rule, reason) = (album.query, "From the album \(album.album)")
         Task { _ = await store.ask { try $0.playView(query: rule, playlist: nil, filter: "", start: 0, shuffle: false, reason: reason) } }
     }
@@ -276,14 +284,21 @@ struct ArtistTile: View {
     private var store: Store { .shared }
     let artist: ArtistSummary
     let side: CGFloat
+    /// Search's words: their letters lit in the name.
+    var words: [String] = []
+    /// Search: told when the artist is opened, to remember it.
+    var opened: (() -> Void)?
 
     var body: some View {
         // A real button, so the keyboard reaches it.
-        Button { store.navigate(.artist(artist.name)) } label: {
+        Button {
+            opened?()
+            store.navigate(.artist(artist.name))
+        } label: {
             VStack(spacing: 6) {
                 ArtistPhoto(name: artist.name, side: side)
                     .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
-                Text(artist.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(words.isEmpty ? AttributedString(artist.title) : litText(artist.title, words)).font(.needle(.callout).weight(.medium)).lineLimit(1)
                 Text(artist.albums == 1 ? count(artist.tracks, "track") : "\(artist.albums) albums · \(count(artist.tracks, "track"))")
                     .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
