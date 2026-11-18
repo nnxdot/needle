@@ -279,12 +279,13 @@ struct SearchPage: View {
             VStack(alignment: .leading, spacing: 10) {
                 head("Albums", all: found.count(.albums), chip: .albums)
                 PagedRow(tile: 156, spacing: 18, middle: 78) {
-                    LazyHStack(alignment: .top, spacing: 18) {
+                    HStack(alignment: .top, spacing: 18) {
                         ForEach(found.albums) { album in
                             AlbumTile(album: album, side: 156, place: "search", words: words) { SearchMemory.album(album) }
                         }
                     }
                     .padding(.horizontal, 2)
+                    .padding(.bottom, 6)
                 }
             }
         }
@@ -310,12 +311,13 @@ struct SearchPage: View {
         VStack(alignment: .leading, spacing: 10) {
             head("Artists", all: nil, chip: nil)
             PagedRow(tile: 112, spacing: 16, middle: 56) {
-                LazyHStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
                     ForEach(artists) { artist in
                         ArtistTile(artist: artist, side: 112, words: words) { SearchMemory.artist(artist.name) }
                     }
                 }
                 .padding(.horizontal, 2)
+                .padding(.bottom, 6)
             }
         }
     }
