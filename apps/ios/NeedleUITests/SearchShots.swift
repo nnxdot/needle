@@ -2,7 +2,7 @@ import XCTest
 
 /// Pictures of Search (the "Covers first" page): before typing, the results under All, the
 /// Songs chip, and nothing found. Silent (-stub-player). The library is a made-up one put in
-/// the test simulator's Documents (the word "moon" finds songs, albums, artists, and lyrics).
+/// the test simulator's Documents (the word "harbour" finds an artist, two albums, and four songs; "harbor" finds nothing).
 /// Each picture is an attachment of the result bundle. testPhone on an iPhone, testPad on an
 /// iPad (landscape).
 final class SearchShots: XCTestCase {
@@ -38,15 +38,15 @@ final class SearchShots: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         welcome()
         take("iphone-1-before-typing", ["-seed-recent"], wait: 6)
-        take("iphone-2-results-all", ["-search", "moon"])
-        take("iphone-3-songs-chip", ["-search", "moon", "-search-kind", "songs"])
-        take("iphone-4-nothing", ["-search", "moom"])
+        take("iphone-2-results-all", ["-search", "harbour"])
+        take("iphone-3-songs-chip", ["-search", "harbour", "-search-kind", "songs"])
+        take("iphone-4-nothing", ["-search", "harbor"])
     }
 
     func testPad() {
         XCUIDevice.shared.orientation = .landscapeLeft
         welcome()
-        take("ipad-mini-1-results-all", ["-search", "moon"])
-        take("ipad-mini-2-before-typing", ["-seed-recent"], wait: 6)
+        take("ipad-1-results-all", ["-search", "harbour"])
+        take("ipad-2-before-typing", ["-seed-recent"], wait: 6)
     }
 }
