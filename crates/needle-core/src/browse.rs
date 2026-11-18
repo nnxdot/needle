@@ -265,6 +265,18 @@ impl Library {
         let rows = stmt.query_map(params![album_artist, album], Self::row_track)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
+    /// The album identified by [`AlbumSummary::key`], when the library still holds it.
+    pub fn album_by_key(&self, key: &str) -> Result<Option<AlbumSummary>> {
+        let [album_artist, album]: [String; 2] =
+            serde_json::from_str(key).context("Invalid album key")?;
+        let db = self.connection()?;
+        let albums = self.album_rows(
+            &db,
+            "tracks t WHERE t.album_artist=? COLLATE NOCASE AND t.album=? COLLATE NOCASE",
+            &[Value::Text(album_artist), Value::Text(album)],
+        )?;
+        Ok(albums.into_iter().next())
+    }
     /// Albums containing a track by `name` (as the artist, a guest, one half of "A & B", or the
     /// album artist), with whole-album totals.
     pub fn artist_albums(&self, name: &str) -> Result<Vec<AlbumSummary>> {
