@@ -129,6 +129,25 @@ func count(_ n: Int, _ one: String, _ many: String? = nil) -> String {
     n == 1 ? "1 \(one)" : "\(n.formatted()) \(many ?? one + "s")"
 }
 
+/// `text` with each place that holds one of the typed words in the accent and bold: Search's
+/// lit letters. Case does not matter. No words (nil or empty): the text as it is.
+func litMatches(_ text: String, _ words: String?, accent: Color) -> AttributedString {
+    var out = AttributedString(text)
+    guard let words, !words.isEmpty else { return out }
+    for word in words.split(whereSeparator: \.isWhitespace) {
+        var from = text.startIndex
+        while from < text.endIndex, let range = text.range(of: word, options: [.caseInsensitive, .diacriticInsensitive], range: from..<text.endIndex) {
+            if let start = AttributedString.Index(range.lowerBound, within: out),
+               let end = AttributedString.Index(range.upperBound, within: out) {
+                out[start..<end].foregroundColor = accent
+                out[start..<end].inlinePresentationIntent = .stronglyEmphasized
+            }
+            from = range.upperBound
+        }
+    }
+    return out
+}
+
 /// A section's title, with an arrow when it opens a full list.
 struct SectionTitle: View {
     @Environment(\.wide) private var wide
@@ -174,6 +193,8 @@ struct AlbumTile: View {
     var width: CGFloat? = Tiles.phoneShelf
     /// Which shelf or grid on the page holds it: an album can be on two shelves at once.
     var shelf = "grid"
+    /// Search: the words typed, lit in the album's name.
+    var match: String?
     /// The pointer is over the tile (an iPad's): Play shows on its cover, as on the Mac.
     @State private var hovered = false
 
@@ -187,7 +208,7 @@ struct AlbumTile: View {
                     .modifier(CoverSource(id: source))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
                     .padding(.bottom, 5)
-                Text(album.shownTitle).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(litMatches(album.shownTitle, match, accent: store.colors.accent)).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
                 Text(album.shownArtist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
             // Its own height, whatever the others on the row: a lazy row measured by a shorter
@@ -273,16 +294,24 @@ struct SongRow: View {
     /// In a wide window, a short row for a narrow column (Search's Songs beside Top Result):
     /// the title over the artist, as the phone's row, with no album column.
     var stacked = false
+    /// Search: the words typed, lit in the title (see `litMatches`).
+    var match: String?
+    /// On a phone, the album after the artist on the second line (Search's Songs chip).
+    var showAlbum = false
     let play: () -> Void
 
     var body: some View {
         if wide { tableRow } else { phoneRow }
     }
 
+    /// The playing song's colour: the app's accent, not the tint. On a page in its cover's
+    /// colours the tint is the text's own colour, and the playing song did not stand out.
+    private var lit: AnyShapeStyle { AnyShapeStyle(store.colors.accent) }
+
     /// The title, in the accent while it plays, and the server's mark.
     private func title(_ playing: Bool) -> some View {
         HStack(spacing: 5) {
-            Text(song.title).foregroundStyle(playing ? AnyShapeStyle(store.colors.accent) : AnyShapeStyle(.primary)).lineLimit(1)
+            Text(litMatches(song.title, match, accent: store.colors.accent)).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
             if song.fromServer && store.app.serverMark {
                 Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
                     .accessibilityLabel("On your music server")
@@ -293,7 +322,6 @@ struct SongRow: View {
     /// A row of the wide window's table.
     private var tableRow: some View {
         let playing = store.playingID == song.id
-        let lit = AnyShapeStyle(store.colors.accent)
         let onAlbum = number != nil
         return Button(action: play) {
             HStack(spacing: 14) {
@@ -361,9 +389,6 @@ struct SongRow: View {
         let playing = store.playingID == song.id
         // Settings › Appearance › Song rows: Compact fits more on the screen.
         let compact = store.app.density == "compact"
-        // The app's accent, not the tint: on a page in its cover's colours the tint is the
-        // text's own colour, and the playing song did not stand out.
-        let lit = AnyShapeStyle(store.colors.accent)
         Button(action: play) {
             HStack(spacing: 12) {
                 if let number {
@@ -379,11 +404,11 @@ struct SongRow: View {
                         .clipShape(.soft(compact ? Corner.smallCover : Corner.cover))
                 }
                 VStack(alignment: .leading, spacing: compact ? 0 : 2) {
-                    Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
+                    Text(litMatches(song.title, match, accent: store.colors.accent)).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
                             if song.fromServer && store.app.serverMark { Image(systemName: "server.rack").font(.needle(.caption2)) }
-                            Text(song.artist).lineLimit(1)
+                            Text(showAlbum && !song.album.trimmingCharacters(in: .whitespaces).isEmpty ? "\(song.artist) · \(song.album)" : song.artist).lineLimit(1)
                         }
                         .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     }

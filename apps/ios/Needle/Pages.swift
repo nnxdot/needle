@@ -261,9 +261,12 @@ struct TopArtist: Identifiable, Hashable, Sendable {
 
 /// An artist as a round picture with their name under it.
 struct ArtistBubble: View {
+    @Environment(Store.self) private var store
     @Environment(\.wide) private var wide
     let name: String
     let artwork: String?
+    /// Search: the words typed, lit in the name.
+    var match: String?
 
     var body: some View {
         let side = Tiles.bubble(wide)
@@ -273,7 +276,7 @@ struct ArtistBubble: View {
                     .frame(width: side, height: side)
                     .clipShape(.circle)
                     .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-                Text(name).font(.needle(.footnote).weight(.medium)).lineLimit(1)
+                Text(litMatches(name, match, accent: store.colors.accent)).font(.needle(.footnote).weight(.medium)).lineLimit(1)
             }
             .frame(width: side + 6)
             .contentShape(.rect)
