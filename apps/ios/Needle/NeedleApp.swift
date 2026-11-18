@@ -199,6 +199,10 @@ struct RootView: View {
         .transaction(value: window.showPlayer) { if Motion.reduced { $0.disablesAnimations = true } }
         .fullScreenCover(isPresented: $window.showPlayer) {
             NowPlayingView()
+                // The player has no field of its own (its tools' fields are in their own
+                // sheets): a keyboard never takes room from it, not even one that was told
+                // of and never went (the player once sat in the window's top half).
+                .ignoresSafeArea(.keyboard, edges: .bottom)
                 .modifier(PlayerZoom(space: player))
                 .modifier(WindowCommands(window: window, actions: actions))
                 // In a wide window the player's tools are popovers from their buttons.
