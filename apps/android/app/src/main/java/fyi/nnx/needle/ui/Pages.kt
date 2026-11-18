@@ -1226,7 +1226,7 @@ private fun NowCardBody(s: fyi.nnx.needle.core.Song, playing: Boolean) {
 
 /** A shelf's title, with a grey line under it, and See all where there is a page of it. */
 @Composable
-internal fun ShelfTitle(title: String, detail: String?, onMore: (() -> Unit)? = null) {
+internal fun ShelfTitle(title: String, detail: String?, more: String = "See all", onMore: (() -> Unit)? = null) {
     Row(
         Modifier.fillMaxWidth().padding(start = Edge, end = 8.dp, top = 26.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1235,14 +1235,14 @@ internal fun ShelfTitle(title: String, detail: String?, onMore: (() -> Unit)? = 
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
             if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (onMore != null) TextButton(onClick = onMore) { Text("See all") }
+        if (onMore != null) TextButton(onClick = onMore) { Text(more) }
     }
 }
 
 private fun LazyListScope.shelf(title: String, detail: String, albums: List<Album>, open: (Route) -> Unit, more: Route? = null) {
     if (albums.isEmpty()) return
     // "See all" only where there is a page of the same albums in the same order.
-    item(key = "shelf-title/$title/$detail") { ShelfTitle(title, detail, more?.let { { open(it) } }) }
+    item(key = "shelf-title/$title/$detail") { ShelfTitle(title, detail, onMore = more?.let { { open(it) } }) }
     // Kept by its name: when Home gains or loses a part above it (the song playing, a shelf),
     // its row keeps its own scroll and tiles, not the ones of the shelf that was in its place.
     item(key = "shelf/$title/$detail") {
@@ -1310,15 +1310,23 @@ fun SearchScreen(open: (Route) -> Unit) {
     val rules by rememberLoaded { ruleExamples().chunked(2).filter { it.size == 2 }.map { it[0] to it[1] } }
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
+    // Recent searches, read again after each change (see keepSearch).
+    val version = recentVersion.intValue
+    val recent by produceState(emptyList<fyi.nnx.needle.core.RecentSearch>(), version) {
+        value = withContext(Dispatchers.IO) { runCatching { core.recentSearches(8u) }.getOrDefault(emptyList()) }
+    }
     val playing = playingId()
     LaunchedEffect(query) {
         delay(200)
+        // The old results stay until the new ones are ready: no empty flash, no jump.
         answer = if (query.isBlank()) null else withContext(Dispatchers.IO) {
             // The best match and a few of each (up to 50, for the chips), and every song.
             runCatching { SearchAnswer(query, core.find(query, 50u), runCatching { core.search(query) }.getOrDefault(emptyList()), null) }
                 .getOrElse { SearchAnswer(query, null, emptyList(), it.message ?: "This rule is not right.") }
         }
         lastSearch = answer
+        // A kind with nothing in it now cannot stay chosen.
+        answer?.found?.let { f -> if (f.countOf(kind) == 0) kind = SearchKind.All }
         // Music servers that search (octo-fiesta) answer a moment later.
         server = null
         if (query.isNotBlank()) {
@@ -1334,27 +1342,29 @@ fun SearchScreen(open: (Route) -> Unit) {
     val hints by produceState(emptyList<fyi.nnx.needle.core.Suggestion>(), query) {
         value = if (query.isBlank()) emptyList() else withContext(Dispatchers.IO) { runCatching { core.suggest(query, query.length.toUInt()) }.getOrDefault(emptyList()) }
     }
+    val shown = answer.takeIf { query.isNotBlank() }
+    val found = shown?.found
+    // The kinds show while there is something to choose among (not over "Nothing for …").
+    val kinds = query.isNotBlank() && shown?.error == null && found?.nothing() != true
+    val duo = isWide() && LocalPageWidth.current >= 672.dp
     Page("Search") { padding, scroll ->
-        // Two genres across on a phone, more on a tablet; the rows run to the edges.
-        LazyVerticalGrid(
-            columns = gridColumns(210.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp + LocalBottomInset.current),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
-        ) {
-            edgeToEdge(16.dp) {
-                RemoteTyping(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { field ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // The field and the kinds stay at the top while the results scroll.
+            RemoteTyping(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { field ->
                 TextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Songs, albums, artists") },
+                    placeholder = { Text("Songs, albums, artists, lyrics") },
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, contentDescription = "Clear") } },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    // The results come as it is typed; the keyboard's Search puts the keyboard away.
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { keyboard?.hide() }),
+                    // The results come as it is typed; the keyboard's Search keeps the words in
+                    // Recent and puts the keyboard away.
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                        if (query.isNotBlank()) keepSearch("words", query.trim())
+                        keyboard?.hide()
+                    }),
                     shape = RoundedCornerShape(28.dp),
                     colors = TextFieldDefaults.colors(
                         focusedIndicatorColor = Color.Transparent,
@@ -1364,14 +1374,14 @@ fun SearchScreen(open: (Route) -> Unit) {
                     ),
                     modifier = field.fillMaxWidth(),
                 )
-                }
             }
             // Typing a smart rule (rating >= 4, genre = "K-pop"): what can come next, with
             // the library's own names.
-            if (hints.isNotEmpty()) edgeToEdge(16.dp) {
+            if (hints.isNotEmpty()) {
                 androidx.compose.foundation.lazy.LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 8.dp),
                 ) {
                     items(hints) { h ->
                         androidx.compose.material3.SuggestionChip(
@@ -1381,24 +1391,35 @@ fun SearchScreen(open: (Route) -> Unit) {
                     }
                 }
             }
-            if (query.isBlank()) {
-                val list = genres.orEmpty()
-                if (list.isNotEmpty()) {
-                    edgeToEdge(16.dp) { SectionHeader("Browse by genre", Modifier.padding(top = 4.dp)) }
-                    items(list.size, key = { list[it].name }) { i ->
-                        GenreTile(list[i].name, list[i].artwork, Modifier) { open(Route.Genre(list[i].name)) }
+            if (kinds) Box(Modifier.padding(top = 8.dp)) { SearchKinds(found, kind) { kind = it } }
+            // Two genres across on a phone, more on a tablet; the rows run to the edges.
+            LazyVerticalGrid(
+                columns = gridColumns(210.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp + LocalBottomInset.current),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth().then(scroll),
+            ) {
+                if (query.isBlank()) {
+                    recentSection(recent, { query = it }, open)
+                    val list = genres.orEmpty()
+                    if (list.isNotEmpty()) {
+                        edgeToEdge(16.dp, key = "browse-title") { ShelfTitle("Browse", null) }
+                        items(list.size, key = { "genre-" + list[it].name }) { i ->
+                            GenreTile(list[i].name, list[i].artwork, Modifier.padding(bottom = 12.dp)) { open(Route.Genre(list[i].name)) }
+                        }
                     }
-                }
-            } else {
-                answer?.takeIf { it.query == query }?.let { a ->
-                    searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, playing, open)
-                }
-                if (kind == SearchKind.All || kind == SearchKind.Songs) server?.let { (number, found) ->
-                    edgeToEdge(16.dp) { SectionHeader("On your server") }
-                    items(found.size, key = { "server-$it-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                        SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = found.place(i)) {
-                            core.playServerSongs(number, i.toUInt())
-                            NeedleApp.instance.openPlayer.tryEmit(Unit)
+                    rulesSection(rules.orEmpty()) { query = it }
+                } else {
+                    shown?.let { a ->
+                        searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, recent, looksLikeRule(a.query, hints.isNotEmpty()), duo, playing, open)
+                    }
+                    if ((kind == SearchKind.All || kind == SearchKind.Songs) && found?.nothing() != true) server?.let { (number, list) ->
+                        edgeToEdge(16.dp, key = "server-title") { ShelfTitle("On your server", null) }
+                        items(list.size, key = { "server-$it-" + list[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
+                            SongRow(list[i], playing == list[i].id, null, Modifier.bleed(16.dp), place = list.place(i)) {
+                                core.playServerSongs(number, i.toUInt())
+                                NeedleApp.instance.openPlayer.tryEmit(Unit)
+                            }
                         }
                     }
                 }

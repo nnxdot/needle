@@ -190,14 +190,21 @@ private data class Spot(val left: Float, val width: Float)
  * them with left and right.
  */
 @Composable
-private fun FilterBar(filter: Filter, choose: (Filter) -> Unit) = WordBar(Filter.entries, filter, { it.label }, choose)
+private fun FilterBar(filter: Filter, choose: (Filter) -> Unit) = WordBar(Filter.entries, filter, { it.label }, choose = choose)
 
 /**
  * The Library's bar of words, for any set of choices (the Search page's kinds too), so "chosen"
  * looks the same wherever it shows.
  */
 @Composable
-internal fun <T : Any> WordBar(options: List<T>, filter: T, label: (T) -> String, choose: (T) -> Unit) {
+internal fun <T : Any> WordBar(
+    options: List<T>,
+    filter: T,
+    label: (T) -> String,
+    /** A number after the word (Search's counts); a word with 0 is dimmed and cannot be chosen. */
+    count: (T) -> Int? = { null },
+    choose: (T) -> Unit,
+) {
     val reduce = reduceMotion()
     val scroll = rememberScrollState()
     val spots = remember { mutableStateMapOf<T, Spot>() }
@@ -253,6 +260,7 @@ internal fun <T : Any> WordBar(options: List<T>, filter: T, label: (T) -> String
                 FilterWord(
                     label(f),
                     chosen = f == filter,
+                    count = count(f),
                     modifier = Modifier.onPlaced { c ->
                         val spot = Spot(c.positionInParent().x, c.size.width.toFloat())
                         if (spots[f] != spot) spots[f] = spot
@@ -265,7 +273,8 @@ internal fun <T : Any> WordBar(options: List<T>, filter: T, label: (T) -> String
 
 /** One word of the bar: 48 dp to touch, its ripple and focus ring on the light's 32 dp pill. */
 @Composable
-private fun FilterWord(label: String, chosen: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun FilterWord(label: String, chosen: Boolean, modifier: Modifier, count: Int? = null, onClick: () -> Unit) {
+    val enabled = count != 0
     val interaction = remember { MutableInteractionSource() }
     val bring = remember { BringIntoViewRequester() }
     // The chosen word is brought into view when it is cut off (chosen from See all, or come back to).
@@ -275,7 +284,9 @@ private fun FilterWord(label: String, chosen: Boolean, modifier: Modifier, onCli
             .bringIntoViewRequester(bring)
             .height(48.dp)
             .semantics { selected = chosen }
-            .clickable(interactionSource = interaction, indication = null, role = Role.Tab, onClick = onClick),
+            // Dimmed, not hidden: no word moves when a count falls to 0.
+            .graphicsLayer { alpha = if (enabled) 1f else 0.38f }
+            .clickable(enabled = enabled, interactionSource = interaction, indication = null, role = Role.Tab, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
@@ -286,13 +297,24 @@ private fun FilterWord(label: String, chosen: Boolean, modifier: Modifier, onCli
                 .padding(horizontal = 13.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Medium,
-                color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                val color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Medium,
+                    color = color,
+                    maxLines = 1,
+                )
+                if (count != null) {
+                    Text(
+                        number(count.toLong()),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = color.copy(alpha = 0.62f),
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }
@@ -774,7 +796,7 @@ private fun ExploreLibrary(open: (Route) -> Unit, albums: List<Album>?) {
 
 /** An artist: the photo (or a cover of theirs) in the artists' arch, the name under it. */
 @Composable
-internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, open: (Route) -> Unit) {
+internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, open: (Route) -> Unit, lit: String? = null) {
     val photoLoad = rememberLoaded(artist.name, cache = false) { artistPhoto(artist.name) }
     val photo by photoLoad
     val interaction = remember { MutableInteractionSource() }
@@ -784,7 +806,7 @@ internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, 
     ) {
         Cover(photo ?: artist.artwork, Modifier.fillMaxWidth().aspectRatio(1f), artistShape(), seed = artist.name)
         Text(
-            artist.name.ifBlank { "Unknown artist" },
+            litText(artist.name.ifBlank { "Unknown artist" }, lit, MaterialTheme.colorScheme.primary),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             maxLines = 1,

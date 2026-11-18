@@ -110,10 +110,7 @@ plays and the one main button.
   their grey line a size smaller.
 - **Shelves:** a row of covers that scrolls sideways, 16 dp from the page's edge; on a phone the
   Library's shelf shows three cards and a slice of the fourth.
-- **Search** (`Search.kt`): the field, then the Library's bar of words (`WordBar`: All, Songs,
-  Albums, Artists, Lyrics), the chosen one shown the same way as in the Library. All
-  shows the best match in a card (cover, kind, name, a round Play), then Songs (5), Albums and
-  Artists as rows of tiles, In the lyrics (the words lit in amber), and Try a rule.
+- **Search** (`Search.kt`): the field and the Library's bar of words (All, Songs, Albums, Artists, Lyrics, each but All with its count; a kind with 0 dimmed) stay at the top. Before typing: Recent (with Clear and a × on each), Browse, Rules. All shows the top result in a card (its cover blurred behind a veil, a glass edge, Play and Shuffle or Play next), Songs (5), Albums, Artists, In the lyrics, each with "All N ›"; the typed letters lit in amber. Nothing found: "Nothing for …", Rules, Recent.
 - **The big player's looks:** the Look button at its top steps through Cover, Record (the round
   cover turning, grooves, the arm resting), Lyrics (only the words, large and centred), and
   Visualizer; kept in `LibraryChoices.big_look`.

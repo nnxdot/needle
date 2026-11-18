@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -355,6 +356,30 @@ fun time(seconds: Double): String {
 /** A whole number with the thousands mark of the user's language ("8,214"). */
 fun number(n: Long): String = java.text.NumberFormat.getIntegerInstance().format(n)
 
+/**
+ * `text` with the letters of each of the searched words in `color` and bold, wherever they
+ * stand, in any case (Search's lit letters). Plain when `words` is null or blank.
+ */
+fun litText(text: String, words: String?, color: Color): androidx.compose.ui.text.AnnotatedString {
+    val list = words.orEmpty().split(' ').map { it.trim('"', ',', '.') }.filter { it.isNotEmpty() }
+    if (list.isEmpty()) return androidx.compose.ui.text.AnnotatedString(text)
+    val lit = BooleanArray(text.length)
+    val lower = text.lowercase()
+    list.forEach { w ->
+        val needle = w.lowercase()
+        var at = lower.indexOf(needle)
+        while (at >= 0) {
+            for (i in at until (at + needle.length).coerceAtMost(text.length)) lit[i] = true
+            at = lower.indexOf(needle, at + needle.length)
+        }
+    }
+    if (lit.none { it }) return androidx.compose.ui.text.AnnotatedString(text)
+    val style = androidx.compose.ui.text.SpanStyle(color = color, fontWeight = FontWeight.Bold)
+    return androidx.compose.ui.text.buildAnnotatedString {
+        text.forEachIndexed { i, c -> if (lit[i]) withStyle(style) { append(c) } else append(c) }
+    }
+}
+
 /** "1 song", "8,214 songs". */
 fun count(n: Int, word: String) = if (n == 1) "1 $word" else "${number(n.toLong())} ${word}s"
 
@@ -531,7 +556,7 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, top: Dp = 28.dp, 
 /** An album in a grid or on a shelf; `small` for three across a phone, with its grey line smaller. */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Unit)? = null, small: Boolean = false, onClick: () -> Unit) {
+fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Unit)? = null, small: Boolean = false, lit: String? = null, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
@@ -544,7 +569,7 @@ fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Uni
     ) {
         Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).tileCover(tile, "album-${album.key}"), seed = album.title + album.artist)
         Text(
-            album.title.ifBlank { "Unknown album" },
+            litText(album.title.ifBlank { "Unknown album" }, lit, MaterialTheme.colorScheme.primary),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
@@ -629,6 +654,8 @@ fun SongRow(
     place: Place? = null,
     /** Words after the artist on the grey line, such as when it was played. */
     detail: String? = null,
+    /** The words searched for: their letters in the title are lit (see [litText]). */
+    lit: String? = null,
     onClick: () -> Unit,
 ) {
     val rows = LocalRows.current
@@ -703,7 +730,7 @@ fun SongRow(
             }
             Column(Modifier.weight(1f).padding(vertical = if (rows.height < 56.dp) 4.dp else 8.dp)) {
                 Text(
-                    song.title,
+                    litText(song.title, lit, MaterialTheme.colorScheme.primary),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
