@@ -267,10 +267,24 @@ struct SongRow: View {
     /// On an album's page: the album's artist, so a song's own artist shows only where it
     /// differs (in a wide window's table).
     var albumArtist: String?
+    /// In a wide window, a short row for a narrow column (Search's Songs beside Top Result):
+    /// the title over the artist, as the phone's row, with no album column.
+    var stacked = false
     let play: () -> Void
 
     var body: some View {
         if wide { tableRow } else { phoneRow }
+    }
+
+    /// The title, in the accent while it plays, and the server's mark.
+    private func title(_ playing: Bool) -> some View {
+        HStack(spacing: 5) {
+            Text(song.title).foregroundStyle(playing ? AnyShapeStyle(store.colors.accent) : AnyShapeStyle(.primary)).lineLimit(1)
+            if song.fromServer && store.app.serverMark {
+                Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
+                    .accessibilityLabel("On your music server")
+            }
+        }
     }
 
     /// A row of the wide window's table.
@@ -292,21 +306,25 @@ struct SongRow: View {
                         .frame(width: 40, height: 40)
                         .clipShape(.soft(Corner.smallCover))
                 }
-                HStack(spacing: 5) {
-                    Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
-                    if song.fromServer && store.app.serverMark {
-                        Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
-                            .accessibilityLabel("On your music server")
+                if stacked {
+                    VStack(alignment: .leading, spacing: 2) {
+                        title(playing)
+                        Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    // The last column to shrink: the three share the row equally while there
+                    // is room, and in a narrow table the title keeps this much of it.
+                    title(playing)
+                        .frame(minWidth: 130, maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 // The artist: always in a list, on an album only where it is not the album's.
-                if !onAlbum || albumArtist != nil {
+                if !stacked && (!onAlbum || albumArtist != nil) {
                     Text(onAlbum && song.artist == albumArtist ? "" : song.artist)
                         .foregroundStyle(.secondary).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if !onAlbum {
+                if !onAlbum && !stacked {
                     // As the Mac's table: a song with no album says so.
                     Text(song.album.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : song.album).foregroundStyle(.secondary).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
