@@ -2157,7 +2157,8 @@ impl Needle {
 
     /// What `query` finds (it may be a rule), as JSON in the Mac's own types: `best` ({kind:
     /// "song"|"album"|"artist", and its track, album, or artist}), then up to `limit` songs,
-    /// albums, artists, and lyrics ({track, line}).
+    /// albums, artists, and lyrics ({track, line}), and `counts` ({songs, albums, artists,
+    /// lyrics}): how many of each there are in all.
     pub fn find_json(&self, query: String, limit: u32) -> Result<String> {
         use needle_core::find::Best;
         let found = self.library.find(&query, limit.max(1) as usize)?;
@@ -2177,7 +2178,32 @@ impl Needle {
             "albums": found.albums,
             "artists": found.artists,
             "lyrics": lyrics,
+            "counts": {
+                "songs": found.song_count,
+                "albums": found.album_count,
+                "artists": found.artist_count,
+                "lyrics": found.lyric_count,
+            },
         }))
+    }
+
+    /// Search's Recent list (see `recent_searches`) as JSON in the Mac's own types, the newest
+    /// first: [{kind: "words"|"song"|"album"|"artist", key, and its track, album, or artist}].
+    /// `key` is what `remember_search` and `forget_search` take.
+    pub fn recent_searches_json(&self, limit: u32) -> Result<String> {
+        use needle_core::find::Recent;
+        let recent: Vec<Value> = self
+            .library
+            .recent_searches(limit as usize)?
+            .into_iter()
+            .map(|recent| match recent {
+                Recent::Words(words) => json!({ "kind": "words", "key": words }),
+                Recent::Song(t) => json!({ "kind": "song", "key": t.id, "track": &*t }),
+                Recent::Album(a) => json!({ "kind": "album", "key": a.key, "album": a }),
+                Recent::Artist(a) => json!({ "kind": "artist", "key": a.name, "artist": a }),
+            })
+            .collect();
+        to_json(&recent)
     }
 }
 
