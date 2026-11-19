@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
             val reduce = android.provider.Settings.Global.getFloat(contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
             if (reduce) {
                 splash.remove()
+                barsAgain()
                 return@setOnExitAnimationListener
             }
             icon.animate()
@@ -47,11 +49,11 @@ class MainActivity : ComponentActivity() {
                 .alpha(0f)
                 .setStartDelay(120)
                 .setDuration(300)
-                .withEndAction { splash.remove() }
+                .withEndAction { splash.remove(); barsAgain() }
                 .start()
         }
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        systemBars()
         askPermissions()
         setContent {
             NeedleTheme {
@@ -61,6 +63,34 @@ class MainActivity : ComponentActivity() {
         // Not again from Recents: a task reopened there brings back the file it was first
         // opened with, which would play it (and copy it) once more.
         if (savedInstanceState == null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) openFrom(intent)
+    }
+
+    /**
+     * Edge to edge, with the clock and the icons in the colour Needle's page needs. Android asks
+     * for it again at each change of the screen (a turn, a fold, the text size, the phone's light
+     * or dark mode): the answer is Needle's page each time, never the phone's own mode.
+     */
+    private fun systemBars() {
+        val dark: (android.content.res.Resources) -> Boolean = { !fyi.nnx.needle.ui.lightBars.value }
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT, dark),
+            // The library's own scrims, for a phone with three buttons at its foot.
+            navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.argb(0xe6, 0xFF, 0xFF, 0xFF), android.graphics.Color.argb(0x80, 0x1b, 0x1b, 0x1b), dark),
+        )
+    }
+
+    /**
+     * After the start picture goes: on Android 12 and newer it sets the bars from the window's
+     * own (dark) theme as it leaves, so the Day theme had white icons on a light page.
+     */
+    private fun barsAgain() {
+        window.decorView.post {
+            val light = fyi.nnx.needle.ui.lightBars.value
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = light
+                isAppearanceLightNavigationBars = light
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
