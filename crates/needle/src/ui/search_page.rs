@@ -326,7 +326,9 @@ impl AppView {
             _ => vec![],
         };
         self.matched_total = self.tracks.len();
-        self.reconcile_selection();
+        // Another list: nothing of the old one stays chosen (a row kept by its place would be
+        // another song, and the song in Details would not be the chosen one).
+        self.selection = Default::default();
     }
 
     /// Plays a song found and the songs found after it: a press on its row, or Enter on it.
@@ -1681,7 +1683,34 @@ impl AppView {
                 .py(px(5.))
                 .rounded(px(9.))
                 .cursor_pointer()
-                .when(chosen, |el| el.bg(p.raised))
+                .when(chosen, |el| {
+                    // Moved to with an arrow key: brought into view, clear of the title bar
+                    // and the player the page fades under.
+                    let (reveal, scroll) = (self.search_reveal.clone(), self.page_scroll.clone());
+                    el.bg(p.raised).relative().child(
+                        canvas(
+                            move |row: Bounds<Pixels>, window, _| {
+                                if !reveal.take() {
+                                    return;
+                                }
+                                let (view, at) = (scroll.bounds(), scroll.offset());
+                                let (top, foot) = (view.top() + px(80.), view.bottom() - px(120.));
+                                let by = if row.top() < top {
+                                    top - row.top()
+                                } else if row.bottom() > foot {
+                                    foot - row.bottom()
+                                } else {
+                                    return;
+                                };
+                                scroll.set_offset(point(at.x, (at.y + by).min(px(0.))));
+                                window.request_animation_frame();
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    )
+                })
                 .hover(|s| s.bg(p.raised.opacity(0.6)))
                 .active(|s| s.bg(p.raised))
                 .child(artwork(Some(track), 38., cx))

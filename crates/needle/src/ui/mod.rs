@@ -547,6 +547,8 @@ pub struct AppView {
     /// (`None` until read).
     search_recent: Vec<needle_core::find::Recent>,
     search_browse: Option<std::rc::Rc<search_page::BrowseTiles>>,
+    /// An arrow key moved to another song found: its row scrolls into view at the next draw.
+    search_reveal: std::rc::Rc<std::cell::Cell<bool>>,
     /// Browse shows decades in place of genres (kept in the library, see
     /// `search_page::saved_browse_decades`), and when the switch last changed (for its fade).
     browse_decades: bool,
@@ -1251,6 +1253,8 @@ impl AppView {
                         this.forward.clear();
                         this.page = Page::Search;
                         this.search_tab = Default::default();
+                        // The library may have changed since Search was last open.
+                        this.load_search_home(true);
                     }
                     if this.page == Page::Search {
                         this.run_find(cx);
@@ -1336,6 +1340,7 @@ impl AppView {
             find_generation: 0,
             search_recent: vec![],
             search_browse: None,
+            search_reveal: Default::default(),
             browse_decades: search_page::saved_browse_decades(&library),
             browse_switched: (0, None),
             waveform: None,
@@ -2694,6 +2699,8 @@ impl AppView {
             ScrollStrategy::Bottom
         };
         self.list_scroll.scroll_to_item(next, strategy);
+        // Search's rows are in the page, not in the list: see `search_page::song_row`.
+        self.search_reveal.set(self.page == Page::Search);
     }
     fn selected_tracks(&self) -> Vec<Track> {
         self.tracks
