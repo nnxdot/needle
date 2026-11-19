@@ -487,6 +487,15 @@ impl Library {
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as usize)))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
+    /// Decades that have songs, the newest first: each decade's first year (2020 for the
+    /// 2020s) and how many songs it has. Songs with no year, and missing songs, are left out.
+    /// For Search's Browse, where tags for the genre are often poor and the year is not.
+    pub fn decades(&self) -> Result<Vec<(i64, usize)>> {
+        let db = self.connection()?;
+        let mut stmt = db.prepare("SELECT (year / 10) * 10 AS decade, count(*) FROM tracks WHERE year > 0 AND missing = 0 GROUP BY decade ORDER BY decade DESC")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as usize)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
 }
 
 #[cfg(test)]
