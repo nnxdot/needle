@@ -1342,9 +1342,18 @@ private fun QuickCover(q: QuickStart, modifier: Modifier) {
     }
 }
 
-/** A shelf's title, with a grey line under it, and See all where there is a page of it. */
+/**
+ * A shelf's title, with a grey line under it, and See all where there is a page of it. `switch`
+ * goes before See all (Search's Genres | Decades).
+ */
 @Composable
-internal fun ShelfTitle(title: String, detail: String?, more: String = "See all", onMore: (() -> Unit)? = null) {
+internal fun ShelfTitle(
+    title: String,
+    detail: String?,
+    more: String = "See all",
+    switch: (@Composable () -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
+) {
     Row(
         Modifier.fillMaxWidth().padding(start = Edge, end = 8.dp, top = 26.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1353,6 +1362,7 @@ internal fun ShelfTitle(title: String, detail: String?, more: String = "See all"
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
             if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        switch?.invoke()
         if (onMore != null) TextButton(onClick = onMore) { Text(more) }
     }
 }
@@ -1428,6 +1438,9 @@ fun SearchScreen(open: (Route) -> Unit) {
     val rules by rememberLoaded { ruleExamples().chunked(2).filter { it.size == 2 }.map { it[0] to it[1] } }
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
+    val decadesLoad = rememberLoaded { decades() }
+    val decades by decadesLoad
+    val browseBy by BrowseBy.chosen.collectAsState()
     // Recent searches, read again after each change (see keepSearch).
     val version = recentVersion.intValue
     val recent by produceState(emptyList<fyi.nnx.needle.core.RecentSearch>(), version) {
@@ -1525,16 +1538,52 @@ fun SearchScreen(open: (Route) -> Unit) {
                     // The rules come before the genres: one short line, so a library with many
                     // genres never puts them a long scroll away.
                     rulesSection(rules.orEmpty()) { query = it }
-                    // The genres with the most songs, in whole lines (three on a phone, two on a
-                    // wide page); the rest are on the Genres page.
+                    // Browse by genre: the genres with the most songs, in whole lines (three on a
+                    // phone, two on a wide page); the rest are on the Genres page. By decade:
+                    // the newest first, 8 at most, in whole lines. A library with only one of
+                    // the two shows that one, with no switch.
                     val all = genres.orEmpty()
                     val list = all.sortedByDescending { it.songs }.take(across * if (wide) 2 else 3)
-                    if (list.isNotEmpty()) {
+                    val years = decades.orEmpty().take(if (across > 8) 8 else 8 / across * across)
+                    val byDecade = when {
+                        list.isEmpty() -> true
+                        years.isEmpty() -> false
+                        else -> browseBy == BrowseBy.Decades
+                    }
+                    // Decades chosen and still read: wait for them, rather than show the
+                    // genres for a moment.
+                    val waiting = browseBy == BrowseBy.Decades && decadesLoad.loading
+                    if (!waiting && (list.isNotEmpty() || years.isNotEmpty())) {
                         edgeToEdge(16.dp, key = "browse-title") {
-                            ShelfTitle("Browse", null, more = "All ${all.size} ›", onMore = if (all.size > list.size) ({ open(Route.Genres) }) else null)
+                            ShelfTitle("Browse", null, switch = {
+                                // 48 dp with or without the switch: the line keeps its height
+                                // when the decades come a moment after the genres.
+                                Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                                    if (list.isNotEmpty() && years.isNotEmpty()) BrowseSwitch(if (byDecade) BrowseBy.Decades else BrowseBy.Genres)
+                                }
+                                // Decades have no "All": it fades out but keeps its place, so
+                                // the switch does not move under the finger.
+                                if (all.size > list.size) {
+                                    val shown by animateFloatAsState(if (byDecade) 0f else 1f, tween(180), label = "browse-all")
+                                    Box(Modifier.graphicsLayer { alpha = shown }.then(if (byDecade) Modifier.clearAndSetSemantics { } else Modifier)) {
+                                        TextButton(onClick = { open(Route.Genres) }, enabled = !byDecade) { Text("All ${all.size} ›") }
+                                    }
+                                }
+                            })
                         }
-                        items(list.size, key = { "genre-" + list[it].name }) { i ->
-                            GenreTile(list[i].name, list[i].artwork, Modifier.padding(bottom = 12.dp)) { open(Route.Genre(list[i].name)) }
+                        // The tiles change in place, each with the short fade.
+                        val gap = Modifier.padding(bottom = 12.dp)
+                        if (byDecade) {
+                            items(years.size, key = { "decade-" + years[it].year }) { i ->
+                                GenreTile(years[i].label, years[i].artwork, Modifier.animateItem(fadeInSpec = tween(180), placementSpec = null, fadeOutSpec = null).then(gap)) {
+                                    // Its rule in the field: the decade's songs show here, in Search.
+                                    query = years[i].rule
+                                }
+                            }
+                        } else {
+                            items(list.size, key = { "genre-" + list[it].name }) { i ->
+                                GenreTile(list[i].name, list[i].artwork, Modifier.animateItem(fadeInSpec = tween(180), placementSpec = null, fadeOutSpec = null).then(gap)) { open(Route.Genre(list[i].name)) }
+                            }
                         }
                     }
                 } else {

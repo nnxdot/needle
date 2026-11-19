@@ -1,10 +1,21 @@
 package fyi.nnx.needle.ui
 
+import android.content.Context
 import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
@@ -78,6 +89,95 @@ import fyi.nnx.needle.core.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * How Search's Browse shows the library before typing: by genre (the first time) or by decade,
+ * for libraries whose genre tags are a mess. Kept on the phone, as the Library's Grid or List
+ * ([LibraryView]); not a setting.
+ */
+enum class BrowseBy(val label: String) {
+    Genres("Genres"), Decades("Decades");
+
+    companion object {
+        private val prefs get() = NeedleApp.instance.getSharedPreferences("search", Context.MODE_PRIVATE)
+        val chosen = MutableStateFlow(if (prefs.getString("browse", null) == Decades.name) Decades else Genres)
+
+        fun choose(by: BrowseBy) {
+            chosen.value = by
+            prefs.edit().putString("browse", by.name).apply()
+        }
+    }
+}
+
+/**
+ * Genres | Decades at the end of Browse's title: a small bar of words, as the Library's, the
+ * chosen word lit with the same soft pill, which fades across. One stop for TalkBack's "Browse
+ * by", then a tab for each; each word takes the remote's focus.
+ */
+@Composable
+internal fun BrowseSwitch(by: BrowseBy) {
+    val scheme = MaterialTheme.colorScheme
+    val reduce = reduceMotion()
+    Row(
+        Modifier
+            .semantics { contentDescription = "Browse by" }
+            .selectableGroup()
+            .height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier
+                .height(36.dp)
+                .clip(CircleShape)
+                .background(scheme.surfaceContainerLow)
+                .border(1.dp, scheme.onSurface.copy(alpha = 0.08f), CircleShape)
+                .padding(horizontal = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BrowseBy.entries.forEach { option ->
+                val chosen = option == by
+                val interaction = remember { MutableInteractionSource() }
+                val light by animateColorAsState(
+                    if (chosen) scheme.onSurface.copy(alpha = 0.09f) else scheme.onSurface.copy(alpha = 0f),
+                    if (reduce) snap() else tween(180),
+                    label = "browse-light",
+                )
+                val ink by animateColorAsState(
+                    if (chosen) scheme.primary else scheme.onSurfaceVariant,
+                    if (reduce) snap() else tween(180),
+                    label = "browse-ink",
+                )
+                Box(
+                    Modifier
+                        // 48 dp tall to touch; the pill drawn is 28 dp.
+                        .height(48.dp)
+                        .clickable(interactionSource = interaction, indication = null, role = Role.Tab) { if (!chosen) BrowseBy.choose(option) }
+                        .semantics { selected = chosen },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .height(28.dp)
+                            .clip(CircleShape)
+                            .background(light)
+                            .indication(interaction, LocalIndication.current)
+                            .padding(horizontal = 11.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            option.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            // One weight for both: the words keep their width when the choice changes.
+                            fontWeight = FontWeight.SemiBold,
+                            color = ink,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 /** The chips under the search field: everything found, or one kind of it. */
 enum class SearchKind(val label: String) { All("All"), Songs("Songs"), Albums("Albums"), Artists("Artists"), Lyrics("Lyrics") }
