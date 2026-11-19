@@ -81,8 +81,9 @@ The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open fol
   12 dp corners, a soft shadow, no glass round it.
 - **At the top:** two round glass buttons, close at the left and More at the right; nothing else
   on the picture. The Visualizer look adds Full screen beside More.
-- **Under the cover, in order:** the title (bold, 30 sp) with the artist under it and the heart
-  in the accent at its right; the lyric line (bold, centred, as the mini player's; a tap opens
+- **Under the cover, in order:** the title (bold, 30 sp; a long one ends with …, it never slides
+  and never loses its first letters) with the artist under it and the heart in the accent at its
+  right; the lyric line (bold, centred, as the mini player's; a tap opens
   the lyrics; none for a song without timed lyrics, and the parts close up); the seek bar in the
   chosen style, what has played in the accent, the times under it and the format between them;
   the main buttons in the chosen order, plain icons with no circles, Play alone a filled circle
@@ -96,11 +97,27 @@ The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open fol
 - **The looks:** Lyrics: the words in the cover's place, the song small at the top. Record: a
   black record standing still, the cover its turning label. Visualizer: bars in the accent. The
   seek bar, the buttons, and the pill stay where they are.
-- **Wide (a tablet, an open foldable, a TV):** immersive: the cover at the left as a card, the
-  title large beside it with the lyric line, the seek bar, and the buttons, and at the right one
-  glass pane with two tabs, Up next and Lyrics. Card: the cover in the middle, the song centred
-  under it, round glass buttons at the top right (Lyrics and Up next open the same pane, then
-  More), and a glass pill at the foot on the right with the speaker in use.
+- **Wide (a tablet, an open foldable, a TV):** the pane of Up next and Lyrics (one glass pane,
+  two tabs) at the right: always there with Immersive cover on; with it off, opened from the
+  round glass buttons at the top right (Lyrics, Up next, then More), with the speaker in use on a
+  glass pill at the foot on the right. Nothing of the player sits under the pane. The player's
+  area is the window less the pane; its shape picks the layout, and the sizes come from it:
+  - **Taller than wide (under 0.9; an unfolded phone beside its pane):** the phone's layout at
+    the area's width. Immersive: the cover sharp across the area's top, edge to edge, cut to the
+    room above the song's name and going out into the backdrop below. Card: as large as fits
+    above the song. The song and its controls (the tools pill too: its Lyrics and Up next show
+    in the pane) at most 560 dp wide, centred.
+  - **Wider (0.9 and over):** side by side. Immersive: the cover fills the left from top to foot,
+    as wide as the player is tall but 40–58 % of the area (cut to fill), going out into the
+    backdrop at its right; close floats on it. Card: at the left, centred top to foot, 62 % of
+    the height or 46 % of the area's width, the smaller. At the right, one group centred top to
+    foot, at most 560 dp wide: the title (44 sp), the artist and the heart, the lyric line (left
+    aligned), the seek bar, the main buttons.
+  - The pane opening or closing can change the layout: the one fades into the other while the
+    pane slides, and a card grows or shrinks with it. Another look than Cover, with Immersive
+    cover on, shows as the card does.
+- A tablet standing up uses the phone's layout too: the cover across its width, the song and its
+  controls at most 560 dp wide, centred.
 - A phone on its side, a short window, and a foldable standing as a laptop keep the same parts,
   smaller (the cover at the left, or above the crease).
 
@@ -302,6 +319,5 @@ The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open fol
 - "Reduce motion" (or Android's own setting) turns it into cross-fades: pages, the player, the
   side pane, the floating player, the dock's mini player, and the bar of chosen songs fade; sheets
   come and go without a slide; the loading shimmer and the tab lights stand still (they move to
-  the new tab at once). In the player, the song's name no longer slides along (it ends with …),
-  the cover's size on pause and the lyric line sung change at once, Play and Pause fade into each
+  the new tab at once). In the player, the cover's size on pause and the lyric line sung change at once, Play and Pause fade into each
   other, and a swiped cover or mini player snaps; the welcome guide's steps fade.

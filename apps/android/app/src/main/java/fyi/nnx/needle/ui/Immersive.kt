@@ -31,7 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.viewinterop.AndroidView
 import coil3.compose.AsyncImage
 import fyi.nnx.needle.core.Song
@@ -44,19 +46,35 @@ import kotlinx.coroutines.withContext
  * the cover itself, sharp, across the top, edge to edge, solid down to half its height and then
  * going out into the backdrop below, with no hard edge. A moving cover beside the songs
  * (cover.mp4, or an animated cover.webp or cover.gif) plays in its place, fading the same way.
+ *
+ * On a wide screen the player gives its size: `width` (the player's area left of its pane) and
+ * `height` (down to the song's name); `sideways`, the cover fills the left of the player from
+ * top to foot instead, solid to half its width and going out into the backdrop at its right.
  */
 @Composable
-fun ImmersiveCover(song: Song, animated: Boolean, swipe: SkipSwipe? = null) {
+fun ImmersiveCover(
+    song: Song,
+    animated: Boolean,
+    swipe: SkipSwipe? = null,
+    width: Dp = Dp.Unspecified,
+    height: Dp = Dp.Unspecified,
+    sideways: Boolean = false,
+) {
     val video = movingCover(song, animated)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         PlayerBackdrop(song)
         // About the top 56 % of the screen, never less than its width: on a tall phone the
         // picture reaches down behind the title, where it has gone out already.
-        val tall = maxOf(maxWidth, maxHeight * 0.56f).coerceAtMost(maxHeight)
+        val tall = when {
+            sideways -> maxHeight
+            height.isSpecified -> height.coerceIn(0.dp, maxHeight)
+            else -> maxOf(maxWidth, maxHeight * 0.56f).coerceAtMost(maxHeight)
+        }
+        val across = if (width.isSpecified) width.coerceIn(0.dp, maxWidth) else maxWidth
         val swiped = swipe
         Box(
             Modifier
-                .fillMaxWidth()
+                .width(across)
                 .height(tall)
                 .then(if (swiped == null) Modifier else Modifier.onSizeChanged { swiped.width = it.width.toFloat().coerceAtLeast(1f) })
                 // Its own layer, so the fade below takes the picture away (DstIn) rather than
@@ -73,7 +91,8 @@ fun ImmersiveCover(song: Song, animated: Boolean, swipe: SkipSwipe? = null) {
                 .drawWithContent {
                     drawContent()
                     drawRect(
-                        Brush.verticalGradient(0.5f to Color.Black, 1f to Color.Transparent),
+                        if (sideways) Brush.horizontalGradient(0.5f to Color.Black, 1f to Color.Transparent)
+                        else Brush.verticalGradient(0.5f to Color.Black, 1f to Color.Transparent),
                         blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
                     )
                 }
@@ -90,10 +109,13 @@ fun ImmersiveCover(song: Song, animated: Boolean, swipe: SkipSwipe? = null) {
                 MadeUpCover(song.album + song.artist)
             }
             // A video fades in its own layer (see Shade.mask).
-            video?.let { MovingCover(it, Shade(Color.Transparent, right = 0f, foot = 0f, mask = 0.5f), Modifier.fillMaxSize()) }
+            video?.let {
+                val shade = if (sideways) Shade(Color.Transparent, right = 0f, foot = 0f, maskRight = 0.5f) else Shade(Color.Transparent, right = 0f, foot = 0f, mask = 0.5f)
+                MovingCover(it, shade, Modifier.fillMaxSize())
+            }
             // The status bar and the two round buttons read over a bright cover.
             Box(
-                Modifier.fillMaxWidth().height(tall * 0.24f)
+                Modifier.fillMaxWidth().height(if (sideways) 160.dp else tall * 0.24f)
                     .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.32f), Color.Transparent))),
             )
         }
@@ -149,9 +171,10 @@ fun MovingCover(path: String, shade: Shade?, modifier: Modifier = Modifier) {
  * The fades over a moving cover, drawn in the video's own layer: into `tone` across its right
  * side (`right`, a share of its width) and its foot (`foot`, of its height), and the darker top
  * where the status bar and the buttons sit. `mask`: the lowest share of its height goes
- * see-through instead (the immersive cover going into the backdrop under it).
+ * see-through instead (the immersive cover going into the backdrop under it); `maskRight`, the
+ * same across its right side (the wide player's cover, at the left).
  */
-data class Shade(val tone: Color, val right: Float, val foot: Float, val mask: Float = 0f)
+data class Shade(val tone: Color, val right: Float, val foot: Float, val mask: Float = 0f, val maskRight: Float = 0f)
 
 @Composable
 fun LoopingVideo(path: String, shade: Shade, modifier: Modifier = Modifier, darkTop: Boolean = true) {
@@ -200,7 +223,7 @@ fun LoopingVideo(path: String, shade: Shade, modifier: Modifier = Modifier, dark
             }
             android.widget.FrameLayout(context).apply {
                 // A layer of its own, so the mask (Fades) takes the video away below it.
-                if (shade.mask > 0f) setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                if (shade.mask > 0f || shade.maskRight > 0f) setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 addView(video)
                 addView(Fades(context))
             }
@@ -251,6 +274,12 @@ private class Fades(context: android.content.Context) : android.view.View(contex
             val from = h * (1f - shade.mask)
             paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
             fill(android.graphics.LinearGradient(0f, from, 0f, h, 0xFF000000.toInt(), 0, android.graphics.Shader.TileMode.CLAMP), 0f, from, w, h)
+            paint.xfermode = null
+        }
+        if (shade.maskRight > 0f) {
+            val from = w * (1f - shade.maskRight)
+            paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            fill(android.graphics.LinearGradient(from, 0f, w, 0f, 0xFF000000.toInt(), 0, android.graphics.Shader.TileMode.CLAMP), from, 0f, w, h)
             paint.xfermode = null
         }
     }

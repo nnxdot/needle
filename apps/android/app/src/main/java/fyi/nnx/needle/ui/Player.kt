@@ -25,7 +25,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import kotlinx.coroutines.launch
@@ -79,6 +78,7 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.outlined.Bedtime
@@ -128,6 +128,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -454,6 +457,16 @@ private enum class PlayerSheet { More, UpNext }
 private enum class PlayerLayout { Tall, Short, Sideways, Wide, Tabletop }
 
 /**
+ * What lies behind the player: the backdrop alone, or on it the immersive cover: across the top
+ * (a phone), across the top of a wide player's area (the phone's layout there), or down its left
+ * (side by side).
+ */
+private enum class Behind { Backdrop, Top, AreaTop, Left }
+
+/** A wide player's parts start this far under the status bar: under the round glass buttons. */
+private val WideTop = 62.dp
+
+/**
  * The player in a short window on its side (a phone turned sideways, about 410 dp tall): the song
  * and its controls a little smaller, so they all fit at the right without scrolling.
  */
@@ -660,6 +673,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
             else -> PlayerLayout.Tall
         }
         val wideWidth = maxWidth
+        val wideHeight = maxHeight
         // Opened out (a foldable unfolded) while the lyrics showed: they go on in the pane.
         LaunchedEffect(layout) {
             if (layout == PlayerLayout.Wide && panel == Panel.Lyrics) {
@@ -675,13 +689,56 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
         val immersive = look.immersiveCover && panel == Panel.Cover && bigLook == "cover" && layout == PlayerLayout.Tall
         val wideImmersive = look.immersiveCover && layout == PlayerLayout.Wide
         val still = reduceMotion()
+        // A wide screen's pane: always beside the immersive cover; on the card, when asked.
+        val paneShown = wideImmersive || paneOpen
+        val paneWidth = (wideWidth * 0.27f).coerceIn(260.dp, 380.dp)
+        val togglePane: (SideKind) -> Unit = { kind ->
+            if (paneOpen && paneTab == kind) paneOpen = false else {
+                paneTab = kind
+                paneOpen = true
+            }
+        }
+        // Lyrics or Up next asked for on a wide screen: the pane shows it (the immersive one,
+        // always there, only changes its tab).
+        val showPane: (SideKind) -> Unit = { kind -> if (wideImmersive) paneTab = kind else togglePane(kind) }
+        // The player's area on a wide screen: the window less the pane, with the room round it,
+        // while the pane shows. Nothing of the player sits under the pane.
+        val sides = androidx.compose.foundation.layout.WindowInsets.navigationBars.union(androidx.compose.foundation.layout.WindowInsets.displayCutout)
+        val leftInset = with(density) { sides.getLeft(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toDp() }
+        val rightInset = with(density) { sides.getRight(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toDp() }
+        val areaWidth = if (paneShown) (wideWidth - rightInset - 20.dp - paneWidth - 20.dp).coerceAtLeast(0.dp) else wideWidth
+        // Taller than wide (an unfolded phone beside its pane): the phone's layout in the area.
+        // Wider: the cover at the left and the song beside it.
+        val tallArea = areaWidth < maxHeight * 0.9f
+        // The immersive cover itself (not another look) on a wide screen, behind the player.
+        val pictureOn = wideImmersive && panel == Panel.Cover && bigLook == "cover"
+        // Side by side, it fills the left from top to foot: as wide as the player is tall (a
+        // square), but between 40 and 58 % of the area (cut at its sides or top to fill).
+        val pictureWidth = maxHeight.coerceIn(areaWidth * 0.4f, areaWidth * 0.58f)
+        // The phone's layout in the area: the cover across its top, down to the song's name: the
+        // status bar, the round buttons' row (WideTop), and the room above the name, measured in
+        // its own column (so a pull down, which moves the whole player, changes nothing).
+        var roomFoot by remember { mutableFloatStateOf(-1f) }
+        val statusTop = with(density) { androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(density).toDp() }
+        val pictureTall = if (roomFoot < 0f) maxOf(areaWidth, maxHeight * 0.56f) else statusTop + WideTop + with(density) { roomFoot.toDp() }.coerceAtLeast(120.dp)
+        val behind = when {
+            immersive -> Behind.Top
+            pictureOn && tallArea -> Behind.AreaTop
+            pictureOn -> Behind.Left
+            else -> Behind.Backdrop
+        }
         // The immersive cover follows a sideways swipe over its room, as the cover does.
         val coverSwipe = rememberSkipSwipe(haptics)
         LaunchedEffect(song.id) { coverSwipe.arrived() }
         Box(Modifier.fillMaxSize().hazeSource(playerHaze)) {
-            androidx.compose.animation.Crossfade(immersive, label = "immersive cover") { on ->
-                if (on) ImmersiveCover(song, animated = look.animatedCovers && !still, swipe = coverSwipe)
-                else PlayerBackdrop(song, reading = panel != Panel.Cover)
+            androidx.compose.animation.Crossfade(behind, label = "immersive cover") { lies ->
+                val moving = look.animatedCovers && !still
+                when (lies) {
+                    Behind.Top -> ImmersiveCover(song, animated = moving, swipe = coverSwipe)
+                    Behind.AreaTop -> ImmersiveCover(song, animated = moving, swipe = coverSwipe, width = areaWidth, height = pictureTall)
+                    Behind.Left -> ImmersiveCover(song, animated = moving, swipe = coverSwipe, width = pictureWidth, sideways = true)
+                    Behind.Backdrop -> PlayerBackdrop(song, reading = panel != Panel.Cover)
+                }
             }
         }
         val glassTint = glassCover(song.artwork)
@@ -730,7 +787,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                         // Immersive, the cover is behind: here only the room for it, which still
                         // skips when swiped sideways.
                         Panel.Cover -> when {
-                            immersive -> SwipeSpace(look.swipeCover, coverSwipe)
+                            immersive || pictureOn -> SwipeSpace(look.swipeCover, coverSwipe)
                             bigLook == "record" -> PlayerCover(song, playing, haptics, record = true)
                             bigLook == "lyrics" -> BigLyrics(song, position, { open(Route.Timing(song.id)) }, { bigHas = it }) { PlayerCover(song, playing, haptics) }
                             // The bars stand on the foot of the room, over the title.
@@ -750,7 +807,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                 }
             }
             val title: @Composable (TitleSize) -> Unit = { size ->
-                SongTitle(song, favorite.takeIf { !song.onComputer() }, toggleFavorite, size, still) { open(Route.Artist(song.artist)) }
+                SongTitle(song, favorite.takeIf { !song.onComputer() }, toggleFavorite, size) { open(Route.Artist(song.artist)) }
             }
             val head: @Composable () -> Unit = {
                 PlayerHead(song, favorite.takeIf { !song.onComputer() }, toggleFavorite)
@@ -778,38 +835,54 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                 MainButtons(names, playing, position, song.duration, haptics, repeat, play)
                 if (song.onComputer() || look.volumeSlider) VolumeRow(song.onComputer())
             }
+            // On a wide screen, Lyrics and Up next show in the pane.
+            val wideNow = layout == PlayerLayout.Wide
             val pill: @Composable (Modifier) -> Unit = { modifier ->
                 ToolsPill(
-                    lyrics = panel == Panel.Lyrics,
-                    upNext = sheet == PlayerSheet.UpNext,
+                    lyrics = if (wideNow) paneShown && paneTab == SideKind.Lyrics else panel == Panel.Lyrics,
+                    upNext = if (wideNow) paneShown && paneTab == SideKind.Queue else sheet == PlayerSheet.UpNext,
                     playOn = song.onComputer() || networkOutput,
                     sleep = sleeping != null,
                     more = sheet == PlayerSheet.More || looping.isNotEmpty() || loopStart != null,
                     cover = glassTint,
-                    onLyrics = { panel = if (panel == Panel.Lyrics) Panel.Cover else Panel.Lyrics },
-                    onUpNext = { sheet = PlayerSheet.UpNext },
+                    onLyrics = { if (wideNow) showPane(SideKind.Lyrics) else panel = if (panel == Panel.Lyrics) Panel.Cover else Panel.Lyrics },
+                    onUpNext = { if (wideNow) showPane(SideKind.Queue) else sheet = PlayerSheet.UpNext },
                     onPlayOn = { Ui.sheet.value = Sheet.PlayOn },
                     onSleep = openSleep,
                     onMore = { sheet = PlayerSheet.More },
                     modifier = modifier,
                 )
             }
+            // The phone's layout, in its whole area: the cover (or what takes its place) as large as
+            // fits above the song, and under it the song and its controls, no wider than 560 dp
+            // and centred (a tablet standing up, an unfolded phone beside its pane). `measure`:
+            // where the room above the song ends, for the immersive cover over a wide area.
+            val tallParts: @Composable (Modifier, Boolean) -> Unit = { modifier, measure ->
+                Column(modifier.padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    androidx.compose.animation.AnimatedVisibility(showsHead, Modifier.widthIn(max = 560.dp), enter = comes, exit = goes) { head() }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .then(if (measure) Modifier.onGloballyPositioned { roomFoot = it.positionInParent().y + it.size.height } else Modifier)
+                            .padding(top = 6.dp, bottom = 14.dp),
+                    ) { stage(Alignment.TopCenter) }
+                    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+                        androidx.compose.animation.AnimatedVisibility(!showsHead, enter = comes, exit = goes) { title(TitleSize.Phone) }
+                        androidx.compose.animation.AnimatedVisibility(showsLine, enter = comes, exit = goes) { line(false, Modifier.padding(top = 10.dp)) }
+                        Spacer(Modifier.height(6.dp))
+                        seek()
+                        buttons(76.dp)
+                        pill(Modifier.padding(top = 14.dp, bottom = 14.dp))
+                    }
+                }
+            }
             // Clear of a camera cut-out at the side too, on a phone turned sideways.
             Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal))) {
                 when (layout) {
                     PlayerLayout.Tall -> Column(Modifier.fillMaxSize()) {
                         topBar {}
-                        // On a tablet standing up, no wider than a large phone's player.
-                        Column(Modifier.weight(1f).align(Alignment.CenterHorizontally).widthIn(max = 640.dp).fillMaxWidth().padding(horizontal = 24.dp)) {
-                            androidx.compose.animation.AnimatedVisibility(showsHead, enter = comes, exit = goes) { head() }
-                            Box(Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp, bottom = 14.dp)) { stage(Alignment.TopCenter) }
-                            androidx.compose.animation.AnimatedVisibility(!showsHead, enter = comes, exit = goes) { title(TitleSize.Phone) }
-                            androidx.compose.animation.AnimatedVisibility(showsLine, enter = comes, exit = goes) { line(false, Modifier.padding(top = 10.dp)) }
-                            Spacer(Modifier.height(6.dp))
-                            seek()
-                            buttons(76.dp)
-                            pill(Modifier.padding(top = 14.dp, bottom = 14.dp))
-                        }
+                        tallParts(Modifier.weight(1f).fillMaxWidth(), false)
                     }
                     PlayerLayout.Short -> Column(Modifier.fillMaxSize()) {
                         topBar {}
@@ -880,14 +953,6 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                         }
                     }
                     PlayerLayout.Wide -> Box(Modifier.fillMaxSize()) {
-                        val paneShown = wideImmersive || paneOpen
-                        val paneWidth = (wideWidth * 0.27f).coerceIn(260.dp, 380.dp)
-                        val togglePane: (SideKind) -> Unit = { kind ->
-                            if (paneOpen && paneTab == kind) paneOpen = false else {
-                                paneTab = kind
-                                paneOpen = true
-                            }
-                        }
                         topBar {
                             // The card layout's pane opens from here; the immersive one's is always there.
                             if (!wideImmersive) {
@@ -897,34 +962,51 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                                 GlassRound(Icons.AutoMirrored.Rounded.QueueMusic, "Up next", glassTint, on = queueOn, state = if (queueOn) "Showing" else "Hidden") { togglePane(SideKind.Queue) }
                             }
                         }
-                        Row(Modifier.fillMaxSize().padding(top = 62.dp, bottom = 20.dp, end = 20.dp)) {
-                            Box(Modifier.weight(1f).fillMaxHeight()) {
-                                if (wideImmersive) {
-                                    // The cover at the left, the song and its controls beside it.
-                                    Row(
-                                        Modifier.fillMaxSize().padding(start = 48.dp, end = 16.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(44.dp),
-                                    ) {
-                                        Box(Modifier.weight(0.9f).fillMaxHeight().padding(vertical = 20.dp), contentAlignment = Alignment.Center) { stage(Alignment.Center) }
-                                        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
-                                            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        Row(Modifier.fillMaxSize().padding(top = WideTop, bottom = 20.dp, end = 20.dp)) {
+                            // The player's area. The pane opening or closing can turn it from wide to
+                            // tall or back: the one layout fades into the other (as the views do)
+                            // while the pane slides; the song and the player's choices stay.
+                            AnimatedContent(
+                                tallArea,
+                                Modifier.weight(1f).fillMaxHeight(),
+                                transitionSpec = { (fadeIn(tween(200)) togetherWith fadeOut(tween(120))).using(null) },
+                                label = "wide layout",
+                            ) { tallNow ->
+                                if (tallNow) {
+                                    // Taller than wide: the phone's layout at the area's width.
+                                    tallParts(Modifier.fillMaxSize(), pictureOn)
+                                } else {
+                                    // Side by side. The card: as large as 62 % of the player's height
+                                    // and 46 % of its area allow, centred from top to foot; it grows
+                                    // and shrinks with the pane. The immersive cover lies behind (see
+                                    // Behind.Left): here only its room, which skips when swiped.
+                                    val cardSide by animateDpAsState(
+                                        minOf(wideHeight * 0.62f, areaWidth * 0.46f),
+                                        if (still) snap() else spring(dampingRatio = 1f, stiffness = 400f),
+                                        label = "card side",
+                                    )
+                                    val left = if (pictureOn) (pictureWidth - leftInset).coerceAtLeast(0.dp) else cardSide + 48.dp
+                                    Row(Modifier.fillMaxSize()) {
+                                        Box(Modifier.width(left).fillMaxHeight().padding(start = if (pictureOn) 0.dp else 48.dp), contentAlignment = Alignment.Center) {
+                                            if (pictureOn) stage(Alignment.Center)
+                                            else Box(Modifier.width(cardSide).fillMaxHeight()) { stage(Alignment.Center) }
+                                        }
+                                        // The song and its controls, one group centred in the rest, no
+                                        // wider than 560 dp; clear of the speaker's pill at the foot.
+                                        Box(
+                                            Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .padding(start = 32.dp, end = 24.dp, bottom = if (!wideImmersive && !paneShown) 56.dp else 0.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
                                                 title(TitleSize.Wide)
                                                 androidx.compose.animation.AnimatedVisibility(showsLine, enter = comes, exit = goes) { line(true, Modifier.padding(top = 14.dp)) }
                                                 Spacer(Modifier.height(10.dp))
                                                 seek()
                                                 buttons(76.dp)
                                             }
-                                        }
-                                    }
-                                } else {
-                                    // The cover in the middle as a plain card, the song centred under it.
-                                    Column(Modifier.fillMaxSize().padding(start = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = 18.dp), contentAlignment = Alignment.Center) { stage(Alignment.Center) }
-                                        Column(Modifier.widthIn(max = 400.dp).fillMaxWidth().padding(horizontal = 12.dp)) {
-                                            title(TitleSize.Centered)
-                                            seek()
-                                            buttons(68.dp)
                                         }
                                     }
                                 }
@@ -1047,11 +1129,12 @@ private enum class TitleSize { Phone, Compact, Wide, Centered }
 
 /**
  * The song's name, bold and large, and under it the artist (a tap goes to the artist); the
- * heart at the right, in the accent. A name too long for the width slides slowly along, as in
- * Apple Music (Reduce motion: it ends with …; TalkBack reads it whole).
+ * heart at the right, in the accent. A name too long for the width ends with …, as the app's
+ * other names do: it never slides along, which hid its first letters while it moved (TalkBack
+ * reads it whole).
  */
 @Composable
-private fun SongTitle(song: Song, favorite: Boolean?, toggleFavorite: () -> Unit, size: TitleSize, still: Boolean, onArtist: () -> Unit) {
+private fun SongTitle(song: Song, favorite: Boolean?, toggleFavorite: () -> Unit, size: TitleSize, onArtist: () -> Unit) {
     val centered = size == TitleSize.Centered
     val titleStyle = when (size) {
         TitleSize.Phone -> MaterialTheme.typography.headlineMedium.copy(fontSize = 30.sp, lineHeight = 36.sp)
@@ -1085,8 +1168,8 @@ private fun SongTitle(song: Song, favorite: Boolean?, toggleFavorite: () -> Unit
                 style = titleStyle,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                overflow = if (still) TextOverflow.Ellipsis else TextOverflow.Clip,
-                modifier = Modifier.semantics { heading() }.then(if (still) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000, repeatDelayMillis = 3000)),
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() },
             )
             Text(
                 song.artist,
