@@ -525,7 +525,17 @@ struct RootView: View {
                 pace.speed = speed
                 store.setTempo(pace)
             }
+            // -look cover|record|lyrics|visualizer, -buttons <style>, -immersive 0|1: the
+            // player's look for pictures (kept, as a choice in Settings is).
+            if let look = value("-look") { store.updateChoices { $0.bigLook = look } }
+            if let style = value("-buttons") { store.updateApp { $0.controlStyle = style } }
+            if let immersive = value("-immersive") { store.updateApp { $0.immersiveCover = immersive == "1" } }
             try? await Task.sleep(for: .seconds(1))
+            // -open-player: the full player, over the song that is there.
+            if CommandLine.arguments.contains("-open-player"), store.playback?.current != nil {
+                window.showPlayer = true
+                try? await Task.sleep(for: .seconds(1))
+            }
             switch value("-sheet") {
             case "sleep": window.sheet = .sleep
             case "speed": window.sheet = .speed
