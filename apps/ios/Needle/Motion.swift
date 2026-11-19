@@ -17,7 +17,8 @@ enum Motion {
     }
 
     /// `animation`, or a short plain fade with Reduce motion: for what only appears or goes.
-    static func fade(_ animation: Animation = .easeInOut(duration: 0.3)) -> Animation {
+    /// What appears starts fast and settles (ease-out), never slow at first.
+    static func fade(_ animation: Animation = .easeOut(duration: 0.2)) -> Animation {
         reduced ? .easeInOut(duration: 0.2) : animation
     }
 
@@ -25,6 +26,31 @@ enum Motion {
     static func transition(_ transition: AnyTransition) -> AnyTransition {
         reduced ? .opacity : transition
     }
+
+    /// A spring with no bounce that starts at the finger's speed: `velocity` in points a second,
+    /// `distance` the points still to go (signed, as the velocity), for what goes on after a drag
+    /// ends. None with Reduce motion.
+    static func thrown(_ velocity: CGFloat, over distance: CGFloat, duration: Double = 0.35, bounce: Double = 0) -> Animation? {
+        let start = abs(distance) > 1 ? Double(velocity / distance) : 0
+        return of(.interpolatingSpring(duration: duration, bounce: bounce, initialVelocity: min(max(start, -30), 30)))
+    }
+
+    /// A drag past an end: it goes less and less far, as iOS's own lists do, never past `limit`.
+    static func rubberBand(_ offset: CGFloat, limit: CGFloat) -> CGFloat {
+        guard limit > 0 else { return 0 }
+        let pulled = abs(offset)
+        let moved = (1 - 1 / (pulled * 0.55 / limit + 1)) * limit
+        return offset < 0 ? -moved : moved
+    }
+}
+
+/// What a key does shows at once: a keyboard command never waits for an animation.
+@MainActor
+@discardableResult
+func withoutMotion<Result>(_ body: () throws -> Result) rethrows -> Result {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    return try withTransaction(transaction, body)
 }
 
 /// `withAnimation`, through `Motion`: no animation with Reduce motion.
@@ -35,7 +61,7 @@ func withMotion<Result>(_ animation: Animation, _ body: () throws -> Result) ret
 
 /// `withAnimation` for a fade, through `Motion`: a plain short fade with Reduce motion.
 @MainActor
-func withFade<Result>(_ animation: Animation = .easeInOut(duration: 0.3), _ body: () throws -> Result) rethrows -> Result {
+func withFade<Result>(_ animation: Animation = .easeOut(duration: 0.2), _ body: () throws -> Result) rethrows -> Result {
     try withAnimation(Motion.fade(animation), body)
 }
 

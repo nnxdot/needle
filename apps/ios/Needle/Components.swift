@@ -129,6 +129,25 @@ func count(_ n: Int, _ one: String, _ many: String? = nil) -> String {
     n == 1 ? "1 \(one)" : "\(n.formatted()) \(many ?? one + "s")"
 }
 
+/// `text` with each place that holds one of the typed words in the accent and bold: Search's
+/// lit letters. Case does not matter. No words (nil or empty): the text as it is.
+func litMatches(_ text: String, _ words: String?, accent: Color) -> AttributedString {
+    var out = AttributedString(text)
+    guard let words, !words.isEmpty else { return out }
+    for word in words.split(whereSeparator: \.isWhitespace) {
+        var from = text.startIndex
+        while from < text.endIndex, let range = text.range(of: word, options: [.caseInsensitive, .diacriticInsensitive], range: from..<text.endIndex) {
+            if let start = AttributedString.Index(range.lowerBound, within: out),
+               let end = AttributedString.Index(range.upperBound, within: out) {
+                out[start..<end].foregroundColor = accent
+                out[start..<end].inlinePresentationIntent = .stronglyEmphasized
+            }
+            from = range.upperBound
+        }
+    }
+    return out
+}
+
 /// A section's title, with an arrow when it opens a full list.
 struct SectionTitle: View {
     @Environment(\.wide) private var wide
@@ -174,6 +193,8 @@ struct AlbumTile: View {
     var width: CGFloat? = Tiles.phoneShelf
     /// Which shelf or grid on the page holds it: an album can be on two shelves at once.
     var shelf = "grid"
+    /// Search: the words typed, lit in the album's name.
+    var match: String?
     /// The pointer is over the tile (an iPad's): Play shows on its cover, as on the Mac.
     @State private var hovered = false
 
@@ -187,7 +208,7 @@ struct AlbumTile: View {
                     .modifier(CoverSource(id: source))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
                     .padding(.bottom, 5)
-                Text(album.shownTitle).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(litMatches(album.shownTitle, match, accent: store.colors.accent)).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
                 Text(album.shownArtist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
             // Its own height, whatever the others on the row: a lazy row measured by a shorter
@@ -261,22 +282,46 @@ struct AlbumMenu: View {
 struct SongRow: View {
     @Environment(Store.self) private var store
     @Environment(\.wide) private var wide
+    /// The table's time and number columns grow with the text size ("1:02:45", track 112).
+    @ScaledMetric(relativeTo: .subheadline) var timeWidth: CGFloat = 56
+    @ScaledMetric(relativeTo: .subheadline) var numberWidth: CGFloat = 28
     let song: Song
     var number: Int?
     var showCover = true
     /// On an album's page: the album's artist, so a song's own artist shows only where it
     /// differs (in a wide window's table).
     var albumArtist: String?
+    /// In a wide window, a short row for a narrow column (Search's Songs beside Top Result):
+    /// the title over the artist, as the phone's row, with no album column.
+    var stacked = false
+    /// Search: the words typed, lit in the title (see `litMatches`).
+    var match: String?
+    /// On a phone, the album after the artist on the second line (Search's Songs chip).
+    var showAlbum = false
     let play: () -> Void
 
     var body: some View {
         if wide { tableRow } else { phoneRow }
     }
 
+    /// The playing song's colour: the app's accent, not the tint. On a page in its cover's
+    /// colours the tint is the text's own colour, and the playing song did not stand out.
+    private var lit: AnyShapeStyle { AnyShapeStyle(store.colors.accent) }
+
+    /// The title, in the accent while it plays, and the server's mark.
+    private func title(_ playing: Bool) -> some View {
+        HStack(spacing: 5) {
+            Text(litMatches(song.title, match, accent: store.colors.accent)).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
+            if song.fromServer && store.app.serverMark {
+                Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
+                    .accessibilityLabel("On your music server")
+            }
+        }
+    }
+
     /// A row of the wide window's table.
     private var tableRow: some View {
         let playing = store.playingID == song.id
-        let lit = AnyShapeStyle(store.colors.accent)
         let onAlbum = number != nil
         return Button(action: play) {
             HStack(spacing: 14) {
@@ -286,33 +331,37 @@ struct SongRow: View {
                         else { Text("\(number)") }
                     }
                     .font(.needle(.subheadline).monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
-                    .frame(width: 28)
+                    .frame(width: numberWidth)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
                         .frame(width: 40, height: 40)
                         .clipShape(.soft(Corner.smallCover))
                 }
-                HStack(spacing: 5) {
-                    Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
-                    if song.fromServer && store.app.serverMark {
-                        Image(systemName: "server.rack").font(.needle(.caption2)).foregroundStyle(.secondary)
-                            .accessibilityLabel("On your music server")
+                if stacked {
+                    VStack(alignment: .leading, spacing: 2) {
+                        title(playing)
+                        Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    // The last column to shrink: the three share the row equally while there
+                    // is room, and in a narrow table the title keeps this much of it.
+                    title(playing)
+                        .frame(minWidth: 130, maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 // The artist: always in a list, on an album only where it is not the album's.
-                if !onAlbum || albumArtist != nil {
+                if !stacked && (!onAlbum || albumArtist != nil) {
                     Text(onAlbum && song.artist == albumArtist ? "" : song.artist)
                         .foregroundStyle(.secondary).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if !onAlbum {
+                if !onAlbum && !stacked {
                     // As the Mac's table: a song with no album says so.
                     Text(song.album.trimmingCharacters(in: .whitespaces).isEmpty ? "Unknown album" : song.album).foregroundStyle(.secondary).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Text(clock(song.duration)).font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.secondary)
-                    .frame(width: 56, alignment: .trailing)
+                    .frame(width: timeWidth, alignment: .trailing)
                 if !song.onComputer { HeartButton(song: song) }
                 Menu {
                     SongMenu(song: song)
@@ -340,9 +389,6 @@ struct SongRow: View {
         let playing = store.playingID == song.id
         // Settings › Appearance › Song rows: Compact fits more on the screen.
         let compact = store.app.density == "compact"
-        // The app's accent, not the tint: on a page in its cover's colours the tint is the
-        // text's own colour, and the playing song did not stand out.
-        let lit = AnyShapeStyle(store.colors.accent)
         Button(action: play) {
             HStack(spacing: 12) {
                 if let number {
@@ -358,11 +404,11 @@ struct SongRow: View {
                         .clipShape(.soft(compact ? Corner.smallCover : Corner.cover))
                 }
                 VStack(alignment: .leading, spacing: compact ? 0 : 2) {
-                    Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
+                    Text(litMatches(song.title, match, accent: store.colors.accent)).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
                             if song.fromServer && store.app.serverMark { Image(systemName: "server.rack").font(.needle(.caption2)) }
-                            Text(song.artist).lineLimit(1)
+                            Text(showAlbum && !song.album.trimmingCharacters(in: .whitespaces).isEmpty ? "\(song.artist) · \(song.album)" : song.artist).lineLimit(1)
                         }
                         .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     }
@@ -669,8 +715,6 @@ struct PlayButtons: View {
     }
 }
 
-/// Springs down a little while held, as Liquid Glass controls do; with Reduce motion it only
-/// dims a little.
 /// A page (or a part of one) that could not be read: what went wrong, in Needle's words, and
 /// Try Again. Shown instead of an empty page.
 struct LoadProblem: View {
@@ -689,33 +733,71 @@ struct LoadProblem: View {
     }
 }
 
+/// Goes down a little the moment it is touched (0.1 s, fast at first), and back up with a
+/// spring that does not bounce: Needle's one press, for tiles, covers, and the player's
+/// buttons. With Reduce motion it only dims a little.
 struct Pressable: ButtonStyle {
+    /// How small it goes while held: 0.96 for tiles, covers, and wide pills; 0.94 for round
+    /// signs (`Pressable.sign`).
+    var scale: CGFloat = 0.96
+
+    /// The player's round signs.
+    static let sign = Pressable(scale: 0.94)
+
     func makeBody(configuration: Configuration) -> some View {
         let reduced = Motion.reduced
         return configuration.label
-            .scaleEffect(configuration.isPressed && !reduced ? 0.96 : 1)
+            .scaleEffect(configuration.isPressed && !reduced ? scale : 1)
             .opacity(configuration.isPressed && reduced ? 0.7 : 1)
-            .animation(reduced ? .easeOut(duration: 0.1) : .spring(response: 0.35, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(Self.motion(pressed: configuration.isPressed), value: configuration.isPressed)
+    }
+
+    /// Down fast, up with no bounce.
+    @MainActor
+    static func motion(pressed: Bool) -> Animation {
+        pressed || Motion.reduced ? .easeOut(duration: 0.1) : .spring(response: 0.3, dampingFraction: 1)
     }
 }
 
-/// A short message at the top of the screen, on glass, that goes after a few seconds.
+/// A short message at the top of the screen, on glass, that goes after a few seconds (longer
+/// for a long one). A tap or a swipe up puts it away at once, so it never hides the buttons
+/// under it for long. A new message changes the words in place.
 struct Toast: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if let text = store.message {
-            Text(text)
-                .font(.needle(.subheadline).weight(.medium))
-                .padding(.horizontal, 18).padding(.vertical, 12)
-                .glassEffect(.regular, in: .capsule)
-                .padding(.top, 8)
-                .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
-                .task(id: store.messageCount) {
-                    try? await Task.sleep(for: .seconds(2.5))
-                    withFade { store.message = nil }
-                }
+        VStack(spacing: 0) {
+            if let text = store.message {
+                Text(text)
+                    .font(.needle(.subheadline).weight(.medium))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    // A capsule for one line; a longer message keeps the same soft corners.
+                    .glassEffect(.regular, in: .soft(Corner.large))
+                    .contentShape(.soft(Corner.large))
+                    .onTapGesture { close() }
+                    .gesture(DragGesture(minimumDistance: 8).onEnded { g in if g.translation.height < -12 { close() } })
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Closes the message")
+                    // Never against the screen's edges.
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(Motion.transition(.move(edge: .top).combined(with: .opacity)))
+                    .task(id: store.messageCount) {
+                        // Time to read it: 0.3 s a word, and 2.5 s at least.
+                        let words = text.split(whereSeparator: \.isWhitespace).count
+                        try? await Task.sleep(for: .seconds(max(2.5, Double(words) * 0.3)))
+                        if !Task.isCancelled { close() }
+                    }
+            }
         }
+        // In with a soft spring; out faster (0.18 s), the way it came.
+        .animation(Motion.fade(store.message == nil ? .easeOut(duration: 0.18) : .spring), value: store.message)
+    }
+
+    private func close() {
+        withFade(.easeOut(duration: 0.18)) { store.message = nil }
     }
 }
 

@@ -35,6 +35,7 @@ extension SpeedPitch {
 struct SleepMoon: View {
     @Environment(Store.self) private var store
     @Environment(WindowState.self) private var window
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         let running = store.sleep
@@ -46,15 +47,15 @@ struct SleepMoon: View {
                     Text(sleepClock(running.remaining)).font(.needle(.footnote).monospacedDigit().weight(.semibold))
                 }
             }
-            .foregroundStyle(running == nil ? .white.opacity(0.7) : ThemeColors.amber)
+            .foregroundStyle(running == nil ? .white.opacity(contrast.sign(0.7)) : ThemeColors.amber)
             .frame(minWidth: 44, minHeight: 44)
             .padding(.horizontal, running == nil ? 0 : 8)
             // Glass only while the timer runs, in the cover's colour as the player's other lit
             // signs; none while it is off.
-            .glassEffect(running == nil ? .identity : .regular.tint((store.coverColor ?? .clear).opacity(0.3)).interactive(), in: .capsule)
+            .glassEffect(running == nil ? .identity : .regular.tint((store.coverColor ?? .clear).opacity(0.3)), in: .capsule)
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Pressable.sign)
         .hoverEffect(.highlight)
         .toolPopover(["sleep"])
         .accessibilityLabel("Sleep timer")
@@ -73,7 +74,9 @@ private struct ToolChip: View {
     let action: () -> Void
 
     var body: some View {
-        Button { withMotion(.smooth(duration: 0.35), action) } label: {
+        // What the chip starts changes at once; only the lit glass glides, from its
+        // container's animation.
+        Button(action: action) {
             Text(label)
                 .font(.needle(.subheadline).weight(.medium))
                 .foregroundStyle(on ? AnyShapeStyle(store.colors.onAccent) : enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
@@ -106,6 +109,7 @@ struct SleepSheet: View {
     @State private var chosen = 1
     @State private var fade = true
     @Namespace private var chips
+    @Environment(\.dynamicTypeSize) private var textSize
 
     /// The chips: their names, and what they start.
     private static let choices: [(String, String, UInt32)] = [
@@ -114,6 +118,26 @@ struct SleepSheet: View {
     ]
 
     var body: some View {
+        // At very large text it scrolls, and may grow to the screen's height: Start can always
+        // be reached. When it fits, it is the plain sheet (and popover) as before.
+        ViewThatFits(in: .vertical) {
+            form
+            ScrollView { form }
+                .scrollBounceBehavior(.basedOnSize)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .presentationDetents(textSize.isAccessibilitySize ? [.medium, .large] : [.medium])
+        .toolSheet(store)
+        .onAppear {
+            fade = store.core.sleepFade()
+            if let running = store.sleep, let i = Self.choices.firstIndex(where: { $0.1 == running.kind && ($0.1 != "minutes" || $0.2 == running.minutes) }) {
+                chosen = i
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var form: some View {
         let colors = store.colors
         let running = store.sleep
         let choice = Self.choices[chosen]
@@ -137,6 +161,7 @@ struct SleepSheet: View {
                     }
                 }
             }
+            .motion(.smooth(duration: 0.22), value: chosen)
             Divider()
             Toggle(isOn: Binding(get: { running?.fade ?? fade }, set: { fade = $0; store.setSleepFade($0) })) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -161,15 +186,6 @@ struct SleepSheet: View {
             }
         }
         .padding(22)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.medium])
-        .toolSheet(store)
-        .onAppear {
-            fade = store.core.sleepFade()
-            if let running, let i = Self.choices.firstIndex(where: { $0.1 == running.kind && ($0.1 != "minutes" || $0.2 == running.minutes) }) {
-                chosen = i
-            }
-        }
     }
 
     /// "Start · stops at 22:18".
@@ -218,6 +234,7 @@ struct SpeedSheet: View {
                         }
                     }
                 }
+                .motion(.smooth(duration: 0.22), value: tempo.speed)
                 HStack {
                     Text("Pitch").font(.needle(.body).weight(.semibold))
                     Spacer()

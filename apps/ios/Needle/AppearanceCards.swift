@@ -84,6 +84,8 @@ struct AppearanceView: View {
                 } label: {
                     SettingLabel(title: "Seek bar", detail: "In the player.", icon: "slider.horizontal.below.rectangle", tint: .orange)
                 }
+                // Six styles of Play (the other buttons stay plain icons), saved as on Android.
+                PlayButtonsRow()
                 SketchRow(title: "Beside play", detail: "The two buttons either side.") {
                     SketchChoice(caption: "Skip", chosen: app.sideButtons != "jump", part: .skip) { store.updateApp { $0.sideButtons = "skip" } }
                     SketchChoice(caption: "10 s", chosen: app.sideButtons == "jump", part: .jump) { store.updateApp { $0.sideButtons = "jump" } }
@@ -149,7 +151,7 @@ struct AppearanceView: View {
             }
             Section("Motion and touch") {
                 toggle("Haptics", "A little tap on play, pause, and long presses.", "hand.tap.fill", .green, \.haptics)
-                toggle("Reduce motion", "Needle's own switch, besides the \(Device.name)'s.", "figure.walk.motion", .blue, \.reduceMotion)
+                toggle("Reduce motion", "No slides or movement. Short fades stay.", "figure.walk.motion", .blue, \.reduceMotion)
             }
         }
         #if DEBUG
@@ -282,6 +284,78 @@ private struct SketchChoice: View {
         .sensoryFeedback(.selection, trigger: chosen) { _, _ in store.app.haptics }
         .accessibilityLabel(caption)
         .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+}
+
+/// Buttons: Play's six styles, two lines of three small sketches, each its Play in the accent
+/// between two grey skips. An older Round or Minimal shows (and plays) as Accent.
+private struct PlayButtonsRow: View {
+    @Environment(Store.self) private var store
+    private let three = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+
+    var body: some View {
+        let chosen = PlayStyle.of(store.app.controlStyle)
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Buttons")
+                Text("Play, pause, and skip").font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
+            }
+            LazyVGrid(columns: three, spacing: 10) {
+                ForEach(PlayStyle.allCases, id: \.self) { style in
+                    Button { store.updateApp { $0.controlStyle = style.rawValue } } label: {
+                        VStack(spacing: 3) {
+                            PlaySketch(style: style)
+                                .frame(height: 44)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(.rect(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(chosen == style ? store.colors.accent : Color.secondary.opacity(0.25), lineWidth: chosen == style ? 2 : 1))
+                            Text(style.name).font(.needle(.caption2)).foregroundStyle(chosen == style ? .primary : .secondary).lineLimit(1)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .sensoryFeedback(.selection, trigger: chosen == style) { _, _ in store.app.haptics }
+                    .accessibilityLabel(style.name)
+                    .accessibilityAddTraits(chosen == style ? .isSelected : [])
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Buttons")
+    }
+}
+
+/// A sketch of the main buttons: a grey skip at each side of Play, the part that changes.
+private struct PlaySketch: View {
+    @Environment(Store.self) private var store
+    let style: PlayStyle
+
+    var body: some View {
+        let ink = Ink(store)
+        HStack(spacing: style == .wide ? 3 : 5) {
+            Image(systemName: "backward.fill").font(.system(size: 7, weight: .bold)).foregroundStyle(ink.part)
+            play(ink)
+            Image(systemName: "forward.fill").font(.system(size: 7, weight: .bold)).foregroundStyle(ink.part)
+        }
+        .padding(.horizontal, style == .trio ? 5 : 0)
+        .padding(.vertical, style == .trio ? 3 : 0)
+        .overlay { if style == .trio { Capsule().strokeBorder(ink.part, lineWidth: 1) } }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ink.back)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func play(_ ink: Ink) -> some View {
+        switch style {
+        case .accent: Circle().fill(ink.accent).frame(width: 18, height: 18)
+        case .glass: Circle().fill(ink.accent.opacity(0.22)).overlay(Circle().strokeBorder(ink.accent.opacity(0.7), lineWidth: 1)).frame(width: 18, height: 18)
+        case .wide: Capsule().fill(ink.accent).frame(width: 28, height: 16)
+        case .ring: Circle().strokeBorder(ink.accent, lineWidth: 2).frame(width: 18, height: 18)
+        case .square: RoundedRectangle(cornerRadius: 6, style: .continuous).fill(ink.accent).frame(width: 18, height: 18)
+        case .trio: Capsule().fill(ink.accent).frame(width: 18, height: 13)
+        }
     }
 }
 
