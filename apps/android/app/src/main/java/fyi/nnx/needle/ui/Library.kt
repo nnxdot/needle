@@ -143,20 +143,14 @@ fun LibraryScreen(open: (Route) -> Unit) {
     Page("Library", subtitle = sizes?.joinToString(" · "), actions = {
         if (!hasSideBar()) IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
     }) { padding, scroll ->
-        // Pulled down, it reads the music folders again; Material 3 Expressive's shape-changing
-        // loading indicator shows while it does.
+        // Pulled down, it reads the music folders again; Needle's own glass sign (PullGlass)
+        // shows while it does.
         val pull = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = scan.running,
             onRefresh = { core.rescan() },
             state = pull,
-            indicator = {
-                androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.LoadingIndicator(
-                    state = pull,
-                    isRefreshing = scan.running,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                )
-            },
+            indicator = { PullGlass(pull, scan.running) },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             Column(Modifier.fillMaxSize()) {

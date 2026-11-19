@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -69,8 +71,9 @@ private val Faint = Color.White.copy(alpha = 0.7f)
 private val Amber = Color(0xFFE2B46C)
 
 /**
- * The way into the year in review: a warm card with the year ("Your 2026 in music"), on History
- * and, in December, on Home. Nothing while there is no listening.
+ * The way into the year in review: a row in the page's own raised colour with the year ("Your
+ * 2026 in music"), on History and, in December, on Home. It follows the theme as every other
+ * row does. Nothing while there is no listening.
  */
 @Composable
 fun YearReviewRow(open: (Route) -> Unit, december: Boolean = false) {
@@ -82,16 +85,31 @@ fun YearReviewRow(open: (Route) -> Unit, december: Boolean = false) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Brush.horizontalGradient(listOf(Color(0xFF8A5422), Color(0xFF3A2A40))))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable { open(Route.YearReview(y)) }
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text("YOUR $y IN MUSIC", color = Amber, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
-            Text("Your year in review", color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Box(
+            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.material3.Icon(
+                androidx.compose.material.icons.Icons.Rounded.BarChart,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
         }
-        Text("›", color = Ink, style = MaterialTheme.typography.headlineSmall)
+        Column(Modifier.weight(1f)) {
+            Text("Your $y in music", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Your year in review", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        androidx.compose.material3.Icon(
+            androidx.compose.material.icons.Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

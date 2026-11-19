@@ -15,7 +15,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
@@ -518,4 +521,51 @@ fun GlassMenu(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         content = content,
     )
+}
+
+/**
+ * The sign that shows when a page is pulled down to read the library again: a small disc of
+ * glass with a thin ring in the accent. The ring fills as the page is pulled, and turns while
+ * the library is read. Needle's own, in place of Material's indicator.
+ */
+@Composable
+fun androidx.compose.foundation.layout.BoxScope.PullGlass(
+    state: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    refreshing: Boolean,
+) {
+    val pulled = state.distanceFraction.coerceIn(0f, 1f)
+    val shown = androidx.compose.animation.core.animateFloatAsState(if (refreshing) 1f else pulled, label = "pull").value
+    if (shown <= 0.01f) return
+    val turn = if (refreshing) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "pull-turn").animateFloat(
+            0f, 360f,
+            androidx.compose.animation.core.infiniteRepeatable(
+                androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.LinearEasing),
+            ),
+            label = "pull-angle",
+        ).value
+    } else 0f
+    val accent = MaterialTheme.colorScheme.primary
+    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .align(androidx.compose.ui.Alignment.TopCenter)
+            .graphicsLayer {
+                // It comes down from above the page's top, growing and fading in with the pull.
+                translationY = -44.dp.toPx() + 60.dp.toPx() * shown
+                alpha = shown
+                scaleX = 0.7f + 0.3f * shown
+                scaleY = 0.7f + 0.3f * shown
+            }
+            .size(40.dp)
+            .glass(androidx.compose.foundation.shape.CircleShape, shadow = 8.dp),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(2.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawArc(track, 0f, 360f, false, style = stroke)
+            if (refreshing) drawArc(accent, turn - 90f, 100f, false, style = stroke)
+            else drawArc(accent, -90f, 360f * pulled, false, style = stroke)
+        }
+    }
 }

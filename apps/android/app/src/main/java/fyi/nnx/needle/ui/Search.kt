@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -277,10 +278,10 @@ internal fun LazyGridScope.rulesSection(rules: List<Pair<String, String>>, onRul
 @Composable
 private fun RuleChips(rules: List<Pair<String, String>>, onRule: (String) -> Unit) {
     val wide = isWide()
-    FlowRow(
-        Modifier.fillMaxWidth().padding(horizontal = Edge),
+    // One line, which scrolls sideways on a narrow phone: the rules never take two lines.
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = Edge),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         rules.forEach { (name, rule) ->
             androidx.compose.material3.SuggestionChip(

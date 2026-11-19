@@ -1346,7 +1346,10 @@ fun SearchScreen(open: (Route) -> Unit) {
     val found = shown?.found
     // The kinds show while there is something to choose among (not over "Nothing for …").
     val kinds = query.isNotBlank() && shown?.error == null && found?.nothing() != true
-    val duo = isWide() && LocalPageWidth.current >= 672.dp
+    val wide = isWide()
+    val duo = wide && LocalPageWidth.current >= 672.dp
+    // How many genre tiles go across (as gridColumns(210.dp) below).
+    val across = if (wide) (LocalPageWidth.current / 210.dp).toInt().coerceAtLeast(2) else 2
     Page("Search") { padding, scroll ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             // The field and the kinds stay at the top while the results scroll.
@@ -1401,14 +1404,21 @@ fun SearchScreen(open: (Route) -> Unit) {
             ) {
                 if (query.isBlank()) {
                     recentSection(recent, { query = it }, open)
-                    val list = genres.orEmpty()
+                    // The rules come before the genres: one short line, so a library with many
+                    // genres never puts them a long scroll away.
+                    rulesSection(rules.orEmpty()) { query = it }
+                    // The genres with the most songs, in whole lines (three on a phone, two on a
+                    // wide page); the rest are on the Genres page.
+                    val all = genres.orEmpty()
+                    val list = all.sortedByDescending { it.songs }.take(across * if (wide) 2 else 3)
                     if (list.isNotEmpty()) {
-                        edgeToEdge(16.dp, key = "browse-title") { ShelfTitle("Browse", null) }
+                        edgeToEdge(16.dp, key = "browse-title") {
+                            ShelfTitle("Browse", null, more = "All ${all.size} ›", onMore = if (all.size > list.size) ({ open(Route.Genres) }) else null)
+                        }
                         items(list.size, key = { "genre-" + list[it].name }) { i ->
                             GenreTile(list[i].name, list[i].artwork, Modifier.padding(bottom = 12.dp)) { open(Route.Genre(list[i].name)) }
                         }
                     }
-                    rulesSection(rules.orEmpty()) { query = it }
                 } else {
                     shown?.let { a ->
                         searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, recent, looksLikeRule(a.query, hints.isNotEmpty()), duo, playing, open)
