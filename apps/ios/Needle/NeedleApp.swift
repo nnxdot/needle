@@ -530,6 +530,10 @@ struct RootView: View {
             if let look = value("-look") { store.updateChoices { $0.bigLook = look } }
             if let style = value("-buttons") { store.updateApp { $0.controlStyle = style } }
             if let immersive = value("-immersive") { store.updateApp { $0.immersiveCover = immersive == "1" } }
+            // -cover-shape square|round: the card's shape (Settings › The cover).
+            if let shape = value("-cover-shape") { store.updateApp { $0.coverShape = shape } }
+            // -open-player-buttons: Settings › Appearance › Player buttons, over the page.
+            if CommandLine.arguments.contains("-open-player-buttons") { window.opening = .playerButtons }
             try? await Task.sleep(for: .seconds(1))
             // -open-player: the full player, over the song that is there.
             if CommandLine.arguments.contains("-open-player"), store.playback?.current != nil {

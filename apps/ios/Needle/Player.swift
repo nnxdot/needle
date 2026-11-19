@@ -698,13 +698,15 @@ struct LoopingVideo: UIViewRepresentable {
 
 /// AirPlay and Bluetooth speakers.
 struct RoutePicker: UIViewRepresentable {
-    /// White on the player; the page's ink on the floating bar.
+    /// White on the player; the page's ink on the floating bar; clear over a row that draws
+    /// its own sign (Play on's AirPlay and Bluetooth).
     var tint: UIColor = .white
+    var activeTint: UIColor? = UIColor(named: "AccentColor")
 
     func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
         view.tintColor = tint
-        view.activeTintColor = UIColor(named: "AccentColor")
+        view.activeTintColor = activeTint
         view.prioritizesVideoDevices = false
         return view
     }
@@ -1110,6 +1112,19 @@ struct SpeakersView: View {
 
     var body: some View {
         Form {
+            // The system's own picker for AirPlay and Bluetooth (headphones, a car, a speaker
+            // near the phone): a press anywhere on the row opens it, on every layout.
+            Section {
+                HStack(spacing: 12) {
+                    Label("AirPlay and Bluetooth", systemImage: "airplayaudio")
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right").font(.needle(.footnote).weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                .accessibilityHidden(true)
+                .overlay { RoutePicker(tint: .clear, activeTint: .clear).accessibilityLabel("AirPlay and Bluetooth") }
+            } footer: {
+                Text("Headphones and speakers near this \(Device.name).")
+            }
             Section {
                 Toggle(isOn: $phone) { Label("This \(Device.name)", systemImage: Device.symbol) }
                 if let all {
@@ -1128,7 +1143,7 @@ struct SpeakersView: View {
                     HStack { ProgressView(); Text("Looking for speakers on your network…") }
                 }
             } footer: {
-                Text("Choose one, or several to play on all at once. For AirPlay and Bluetooth, the AirPlay button in the player works too.")
+                Text("Needle's own speakers on your network. Choose one, or several to play on all at once.")
             }
             // As on the Mac: a group playing now is timed while it plays.
             if !members.isEmpty {
