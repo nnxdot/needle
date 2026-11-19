@@ -113,7 +113,7 @@ func litText(_ text: String, _ words: [String]) -> AttributedString {
 }
 
 /// The Search page: what typing in search finds on a page that is not a list. Before typing:
-/// Recent, Rules, and Browse (genres). While typing: chips (All, Songs, Albums, Artists,
+/// Recent, Rules, and Browse (genres or decades). While typing: chips (All, Songs, Albums, Artists,
 /// Lyrics, each with its count) that stay at the top, and under All the top result, Songs,
 /// Albums, Artists, and the lines of lyrics that hold the words.
 struct SearchPage: View {
@@ -128,6 +128,9 @@ struct SearchPage: View {
     @State private var recent: [RecentFind] = []
     @State private var recentVersion = 0
     @State private var genres: [Genre] = []
+    @State private var decades: [Decade] = []
+    /// Browse by "genres" or "decades": the user's choice, kept when the app closes.
+    @AppStorage("search-browse") private var browseBy = "genres"
     @State private var width: CGFloat = 900
     @Namespace private var chipSpace
 
@@ -200,6 +203,8 @@ struct SearchPage: View {
         .task(id: store.libraryVersion) {
             let all = await store.load { try $0.genres() } ?? []
             genres = Array(all.sorted { $0.songs > $1.songs }.prefix(8))
+            // The core gives the newest decade first.
+            decades = Array((await store.load { try $0.decades() } ?? []).prefix(8))
         }
     }
 
@@ -208,7 +213,7 @@ struct SearchPage: View {
         if query.isEmpty {
             if !recent.isEmpty { recentSection }
             rules
-            if !genres.isEmpty { browse }
+            if !genres.isEmpty || !decades.isEmpty { browse }
         } else if let error {
             Text(error).foregroundStyle(store.colors.danger)
             rules
@@ -595,18 +600,53 @@ struct SearchPage: View {
         }
     }
 
-    /// The genres with the most songs, as colour tiles, two lines of them; a click opens the
-    /// genre's songs. The Mac has no page of all genres, so no "All".
+    /// What Browse shows: the user's choice, or the one kind the library has.
+    private var browseDecades: Bool {
+        if genres.isEmpty { return true }
+        if decades.isEmpty { return false }
+        return browseBy == "decades"
+    }
+
+    /// The genres with the most songs, or the decades newest first, as colour tiles, two lines of
+    /// them; a click opens their songs. The Mac has no page of all genres, so no "All". The switch
+    /// on the title line shows only when the library has both genres and years.
     private var browse: some View {
         let across = narrow ? 2 : 4
         let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: across)
+        let byDecade = browseDecades
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Browse").font(.needle(.title3).weight(.semibold))
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                ForEach(genres.prefix(across * 2), id: \.name) { genre in
-                    GenreTile(name: genre.name, artwork: genre.artwork, songs: Int(genre.songs))
+            HStack(alignment: .firstTextBaseline) {
+                Text("Browse").font(.needle(.title3).weight(.semibold))
+                Spacer(minLength: 12)
+                if !genres.isEmpty && !decades.isEmpty {
+                    Picker("Browse by", selection: $browseBy) {
+                        Text("Genres").tag("genres")
+                        Text("Decades").tag("decades")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
                 }
             }
+            ZStack(alignment: .topLeading) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                    if byDecade {
+                        ForEach(decades.prefix(across * 2), id: \.year) { decade in
+                            BrowseTile(name: decade.label, artwork: decade.artwork, songs: Int(decade.songs), rule: decade.rule)
+                        }
+                    } else {
+                        ForEach(genres.prefix(across * 2), id: \.name) { genre in
+                            BrowseTile(name: genre.name, artwork: genre.artwork, songs: Int(genre.songs),
+                                       rule: "genre = \(Rule.quote(genre.name))")
+                        }
+                    }
+                }
+                .id(byDecade)
+                // The tiles change in place with a short fade.
+                .transition(.opacity)
+            }
+            .animation(.easeOut(duration: 0.18), value: byDecade)
         }
     }
 
@@ -852,12 +892,15 @@ private struct RecentTile: View {
     }
 }
 
-/// A genre as a colour tile with one of its covers in the corner; a click opens its songs.
-private struct GenreTile: View {
+/// A genre or a decade as a colour tile with one of its covers in the corner; a click opens its
+/// songs.
+private struct BrowseTile: View {
     private var store: Store { .shared }
     let name: String
     let artwork: String?
     let songs: Int
+    /// What finds its songs ("genre = Pop", "year >= 2020 and year < 2030").
+    let rule: String
     @State private var hover = false
 
     var body: some View {
@@ -885,9 +928,8 @@ private struct GenreTile: View {
         .accessibilityLabel("\(name), \(count(songs, "song"))")
     }
 
-    /// The genre's songs: the Songs page with the genre's rule in the search field.
+    /// Its songs: the Songs page with its rule in the search field.
     private func open() {
-        let rule = "genre = \(Rule.quote(name))"
         store.navigate(.songs)
         store.search = rule
     }
