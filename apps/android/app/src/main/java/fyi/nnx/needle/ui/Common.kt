@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -333,12 +334,23 @@ fun songKeys(list: List<fyi.nnx.needle.core.Song>): List<String> {
 fun playingSongId(): String? = NeedleApp.instance.playingId.collectAsState().value
 
 /**
+ * What Home's "Start fast" started last ([StartStation], "favorites", "album/…", "playlist/…"),
+ * so that its tile shows the playing mark. Whatever else starts music clears it ([playSongs],
+ * a station from a song).
+ */
+val startedFrom = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+/** Home's key for your station (see [startedFrom]). */
+const val StartStation = "station"
+
+/**
  * Plays songs from `start`, then opens the player (when that is on). Off the main thread: the
  * core looks each song up, which for a whole library or a long playlist takes a moment.
  */
 fun playSongs(ids: List<String>, start: Int = 0) {
     // Nothing to play (an empty playlist): the player is not opened on nothing.
     if (ids.isEmpty()) return
+    startedFrom.value = null
     NeedleApp.instance.scope.launch(Dispatchers.IO) {
         runCatching { core.play(ids, start.toUInt()) }
             .onSuccess { NeedleApp.instance.openPlayer.tryEmit(Unit) }
@@ -352,7 +364,35 @@ fun time(seconds: Double): String {
     else "%d:%02d".format(s / 60, s % 60)
 }
 
-fun count(n: Int, word: String) = if (n == 1) "1 $word" else "$n ${word}s"
+/** A whole number with the thousands mark of the user's language ("8,214"). */
+fun number(n: Long): String = java.text.NumberFormat.getIntegerInstance().format(n)
+
+/**
+ * `text` with the letters of each of the searched words in `color` and bold, wherever they
+ * stand, in any case (Search's lit letters). Plain when `words` is null or blank.
+ */
+fun litText(text: String, words: String?, color: Color): androidx.compose.ui.text.AnnotatedString {
+    val list = words.orEmpty().split(' ').map { it.trim('"', ',', '.') }.filter { it.isNotEmpty() }
+    if (list.isEmpty()) return androidx.compose.ui.text.AnnotatedString(text)
+    val lit = BooleanArray(text.length)
+    val lower = text.lowercase()
+    list.forEach { w ->
+        val needle = w.lowercase()
+        var at = lower.indexOf(needle)
+        while (at >= 0) {
+            for (i in at until (at + needle.length).coerceAtMost(text.length)) lit[i] = true
+            at = lower.indexOf(needle, at + needle.length)
+        }
+    }
+    if (lit.none { it }) return androidx.compose.ui.text.AnnotatedString(text)
+    val style = androidx.compose.ui.text.SpanStyle(color = color, fontWeight = FontWeight.Bold)
+    return androidx.compose.ui.text.buildAnnotatedString {
+        text.forEachIndexed { i, c -> if (lit[i]) withStyle(style) { append(c) } else append(c) }
+    }
+}
+
+/** "1 song", "8,214 songs". */
+fun count(n: Int, word: String) = if (n == 1) "1 $word" else "${number(n.toLong())} ${word}s"
 
 /** "12 songs, 48 minutes", as at the foot of an Apple Music album. */
 fun songsAndLength(songs: List<Song>): String {
@@ -397,7 +437,7 @@ fun Cover(path: String?, modifier: Modifier = Modifier, shape: Shape = CoverShap
  * Mark server songs is on. One the server lets you only read always has the mark, and says so.
  */
 @Composable
-fun PlaylistLine(playlist: fyi.nnx.needle.core.Playlist) {
+fun PlaylistLine(playlist: fyi.nnx.needle.core.Playlist, style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (playlist.readOnly || (playlist.server && NeedleApp.instance.app.collectAsState().value.serverMark)) {
             Icon(
@@ -410,7 +450,7 @@ fun PlaylistLine(playlist: fyi.nnx.needle.core.Playlist) {
         val songs = if (playlist.smart) "Smart playlist" else count(playlist.songs.toInt(), "song")
         Text(
             if (playlist.readOnly) "Read-only · $songs" else songs,
-            style = MaterialTheme.typography.bodyMedium,
+            style = style,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
         )
@@ -524,9 +564,10 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, top: Dp = 28.dp, 
     }
 }
 
+/** An album in a grid or on a shelf; `small` for three across a phone, with its grey line smaller. */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
-fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Unit)? = null, onClick: () -> Unit) {
+fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Unit)? = null, small: Boolean = false, lit: String? = null, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
@@ -539,16 +580,16 @@ fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Uni
     ) {
         Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).tileCover(tile, "album-${album.key}"), seed = album.title + album.artist)
         Text(
-            album.title.ifBlank { "Unknown album" },
+            litText(album.title.ifBlank { "Unknown album" }, lit, MaterialTheme.colorScheme.primary),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = if (small) 6.dp else 8.dp),
         )
         Text(
             album.artist,
-            style = MaterialTheme.typography.bodyMedium,
+            style = if (small) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -624,6 +665,8 @@ fun SongRow(
     place: Place? = null,
     /** Words after the artist on the grey line, such as when it was played. */
     detail: String? = null,
+    /** The words searched for: their letters in the title are lit (see [litText]). */
+    lit: String? = null,
     onClick: () -> Unit,
 ) {
     val rows = LocalRows.current
@@ -698,7 +741,7 @@ fun SongRow(
             }
             Column(Modifier.weight(1f).padding(vertical = if (rows.height < 56.dp) 4.dp else 8.dp)) {
                 Text(
-                    song.title,
+                    litText(song.title, lit, MaterialTheme.colorScheme.primary),
                     style = MaterialTheme.typography.bodyLarge,
                     color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,

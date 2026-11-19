@@ -204,11 +204,13 @@ pub fn cover(path: Option<&str>, seed: &str, size: f32, cx: &App) -> AnyElement 
                 .bg(p.raised)
                 .into_any_element();
         };
+        // A plain tile under the picture, so a cover still being read is not a hole.
         return div()
             .size(px(size))
             .flex_shrink_0()
             .rounded(radius)
             .overflow_hidden()
+            .bg(p.raised)
             .child(
                 img(file)
                     .size_full()

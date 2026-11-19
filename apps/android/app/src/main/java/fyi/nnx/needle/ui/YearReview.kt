@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -48,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -64,13 +68,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val Ink = Color.White
-private val Faint = Color.White.copy(alpha = 0.7f)
-private val Amber = Color(0xFFE2B46C)
+/** The share picture's colours: the theme's, read where the picture is asked for. */
+private class CardLook(val page: Int, val ink: Int, val faint: Int, val accent: Int)
 
 /**
- * The way into the year in review: a warm card with the year ("Your 2026 in music"), on History
- * and, in December, on Home. Nothing while there is no listening.
+ * The way into the year in review: a row in the page's own raised colour with the year ("Your
+ * 2026 in music"), on History and, in December, on Home. It follows the theme as every other
+ * row does. Nothing while there is no listening.
  */
 @Composable
 fun YearReviewRow(open: (Route) -> Unit, december: Boolean = false) {
@@ -82,16 +86,31 @@ fun YearReviewRow(open: (Route) -> Unit, december: Boolean = false) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Brush.horizontalGradient(listOf(Color(0xFF8A5422), Color(0xFF3A2A40))))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable { open(Route.YearReview(y)) }
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text("YOUR $y IN MUSIC", color = Amber, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
-            Text("Your year in review", color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Box(
+            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.material3.Icon(
+                androidx.compose.material.icons.Icons.Rounded.BarChart,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
         }
-        Text("›", color = Ink, style = MaterialTheme.typography.headlineSmall)
+        Column(Modifier.weight(1f)) {
+            Text("Your $y in music", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Your year in review", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        androidx.compose.material3.Icon(
+            androidx.compose.material.icons.Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -102,7 +121,8 @@ private fun grouped(n: Long) = java.text.NumberFormat.getIntegerInstance().forma
  * Year in review (NEEDLE-2.0.md): "Your 2026 in music": the hours, the plays, the songs found
  * that year, plays by month, the top artist (and the months in the top five), and the top songs
  * (up to 50). Save as a picture to share, Make a playlist ("Top songs of 2026"), Play top 50.
- * Opens from History and, in December, from Home.
+ * Opens from History and, in December, from Home. A page as the others are: the theme's own
+ * background and colours, the accent for the one large number and the busiest month.
  */
 @Composable
 fun YearReviewScreen(year: Int?, open: (Route) -> Unit) {
@@ -117,18 +137,26 @@ fun YearReviewScreen(year: Int?, open: (Route) -> Unit) {
     val review by reviewLoad
     var all by rememberSaveable { mutableStateOf(false) }
     val r = review
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF8A5422), Color(0xFF3A2A40), Color(0xFF1A1420)))),
-    ) {
+    val ink = MaterialTheme.colorScheme.onSurface
+    val faint = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(Modifier.fillMaxSize()) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 28.dp, end = 28.dp, bottom = 32.dp + LocalBottomInset.current),
+            contentPadding = PaddingValues(start = Edge, end = Edge, bottom = 32.dp + LocalBottomInset.current),
         ) {
             item {
+                // The page's title, as LargeTitle writes one.
+                val back = LocalCanGoBack.current
                 Column(Modifier.statusBarsPadding()) {
-                    if (LocalCanGoBack.current) BackButton(Modifier.padding(top = 4.dp).offset(x = (-20).dp))
+                    if (back) BackButton(Modifier.padding(top = 4.dp).offset(x = (-14).dp))
+                    Text(
+                        shown?.let { "Your $it in music" } ?: "Your year in music",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = if (back) 0.dp else 16.dp, bottom = 8.dp).semantics { heading() },
+                    )
                 }
             }
             if ((years?.size ?: 0) > 1) item {
@@ -137,18 +165,18 @@ fun YearReviewScreen(year: Int?, open: (Route) -> Unit) {
                 }
             }
             if (years != null && years!!.isEmpty()) {
-                item { Text("Play some music, and your year in music shows here.", color = Faint, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 24.dp)) }
+                item { Text("Play some music, and your year in music shows here.", color = faint, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 24.dp)) }
                 return@LazyColumn
             }
             if (r == null) {
-                item { androidx.compose.material3.CircularProgressIndicator(color = Amber, modifier = Modifier.padding(top = 48.dp)) }
+                item { androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 48.dp).size(24.dp), strokeWidth = 2.dp) }
                 return@LazyColumn
             }
             item { Hours(r) }
             r.topArtist?.let { a -> item { TopArtist(a) } }
             item { Months(r) }
             if (r.topSongs.isNotEmpty()) {
-                item { Text("Top songs", style = MaterialTheme.typography.titleMedium, color = Faint, modifier = Modifier.padding(top = 28.dp, bottom = 4.dp)) }
+                item { Section("Top songs") }
                 val shownSongs = if (all) r.topSongs else r.topSongs.take(10)
                 itemsIndexed(shownSongs, key = { _, s -> s.song.id }) { i, top ->
                     Row(
@@ -160,17 +188,17 @@ fun YearReviewScreen(year: Int?, open: (Route) -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text("${i + 1}", color = Faint, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(22.dp))
+                        Text("${i + 1}", color = faint, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(22.dp))
                         Cover(top.song.artwork, Modifier.size(44.dp), SmallCoverShape, seed = top.song.album + top.song.artist)
                         Column(Modifier.weight(1f)) {
-                            Text(top.song.title, color = Ink, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(top.song.artist, color = Faint, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(top.song.title, color = ink, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(top.song.artist, color = faint, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Text(grouped(top.plays.toLong()), color = Faint, style = MaterialTheme.typography.bodyMedium)
+                        Text(grouped(top.plays.toLong()), color = faint, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
                 if (r.topSongs.size > 10) item {
-                    TextButton(onClick = { all = !all }) { Text(if (all) "Show the top 10" else "Show all ${r.topSongs.size}", color = Amber) }
+                    TextButton(onClick = { all = !all }) { Text(if (all) "Show the top 10" else "Show all ${r.topSongs.size}") }
                 }
             }
             item { Actions(r, context) }
@@ -185,16 +213,14 @@ private fun Hours(r: YearInReview) {
     // Under an hour: minutes, not "0 hours".
     val minutes = hours < 1
     val shown = if (minutes) (r.seconds / 60).toLong() else hours
-    Column(Modifier.padding(top = 8.dp)) {
-        Text("YOUR ${r.year} IN MUSIC", color = Amber, style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
+    Column(Modifier.padding(top = 4.dp)) {
         Text(
             grouped(shown),
-            color = Ink,
+            color = MaterialTheme.colorScheme.primary,
             fontSize = 84.sp,
             lineHeight = 88.sp,
             fontFamily = titleFamily(1f),
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 12.dp),
         )
         Text(
             when {
@@ -202,32 +228,38 @@ private fun Hours(r: YearInReview) {
                 hours == 1L -> "hour of music"
                 else -> "hours of music"
             },
-            color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         val parts = buildList {
             if (days >= 1) add("That is ${count(days.toInt(), "whole day")}.")
             add("${grouped(r.plays.toLong())} plays.")
             if (r.newSongs > 0u) add("${count(r.newSongs.toInt(), "new song")} found.")
         }
-        Text(parts.joinToString(" "), color = Faint, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 6.dp))
+        Text(parts.joinToString(" "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
 @Composable
 private fun TopArtist(a: fyi.nnx.needle.core.YearTopArtist) {
     val photo by rememberLoaded(a.name, cache = false) { artistPhoto(a.name) ?: artistAlbums(a.name).firstNotNullOfOrNull { it.artwork } }
-    Row(Modifier.fillMaxWidth().padding(top = 28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Cover(photo, Modifier.size(84.dp), CircleShape, seed = a.name)
+    Section("Top artist")
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Cover(photo, Modifier.size(72.dp), CircleShape, seed = a.name)
         Column(Modifier.weight(1f)) {
-            Text("Top artist", color = Faint, style = MaterialTheme.typography.bodyMedium)
-            Text(a.name, color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(a.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 "${if (a.seconds < 3600) count((a.seconds / 60).toInt(), "minute") else count((a.seconds / 3600).toInt(), "hour")} · ${count(a.plays.toInt(), "play")}" +
                     if (a.monthsInTopFive > 1u) " · in your top five for ${a.monthsInTopFive} months" else "",
-                color = Faint,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
+}
+
+/** A part's title, as a shelf's on the other pages. */
+@Composable
+private fun Section(text: String) {
+    Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 26.dp, bottom = 6.dp).semantics { heading() })
 }
 
 /** Plays by month: twelve bars, the busiest lit. */
@@ -236,8 +268,11 @@ private fun Months(r: YearInReview) {
     val most = (r.months.maxOfOrNull { it.plays } ?: 0u).toFloat().coerceAtLeast(1f)
     val busiest = r.months.maxByOrNull { it.plays }?.month
     val names = java.text.DateFormatSymbols.getInstance().shortMonths
-    Column(Modifier.padding(top = 28.dp)) {
-        Text("Plays by month", color = Faint, style = MaterialTheme.typography.titleMedium)
+    val accent = MaterialTheme.colorScheme.primary
+    val bar = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+    val faint = MaterialTheme.colorScheme.onSurfaceVariant
+    Column {
+        Section("Plays by month")
         Row(
             Modifier
                 .fillMaxWidth()
@@ -253,13 +288,13 @@ private fun Months(r: YearInReview) {
                         .weight(1f)
                         .fillMaxHeight((m.plays.toFloat() / most).coerceIn(0.04f, 1f))
                         .clip(RoundedCornerShape(4.dp))
-                        .background(if (m.month == busiest && m.plays > 0u) Amber else Color.White.copy(alpha = 0.35f)),
+                        .background(if (m.month == busiest && m.plays > 0u) accent else bar),
                 )
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp).clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             r.months.forEach { m ->
-                Text(names[m.month.toInt() - 1].take(1), color = Faint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text(names[m.month.toInt() - 1].take(1), color = faint, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
     }
@@ -267,30 +302,30 @@ private fun Months(r: YearInReview) {
 
 @Composable
 private fun Actions(r: YearInReview, context: Context) {
+    val scheme = MaterialTheme.colorScheme
+    val look = CardLook(scheme.background.toArgb(), scheme.onSurface.toArgb(), scheme.onSurfaceVariant.toArgb(), scheme.primary.toArgb())
     Column(Modifier.fillMaxWidth().padding(top = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
-                onClick = { shareYear(context, r) },
-                colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Color(0xFF1B1816)),
+                onClick = { shareYear(context, r, look) },
                 modifier = Modifier.weight(1f).height(52.dp),
             ) { Text("Share", fontWeight = FontWeight.SemiBold) }
             FilledTonalButton(
                 enabled = r.topSongs.isNotEmpty(),
                 onClick = { playSongs(r.topSongs.map { it.song.id }) },
-                colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Ink),
                 modifier = Modifier.weight(1f).height(52.dp),
             ) { Text(if (r.topSongs.size >= 50) "Play top 50" else "Play top songs", fontWeight = FontWeight.SemiBold) }
         }
         TextButton(enabled = r.topSongs.isNotEmpty(), onClick = {
             libraryWrite({ core.saveYearPlaylist(r.year) }) { showMessage("Saved as “Top songs of ${r.year}”") }
-        }) { Text("Make a playlist", color = Amber) }
+        }) { Text("Make a playlist") }
     }
 }
 
 /** The year as a picture (1080 × 1350), to Android's share sheet, as lyric cards are. */
-private fun shareYear(context: Context, r: YearInReview) {
+private fun shareYear(context: Context, r: YearInReview, look: CardLook) {
     NeedleApp.instance.scope.launch(Dispatchers.Main) {
-        val file = runCatching { withContext(Dispatchers.Default) { yearCard(context, r) } }
+        val file = runCatching { withContext(Dispatchers.Default) { yearCard(context, r, look) } }
             .getOrElse { showMessage("Could not make the picture"); return@launch }
         val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", file)
         val send = android.content.Intent(android.content.Intent.ACTION_SEND)
@@ -304,13 +339,13 @@ private fun shareYear(context: Context, r: YearInReview) {
     }
 }
 
-private fun yearCard(context: Context, r: YearInReview): File {
+private fun yearCard(context: Context, r: YearInReview, look: CardLook): File {
     val w = 1080
     val h = 1350
     val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    paint.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), intArrayOf(0xFF8A5422.toInt(), 0xFF3A2A40.toInt(), 0xFF1A1420.toInt()), null, Shader.TileMode.CLAMP)
+    paint.color = look.page
     canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
     val margin = 96f
     val bold = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
@@ -319,15 +354,18 @@ private fun yearCard(context: Context, r: YearInReview): File {
         this.color = color
         if (typeface != null) this.typeface = typeface
     }
-    val amber = 0xFFE2B46C.toInt()
-    val white = 0xFFFFFFFF.toInt()
-    val faint = 0xB3FFFFFF.toInt()
+    val amber = look.accent
+    val white = look.ink
+    val faint = look.faint
     var y = margin + 40f
-    canvas.drawText("YOUR ${r.year} IN MUSIC", margin, y, text(38f, amber, android.graphics.Typeface.MONOSPACE))
+    canvas.drawText("Your ${r.year} in music", margin, y, text(44f, white, bold))
     y += 210f
-    canvas.drawText(grouped((r.seconds / 3600).toLong()), margin, y, text(200f, white, bold))
+    // Under an hour: minutes, as the page says it.
+    val hours = (r.seconds / 3600).toLong()
+    val number = if (hours < 1) (r.seconds / 60).toLong() else hours
+    canvas.drawText(grouped(number), margin, y, text(200f, amber, bold))
     y += 70f
-    canvas.drawText("hours of music", margin, y, text(54f, white, bold))
+    canvas.drawText(if (hours < 1) (if (number == 1L) "minute of music" else "minutes of music") else if (hours == 1L) "hour of music" else "hours of music", margin, y, text(54f, white, bold))
     y += 60f
     canvas.drawText("${grouped(r.plays.toLong())} plays · ${grouped(r.newSongs.toLong())} new songs", margin, y, text(40f, faint))
     r.topArtist?.let { a ->

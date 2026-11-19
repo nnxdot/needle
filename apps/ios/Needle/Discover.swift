@@ -26,6 +26,8 @@ struct WaveBars: View {
     /// How far the song is, 0 to 1.
     let part: Double
     let held: Bool
+    /// What has played (the player's: the accent).
+    var lit: Color = .white
 
     var body: some View {
         Canvas { context, size in
@@ -37,7 +39,7 @@ struct WaveBars: View {
                 let rect = CGRect(x: CGFloat(i) * step + step * 0.16, y: (size.height - h) / 2, width: step * 0.68, height: h)
                 let played = (Double(i) + 0.5) / Double(count) <= part
                 context.fill(Path(roundedRect: rect, cornerRadius: step * 0.34),
-                             with: .color(.white.opacity(played ? (held ? 0.95 : 0.85) : 0.25)))
+                             with: .color(played ? lit.opacity(held ? 1 : 0.9) : .white.opacity(0.25)))
             }
         }
     }

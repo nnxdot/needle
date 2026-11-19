@@ -14,8 +14,8 @@ android {
         // Wear OS 3 and newer.
         minSdk = 30
         targetSdk = 35
-        versionCode = 13
-        versionName = "2.0.6"
+        versionCode = 14
+        versionName = "2.0.7"
     }
 
     buildTypes {

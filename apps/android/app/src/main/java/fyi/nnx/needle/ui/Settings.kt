@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.foundation.gestures.detectTapGestures
+
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Description
@@ -901,7 +903,11 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                     softWrap = false,
                 )
                 val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                // The knob glides only to a place tapped on the track; dragged, it stays under the
+                // finger, and moved by keys it is there at once.
+                var glide by remember { mutableStateOf(false) }
                 val nudge: (Float) -> Unit = { by ->
+                    glide = false
                     live = live.toMutableList().also { it[i] = (it[i] + by).coerceIn(-12f, 12f) }
                     save(live)
                 }
@@ -941,6 +947,7 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                         .focusable(interactionSource = focus)
                         .pointerInput(i, gains) {
                             detectVerticalDragGestures(
+                                onDragStart = { glide = false },
                                 onDragEnd = { haptics(false); save(live) },
                             ) { change, _ ->
                                 val y = change.position.y.coerceIn(0f, size.height.toFloat())
@@ -948,10 +955,25 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                                 val snapped = (Math.round(value * 2) / 2f).coerceIn(-12f, 12f)
                                 live = live.toMutableList().also { it[i] = snapped }
                             }
+                        }
+                        // A tap on the track sets the band there.
+                        .pointerInput(i, gains) {
+                            detectTapGestures(onTap = { at ->
+                                val y = at.y.coerceIn(0f, size.height.toFloat())
+                                val value = (Math.round((12f - 24f * y / size.height) * 2) / 2f).coerceIn(-12f, 12f)
+                                glide = true
+                                haptics(false)
+                                live = live.toMutableList().also { it[i] = value }
+                                save(live)
+                            })
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    val fraction by animateFloatAsState((gain + 12f) / 24f, label = "band")
+                    val fraction by animateFloatAsState(
+                        (gain + 12f) / 24f,
+                        if (glide && !reduceMotion()) androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 600f) else androidx.compose.animation.core.snap(),
+                        label = "band",
+                    )
                     // The track, the level from the middle, and the knob.
                     Box(Modifier.width(6.dp).fillMaxHeight().clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest))
                     val knobY = maxHeight * (1f - fraction) - maxHeight / 2
@@ -1059,7 +1081,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     Group("Player") {
         val more by NeedleApp.instance.more.collectAsState()
         val chosen = chosenButtons(more.playerButtons)
-        ExpandRow(Icons.Rounded.Tune, "Player buttons", "Which buttons the player shows", value = count(chosen.size, "button")) {
+        ExpandRow(Icons.Rounded.Tune, "Player buttons", "Which buttons the player shows", value = count(chosen.count { it in MainRowPlayerButtons }, "button")) {
             PlayerButtonsEditor(chosen) { list -> NeedleApp.instance.updateMore { it.copy(playerButtons = list) } }
         }
         Divider()
@@ -1069,21 +1091,28 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             // The Needle look has no scalloped shapes: an older "shape" choice shows as Square.
         ), if (app.coverShape == "shape") "square" else app.coverShape) { id -> update { it.copy(coverShape = id) } }
         Divider()
+        // Six styles of Play (the other buttons stay plain icons): a grey skip at each side, Play
+        // in the accent. An older Round, Minimal, or Expressive shows (and plays) as Accent.
         SketchRow(Icons.Rounded.PlayCircle, "Buttons", "Play, pause, and skip", listOf(
-            Sketch("round", "Round") { accent, grey ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    SketchBar(11, 11, grey, 6); SketchBar(18, 18, accent, 9); SketchBar(11, 11, grey, 6)
+            Sketch("accent", "Accent") { accent, grey -> ButtonsSketch(grey) { Box(Modifier.size(18.dp).clip(CircleShape).background(accent)) } },
+            Sketch("glass", "Glass") { accent, grey ->
+                ButtonsSketch(grey) {
+                    Box(Modifier.size(18.dp).clip(CircleShape).background(accent.copy(alpha = 0.22f)).border(1.dp, accent.copy(alpha = 0.7f), CircleShape))
                 }
             },
-            Sketch("minimal", "Minimal") { accent, grey ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious, null, Modifier.size(14.dp), tint = grey)
-                    Icon(Icons.Rounded.PlayArrow, null, Modifier.size(22.dp), tint = accent)
-                    Icon(Icons.Rounded.SkipNext, null, Modifier.size(14.dp), tint = grey)
+            Sketch("wide", "Wide") { accent, grey -> ButtonsSketch(grey, gap = 2) { Box(Modifier.size(width = 28.dp, height = 16.dp).clip(CircleShape).background(accent)) } },
+            Sketch("ring", "Ring") { accent, grey -> ButtonsSketch(grey) { Box(Modifier.size(18.dp).border(2.dp, accent, CircleShape)) } },
+            Sketch("square", "Soft square") { accent, grey -> ButtonsSketch(grey) { Box(Modifier.size(18.dp).clip(RoundedCornerShape(6.dp)).background(accent)) } },
+            Sketch("trio", "Trio") { accent, grey ->
+                Row(
+                    Modifier.border(1.dp, grey, CircleShape).padding(horizontal = 5.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    SketchBar(8, 8, grey, 4); Box(Modifier.size(width = 18.dp, height = 13.dp).clip(CircleShape).background(accent)); SketchBar(8, 8, grey, 4)
                 }
             },
-            // The Needle look's buttons are round: the older Expressive shows as Round.
-        ), if (app.controlStyle == "minimal") "minimal" else "round") { id -> update { it.copy(controlStyle = id) } }
+        ), buttonStyle(app.controlStyle)) { id -> update { it.copy(controlStyle = id) } }
         Divider()
         SketchRow(Icons.Rounded.SkipNext, "Beside play", "Skip a song, or jump 10 seconds", listOf(
             Sketch("skip", "Skip songs") { accent, grey ->
@@ -1197,7 +1226,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             onDone = { update { it.copy(textScale = scale) } },
         )
         Divider()
-        SwitchRow("Reduce motion", "Fades in place of slides and moving covers", app.reduceMotion, icon = Icons.Rounded.MotionPhotosOff) { on -> update { it.copy(reduceMotion = on) } }
+        SwitchRow("Reduce motion", "No slides or movement. Short fades stay.", app.reduceMotion, icon = Icons.Rounded.MotionPhotosOff) { on -> update { it.copy(reduceMotion = on) } }
         Divider()
         SwitchRow("Vibration", "A light tap on play, pause, and long presses", app.haptics, icon = Icons.Rounded.Vibration) { on -> update { it.copy(haptics = on) } }
     }
@@ -1328,6 +1357,16 @@ private fun keepFont(context: android.content.Context, uri: android.net.Uri?, te
 
 /** A made-up song's shape, for the Shape seek bar's sketch. */
 private val SketchShape = listOf(0.3f, 0.5f, 0.4f, 0.7f, 0.9f, 0.6f, 0.8f, 1f, 0.7f, 0.5f, 0.8f, 0.6f, 0.4f, 0.3f)
+
+/** A sketch of the main buttons: a grey skip at each side of [play] (the part that changes). */
+@Composable
+private fun ButtonsSketch(grey: Color, gap: Int = 4, play: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
+        SketchBar(10, 10, grey, 5)
+        play()
+        SketchBar(10, 10, grey, 5)
+    }
+}
 
 /** A tiny player for a sketch: grey lines of words, and [cover] (the part that changes). */
 @Composable

@@ -199,11 +199,15 @@ struct RootView: View {
         .transaction(value: window.showPlayer) { if Motion.reduced { $0.disablesAnimations = true } }
         .fullScreenCover(isPresented: $window.showPlayer) {
             NowPlayingView()
+                // The player has no field of its own (its tools' fields are in their own
+                // sheets): a keyboard never takes room from it, not even one that was told
+                // of and never went (the player once sat in the window's top half).
+                .ignoresSafeArea(.keyboard, edges: .bottom)
                 .modifier(PlayerZoom(space: player))
                 .modifier(WindowCommands(window: window, actions: actions))
                 // In a wide window the player's tools are popovers from their buttons.
                 .sheet(item: Binding(get: { wide && window.sheet?.isTool == true ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
-                .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
+                .overlay(alignment: .top) { Toast() }
                 .modifier(QuestionAlert(shown: true))
         }
         .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest || window.welcomeAgain },
@@ -220,13 +224,13 @@ struct RootView: View {
                 .presentationSizing(.page)
                 .modifier(WindowCommands(window: window, actions: actions))
                 .sheet(item: Binding(get: { window.showPlayer ? nil : window.sheet }, set: { window.sheet = $0 })) { SheetView(sheet: $0).modifier(WindowCommands(window: window, actions: actions)) }
-                .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
+                .overlay(alignment: .top) { Toast() }
                 .modifier(QuestionAlert(shown: !window.showPlayer))
         }
         .sheet(isPresented: $window.newPlaylist) {
             NavigationStack { PlaylistEditor {} }.presentationSizing(.form).modifier(WindowCommands(window: window, actions: actions))
         }
-        .overlay(alignment: .top) { Toast().animation(Motion.fade(.spring), value: store.message) }
+        .overlay(alignment: .top) { Toast() }
         .modifier(QuestionAlert(shown: !window.showPlayer && !window.showSettings))
         .onChange(of: window.opening) { _, route in
             guard let route else { return }
@@ -521,7 +525,21 @@ struct RootView: View {
                 pace.speed = speed
                 store.setTempo(pace)
             }
+            // -look cover|record|lyrics|visualizer, -buttons <style>, -immersive 0|1: the
+            // player's look for pictures (kept, as a choice in Settings is).
+            if let look = value("-look") { store.updateChoices { $0.bigLook = look } }
+            if let style = value("-buttons") { store.updateApp { $0.controlStyle = style } }
+            if let immersive = value("-immersive") { store.updateApp { $0.immersiveCover = immersive == "1" } }
+            // -cover-shape square|round: the card's shape (Settings › The cover).
+            if let shape = value("-cover-shape") { store.updateApp { $0.coverShape = shape } }
+            // -open-player-buttons: Settings › Appearance › Player buttons, over the page.
+            if CommandLine.arguments.contains("-open-player-buttons") { window.opening = .playerButtons }
             try? await Task.sleep(for: .seconds(1))
+            // -open-player: the full player, over the song that is there.
+            if CommandLine.arguments.contains("-open-player"), store.playback?.current != nil {
+                window.showPlayer = true
+                try? await Task.sleep(for: .seconds(1))
+            }
             switch value("-sheet") {
             case "sleep": window.sheet = .sleep
             case "speed": window.sheet = .speed
@@ -623,8 +641,8 @@ private struct WindowCommands: ViewModifier {
         content
             .focusedSceneValue(\.windowState, window)
             .focusedSceneValue(\.windowActions, actions)
-            // Esc closes it, as Done, Cancel, or a swipe down do.
-            .background { EscapeKey { dismiss() }.frame(width: 0, height: 0).accessibilityHidden(true) }
+            // Esc closes it, as Done, Cancel, or a swipe down do: at once, as every key acts.
+            .background { EscapeKey { withoutMotion { dismiss() } }.frame(width: 0, height: 0).accessibilityHidden(true) }
     }
 }
 
@@ -653,7 +671,8 @@ private struct PlayerZoom: ViewModifier {
 
     func body(content: Content) -> some View {
         if systemReduceMotion || store.app.reduceMotion {
-            content
+            // The page under it shows while the grabber pulls the player down.
+            content.presentationBackground(.clear)
         } else {
             content.navigationTransition(.zoom(sourceID: "player", in: space))
         }
@@ -736,7 +755,7 @@ private struct ToolPopover: ViewModifier {
             }
             .presentationCompactAdaptation(.popover)
             .focusedSceneValue(\.windowState, window)
-            .background { EscapeKey { window.sheet = nil }.frame(width: 0, height: 0).accessibilityHidden(true) }
+            .background { EscapeKey { withoutMotion { window.sheet = nil } }.frame(width: 0, height: 0).accessibilityHidden(true) }
         }
     }
 }

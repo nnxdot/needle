@@ -53,10 +53,15 @@ import androidx.compose.ui.zIndex
 
 /**
  * The player's buttons (Settings › Appearance › Player buttons, the core's `player_buttons`):
- * every one, in Needle's own order. The first [MainButtons] chosen sit in the player's main
- * row; the rest in the row under it.
+ * every one, in Needle's own order. The player's main row shows the chosen ones of
+ * [MainRowPlayerButtons], in the chosen order. The others have fixed places in the player now
+ * (the heart beside the title, the pill of tools): they stay in the saved list, so another
+ * version of Needle reads it as before, but nothing asks for them.
  */
 val AllPlayerButtons = listOf("shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers")
+
+/** The buttons of the player's main row: the ones Settings lets the listener choose and order. */
+val MainRowPlayerButtons = listOf("shuffle", "previous", "play", "next", "repeat")
 
 /** How many chosen buttons the player's main row holds; the rest go in the row under it. */
 const val MainButtons = 5
@@ -87,9 +92,13 @@ fun chosenButtons(stored: List<String>): List<String> {
  * takes a button off (or puts it on, below). Play/Pause always stays.
  */
 @Composable
-fun PlayerButtonsEditor(buttons: List<String>, onChange: (List<String>) -> Unit) {
-    val chosen = chosenButtons(buttons)
-    val unused = AllPlayerButtons.filter { it !in chosen }
+fun PlayerButtonsEditor(buttons: List<String>, save: (List<String>) -> Unit) {
+    // Only the main row's buttons are offered. The others keep their saved place after them.
+    val stored = chosenButtons(buttons)
+    val chosen = stored.filter { it in MainRowPlayerButtons }
+    val kept = stored.filter { it !in MainRowPlayerButtons }
+    val onChange: (List<String>) -> Unit = { save(it + kept) }
+    val unused = MainRowPlayerButtons.filter { it !in chosen }
     // Where each button and the player sit on screen, for a drag's drop.
     val places = remember { mutableStateMapOf<String, Rect>() }
     var player by remember { mutableStateOf(Rect.Zero) }

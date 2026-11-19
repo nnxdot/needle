@@ -532,6 +532,7 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
         if (ids.isNotEmpty()) {
             // A library that cannot answer says so in the app; it does not close Needle.
             runCatching { core.play(ids, startIndex.coerceAtLeast(0).toUInt()) }
+                .onSuccess { fyi.nnx.needle.ui.startedFrom.value = null }
                 .onFailure { fyi.nnx.needle.ui.showMessage(it.message ?: "Could not play these songs") }
             startedAt = android.os.SystemClock.uptimeMillis()
             if (startPositionMs > 0) core.seek(startPositionMs / 1000.0)

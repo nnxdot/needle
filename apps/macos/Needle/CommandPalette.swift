@@ -7,6 +7,8 @@ struct CommandPalette: View {
     @Environment(\.openSettings) private var openSettings
     @State private var text = ""
     @State private var active = 0
+    /// The pointer chose `active` (no scrolling to it).
+    @State private var pointed = false
     @State private var found: PaletteFound?
     @FocusState private var focused: Bool
 
@@ -49,13 +51,21 @@ struct CommandPalette: View {
                                 }
                                 row(item, active: index == active)
                                     .id(index)
+                                    .onHover { inside in
+                                        guard inside, active != index else { return }
+                                        pointed = true
+                                        active = index
+                                    }
                                     .onTapGesture { active = index; run(items) }
                             }
                         }
                         .padding(.bottom, 8)
                     }
                     .frame(maxHeight: 420)
-                    .onChange(of: active) { _, a in reader.scrollTo(a) }
+                    // Arrow keys scroll to the chosen row; the pointer choosing one never scrolls.
+                    .onChange(of: active) { _, a in
+                        if pointed { pointed = false } else { reader.scrollTo(a) }
+                    }
                 }
                 Divider()
                 HStack(spacing: 14) {

@@ -241,18 +241,23 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
 fun GenresScreen(open: (Route) -> Unit) {
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
-    val list = genres.orEmpty()
     Page("Genres") { padding, scroll ->
-        LazyVerticalGrid(
-            columns = gridColumns(210.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp + LocalBottomInset.current),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
-        ) {
-            gridItemsIndexed(list, key = { _, g -> g.name }) { _, genre ->
-                GenreTile(genre.name, genre.artwork, Modifier) { open(Route.Genre(genre.name)) }
-            }
+        GenreGrid(genres.orEmpty(), open, Modifier.fillMaxSize().padding(padding).then(scroll))
+    }
+}
+
+/** The genres' tiles, as many across as fit: the Genres page's, and the Library's Genres. */
+@Composable
+fun GenreGrid(list: List<fyi.nnx.needle.core.Genre>, open: (Route) -> Unit, modifier: Modifier, top: androidx.compose.ui.unit.Dp = 0.dp) {
+    LazyVerticalGrid(
+        columns = gridColumns(210.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = top, bottom = 24.dp + LocalBottomInset.current),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier,
+    ) {
+        gridItemsIndexed(list, key = { _, g -> g.name }) { _, genre ->
+            GenreTile(genre.name, genre.artwork, Modifier) { open(Route.Genre(genre.name)) }
         }
     }
 }

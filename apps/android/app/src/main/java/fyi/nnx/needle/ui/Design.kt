@@ -91,8 +91,11 @@ fun Modifier.named(name: String, value: String? = null): Modifier = semantics {
     if (value != null) stateDescription = value
 }
 
-/** The album whose page this is, if any: its menus need not offer to go to it. */
-val LocalAlbumHere = androidx.compose.runtime.compositionLocalOf<String?> { null }
+/**
+ * The album whose page this is, if any: its menus need not offer to go to it. Told apart by its
+ * key, not its title: two artists' "Greatest Hits" are two albums.
+ */
+val LocalAlbumHere = androidx.compose.runtime.compositionLocalOf<fyi.nnx.needle.core.Album?> { null }
 
 /** The shape for artists: a circle, on every screen (DESIGN.md). */
 @Composable
@@ -222,13 +225,15 @@ fun Page(
 fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDismiss: () -> Unit) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val haptics = rememberHaptics()
     // Once only: rows still take taps while the sheet slides away.
     var acted by remember { mutableStateOf(false) }
-    fun act(work: () -> Unit) {
+    // Done at once while the sheet slides away (Play next, Go to album, …); only what opens
+    // another sheet ([then]) waits until this one has gone.
+    fun act(then: Boolean = false, work: () -> Unit) {
         if (acted) return
         acted = true
-        scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
+        if (!then) work()
+        scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); if (then) work() }
     }
     GlassSheet(onDismissRequest = onDismiss, sheetState = state, art = song.artwork) {
         // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
@@ -240,90 +245,130 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                     Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            // The stars: a tap sets them, a tap on the same one clears them.
-            var stars by remember(song.id) { mutableIntStateOf(song.rating.toInt()) }
-            // The library's own count, read off the main thread.
-            androidx.compose.runtime.LaunchedEffect(song.id) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.rating(song.id).toInt() }.getOrNull() }?.let { stars = it }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                (1..5).forEach { n ->
-                    IconButton(modifier = Modifier.semantics { selected = n == stars }, onClick = {
-                        haptics(false)
-                        val want = if (stars == n) 0 else n
-                        libraryWrite({ core.rate(song.id, want.toUByte()) }, { showMessage("Could not rate it: ${it.message}") }) {
-                            stars = want
-                            showMessage(if (want == 0) "Stars taken off" else "Rated ${"★".repeat(want)}")
-                        }
-                    }) {
-                        Icon(
-                            if (n <= stars) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                            contentDescription = if (n == 1) "1 star" else "$n stars",
-                            tint = if (n <= stars) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(30.dp),
-                        )
-                    }
-                }
-            }
-            MenuGroup {
-                MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { listOf(song.id) } } }
-                MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { listOf(song.id) } } }
-                MenuRow(Icons.Rounded.Radio, "Start radio") {
-                    act {
-                        showMessage("Starting radio from ${song.title}…")
-                        NeedleApp.instance.scope.launch { runCatching { core.startRadio(song.id) }.onFailure { showMessage(it.message ?: "Could not start the radio") } }
-                    }
-                }
-            }
-            MenuGroup {
-                MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act { Ui.sheet.value = Sheet.AddToPlaylist(listOf(song.id)) } }
-                if (remove != null) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove from this playlist") { act(remove) }
-                MenuRow(Icons.Rounded.CheckCircle, "Select") { act { Selection.start(song) } }
-            }
-            MenuGroup {
-                if (song.fromServer()) {
-                    val kept by androidx.compose.runtime.produceState<Boolean?>(null, song.id) {
-                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.isKept(song.id) }.getOrDefault(false) }
-                    }
-                    kept?.let { k ->
-                        MenuRow(Icons.Rounded.DownloadForOffline, if (k) "Stop keeping on this phone" else "Keep on this phone") { act { keepOffline(listOf(song.id), !k) } }
-                    }
-                    MenuRow(Icons.Rounded.SaveAlt, "Save to my music") { act { saveToMusic(listOf(song.id)) } }
-                } else {
-                    MenuRow(Icons.Rounded.Edit, "Edit tags") { act { Ui.sheet.value = Sheet.EditTags(listOf(song.id)) } }
-                }
-            }
-            if (open != null) {
-                MenuGroup {
-                    if (LocalAlbumHere.current != song.album) MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumOf(song.album, song.id)) } }
-                    MenuRow(Icons.Rounded.Person, "Go to artist") { act { open(Route.Artist(song.artist)) } }
-                    MenuRow(Icons.Rounded.Lyrics, "Time the lyrics") { act { open(Route.Timing(song.id)) } }
-                }
-            }
-            // The song playing: how it plays, and when the music stops.
-            val playingNow = NeedleApp.instance.playback.collectAsState().value?.current?.id == song.id
-            if (playingNow && !song.onComputer()) {
-                MenuGroup {
-                    MenuRow(Icons.Rounded.Speed, "Speed and pitch") { act { Ui.sheet.value = Sheet.SpeedPitch } }
-                    MenuRow(Icons.Rounded.Bedtime, "Sleep timer") { act { Ui.sheet.value = Sheet.SleepTimer } }
-                }
-            }
-            // Commands from plugins that act on songs.
-            val commands by androidx.compose.runtime.produceState(emptyList<Pair<String, fyi.nnx.needle.core.PluginCommand>>()) {
-                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    runCatching { core.plugins() }.getOrDefault(emptyList()).filter { it.enabled }
-                        .flatMap { p -> p.commands.filter { it.forSongs }.map { p.id to it } }
-                }
-            }
-            if (commands.isNotEmpty()) {
-                MenuGroup {
-                    commands.forEach { (plugin, command) ->
-                        MenuRow(Icons.Rounded.Extension, command.title) { act { core.runPluginCommand(plugin, command.id, listOf(song.id)) } }
-                    }
-                }
+            SongMenuRows(song, open, remove) { then, work -> act(then, work) }
+        }
+    }
+}
+
+/**
+ * A song's menu below its name: its stars, then its actions in groups, in the song's own sheet.
+ * (The big player's More sheet has its own order, from the same parts: [SongStars],
+ * [startRadioFrom], [SongFileRows], [songCommands].) `act(then, work)`: see [SongSheet].
+ */
+@Composable
+fun ColumnScope.SongMenuRows(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onAct: (Boolean, () -> Unit) -> Unit) {
+    fun act(then: Boolean = false, work: () -> Unit) = onAct(then, work)
+    SongStars(song, Modifier.fillMaxWidth())
+    MenuGroup {
+        MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { listOf(song.id) } } }
+        MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { listOf(song.id) } } }
+        MenuRow(Icons.Rounded.Radio, "Start radio") { act { startRadioFrom(song) } }
+    }
+    MenuGroup {
+        MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act(then = true) { Ui.sheet.value = Sheet.AddToPlaylist(listOf(song.id)) } }
+        if (remove != null) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove from this playlist") { act(work = remove) }
+        MenuRow(Icons.Rounded.CheckCircle, "Select") { act { Selection.start(song) } }
+    }
+    MenuGroup {
+        SongFileRows(song, onAct) { icon, label, click -> MenuRow(icon, label, onClick = click) }
+    }
+    if (open != null) {
+        MenuGroup {
+            if (LocalAlbumHere.current?.title != song.album) MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumOf(song.album, song.id)) } }
+            MenuRow(Icons.Rounded.Person, "Go to artist") { act { open(Route.Artist(song.artist)) } }
+            MenuRow(Icons.Rounded.Lyrics, "Time the lyrics") { act { open(Route.Timing(song.id)) } }
+        }
+    }
+    // The song playing: how it plays, and when the music stops.
+    val playingNow = NeedleApp.instance.playback.collectAsState().value?.current?.id == song.id
+    if (playingNow && !song.onComputer()) {
+        MenuGroup {
+            MenuRow(Icons.Rounded.Speed, "Speed and pitch") { act(then = true) { Ui.sheet.value = Sheet.SpeedPitch } }
+            MenuRow(Icons.Rounded.Bedtime, "Sleep timer") { act(then = true) { Ui.sheet.value = Sheet.SleepTimer } }
+        }
+    }
+    // Commands from plugins that act on songs.
+    val commands = songCommands()
+    if (commands.isNotEmpty()) {
+        MenuGroup {
+            commands.forEach { (plugin, command) ->
+                MenuRow(Icons.Rounded.Extension, command.title) { act(then = true) { core.runPluginCommand(plugin, command.id, listOf(song.id)) } }
             }
         }
     }
+}
+
+/**
+ * A song's five stars, in the accent where set: a tap sets them, a tap on the same one clears
+ * them. `size`: the star's own; each keeps an icon button's room to tap.
+ */
+@Composable
+fun SongStars(song: Song, modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 30.dp, arrangement: Arrangement.Horizontal = Arrangement.Center) {
+    val haptics = rememberHaptics()
+    var stars by remember(song.id) { mutableIntStateOf(song.rating.toInt()) }
+    // The library's own count, read off the main thread.
+    androidx.compose.runtime.LaunchedEffect(song.id) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.rating(song.id).toInt() }.getOrNull() }?.let { stars = it }
+    }
+    Row(modifier, horizontalArrangement = arrangement) {
+        (1..5).forEach { n ->
+            IconButton(modifier = Modifier.semantics { selected = n == stars }, onClick = {
+                haptics(false)
+                val want = if (stars == n) 0 else n
+                // The stars change at once; a write that fails puts them back.
+                val was = stars
+                stars = want
+                libraryWrite({ core.rate(song.id, want.toUByte()) }, { stars = was; showMessage("Could not rate it: ${it.message}") }) {
+                    showMessage(if (want == 0) "Stars taken off" else "Rated ${"★".repeat(want)}")
+                }
+            }) {
+                Icon(
+                    if (n <= stars) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                    contentDescription = if (n == 1) "1 star" else "$n stars",
+                    tint = if (n <= stars) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(size),
+                )
+            }
+        }
+    }
+}
+
+/** Starts the radio from a song (a song's menu, the player's More). */
+fun startRadioFrom(song: Song) {
+    showMessage("Starting radio from ${song.title}…")
+    NeedleApp.instance.scope.launch { runCatching { core.startRadio(song.id) }.onSuccess { startedFrom.value = null }.onFailure { showMessage(it.message ?: "Could not start the radio") } }
+}
+
+/**
+ * The rows about a song's file, as `row(icon, words, onClick)`: for a server's song, Keep on this
+ * phone (or Stop keeping) and Save to my music; for the phone's own, Edit tags.
+ * `act(then, work)`: see [SongSheet].
+ */
+@Composable
+fun SongFileRows(song: Song, act: (Boolean, () -> Unit) -> Unit, row: @Composable (ImageVector, String, () -> Unit) -> Unit) {
+    if (song.fromServer()) {
+        val kept by androidx.compose.runtime.produceState<Boolean?>(null, song.id) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.isKept(song.id) }.getOrDefault(false) }
+        }
+        kept?.let { k ->
+            row(Icons.Rounded.DownloadForOffline, if (k) "Stop keeping on this phone" else "Keep on this phone") { act(false) { keepOffline(listOf(song.id), !k) } }
+        }
+        row(Icons.Rounded.SaveAlt, "Save to my music") { act(false) { saveToMusic(listOf(song.id)) } }
+    } else {
+        row(Icons.Rounded.Edit, "Edit tags") { act(true) { Ui.sheet.value = Sheet.EditTags(listOf(song.id)) } }
+    }
+}
+
+/** The commands of the plugins turned on that act on songs, as (plugin, command), read off the main thread. */
+@Composable
+fun songCommands(): List<Pair<String, fyi.nnx.needle.core.PluginCommand>> {
+    val commands by androidx.compose.runtime.produceState(emptyList<Pair<String, fyi.nnx.needle.core.PluginCommand>>()) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { core.plugins() }.getOrDefault(emptyList()).filter { it.enabled }
+                .flatMap { p -> p.commands.filter { it.forSongs }.map { p.id to it } }
+        }
+    }
+    return commands
 }
 
 /** Menu rows on the sheet itself; a soft line sets each group off from the one above. */
@@ -372,16 +417,17 @@ fun ActionSheet(
     title: String,
     sub: String?,
     onDismiss: () -> Unit,
-    content: @Composable ColumnScope.(act: (() -> Unit) -> Unit) -> Unit,
+    content: @Composable ColumnScope.(act: SheetAct) -> Unit,
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // Once only: rows still take taps while the sheet slides away.
     var acted by remember { mutableStateOf(false) }
-    val act: (() -> Unit) -> Unit = { work ->
+    val act = SheetAct { after, work ->
         if (!acted) {
             acted = true
-            scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
+            if (!after) work()
+            scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); if (after) work() }
         }
     }
     GlassSheet(onDismissRequest = onDismiss, sheetState = state, art = art) {
@@ -397,6 +443,16 @@ fun ActionSheet(
             content(act)
         }
     }
+}
+
+/**
+ * A sheet's action. `act { }` is done at once while the sheet slides away (Play next, Go to
+ * album, …); `act.after { }` waits until the sheet has gone, for what opens another sheet or
+ * window, which this one's closing would otherwise close or cover.
+ */
+class SheetAct(private val run: (after: Boolean, work: () -> Unit) -> Unit) {
+    operator fun invoke(work: () -> Unit) = run(false, work)
+    fun after(work: () -> Unit) = run(true, work)
 }
 
 /** An album's menu: from a long press on its cover, or the More button on its page. */
@@ -421,11 +477,11 @@ fun AlbumSheet(album: fyi.nnx.needle.core.Album, open: ((Route) -> Unit)?, onDis
         MenuGroup {
             MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { ids() } } }
             MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { ids() } } }
-            MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act { withIds { Ui.sheet.value = Sheet.AddToPlaylist(it) } } }
+            MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act.after { withIds { Ui.sheet.value = Sheet.AddToPlaylist(it) } } }
         }
         if (open != null) {
             MenuGroup {
-                if (LocalAlbumHere.current != album.title) MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumPage(album)) } }
+                if (LocalAlbumHere.current?.key != album.key) MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumPage(album)) } }
                 MenuRow(Icons.Rounded.Person, "Go to artist") { act { open(Route.Artist(album.artist)) } }
             }
         }
@@ -455,7 +511,7 @@ fun PlaylistSheet(
         }
         // One the server lets you only read keeps its name and songs: no Edit, order, or Delete.
         if (!detail.readOnly) MenuGroup {
-            MenuRow(Icons.Rounded.Edit, "Edit") { act { Ui.sheet.value = Sheet.EditPlaylist(detail.id) } }
+            MenuRow(Icons.Rounded.Edit, "Edit") { act.after { Ui.sheet.value = Sheet.EditPlaylist(detail.id) } }
             if (onArrange != null) MenuRow(Icons.Rounded.SwapVert, "Put in order") { act(onArrange) }
         }
         MenuGroup {

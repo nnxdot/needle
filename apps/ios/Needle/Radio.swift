@@ -68,7 +68,7 @@ struct RadioView: View {
     /// Your station: from the song played most lately, or any song when nothing has played yet.
     private var hero: some View {
         let seed = seeds?.first
-        return Button { yourStation() } label: {
+        return Button { store.startYourStation() } label: {
             ZStack(alignment: .bottomLeading) {
                 Artwork(path: seed?.artwork, seed: (seed?.album ?? "") + (seed?.artist ?? "Needle"), size: 800)
                     .frame(height: wide ? 280 : 220)
@@ -134,15 +134,20 @@ struct RadioView: View {
         }
     }
 
-    private func yourStation() {
-        store.run { core in
+}
+
+extension Store {
+    /// Your station (the Radio page's and Home's): from the song played most lately, or any
+    /// song when nothing has played yet.
+    func startYourStation() {
+        run { core in
             let top = try core.stats(days: 30).topSongs.compactMap(\.songId)
             let any = try core.songs().randomElement()?.id
             // The first that can start one (a song whose file is gone cannot).
             for id in top + [any].compactMap({ $0 }) where (try? core.startRadio(id: id)) != nil { return }
             throw NeedleError.Failed(message: "Add music first")
         }
-        store.playedWhenReady()
+        playedWhenReady()
     }
 }
 

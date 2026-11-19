@@ -8,12 +8,17 @@ struct HomePage: View {
     @State private var days: [PastDay] = []
     /// In December, the year for Your year in music.
     @State private var reviewYear: Int32?
+    /// For Start fast: how many favorite songs and songs there are, and the song Your station
+    /// starts from (as on the Radio page).
+    @State private var start = StartData()
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
-                Text(greeting).font(store.display(34))
-                NowCard()
+                Text(greeting).font(store.display(34)).tracking(store.displayTracking(34))
+                // There whether music plays or not: it never shows and hides with the player.
+                let quick = quickStarts
+                if !quick.isEmpty { StartFast(items: quick) }
                 if let reviewYear { YearHomeCard(year: reviewYear) }
                 if let home {
                     Shelf(title: "Jump back in", detail: "Albums you played last", albums: home.recent)
@@ -40,13 +45,36 @@ struct HomePage: View {
         }
         .scrollContentBackground(.hidden)
         .task(id: store.libraryVersion) {
-            home = JSON.decode(HomeData.self, await store.load { try $0.homeJson() })
+            // Read together and shown together, so Start fast never grows tile by tile.
+            let nextHome = JSON.decode(HomeData.self, await store.load { try $0.homeJson() })
+            let nextStart = StartData(
+                favorites: await store.load { try $0.favorites().count } ?? 0,
+                songs: await store.load { try $0.songCount() } ?? 0,
+                seed: await store.load { try $0.stats(days: 90).topSongs.first { $0.songId != nil } } ?? nil)
+            home = nextHome
+            start = nextStart
             let offset = Int32(TimeZone.current.secondsFromGMT())
             days = JSON.decode([PastDay].self, await store.load { try $0.onThisDayJson(offset: offset) }) ?? []
             // For tests, `--year-card` shows the card in any month.
             reviewYear = await store.load { try $0.homeReviewYear() } ?? nil
             if reviewYear == nil, CommandLine.arguments.contains("--year-card") { reviewYear = Int32(store.reviewYear) }
         }
+    }
+
+    /// Start fast's tiles, in order: Favorites, Your station, the two albums played most, the
+    /// first two playlists; then the albums played last that are not there yet, up to six. An
+    /// even number, and none at all below two.
+    private var quickStarts: [QuickStart] {
+        guard let home else { return [] }
+        var items: [QuickStart] = []
+        if start.favorites > 0 { items.append(.favorites) }
+        if start.songs > 0 { items.append(.station(start.seed)) }
+        var albums = Set<String>()
+        for album in home.mostPlayed.prefix(2) where albums.insert(album.key).inserted { items.append(.album(album)) }
+        items += store.playlists.filter { $0.songs > 0 }.prefix(2).map { QuickStart.playlist($0) }
+        for album in home.recent where items.count < 6 && albums.insert(album.key).inserted { items.append(.album(album)) }
+        if items.count % 2 == 1 { items.removeLast() }
+        return items.count >= 2 ? items : []
     }
 
     private var greeting: String {
@@ -58,32 +86,180 @@ struct HomePage: View {
     }
 }
 
-/// The song playing, large, at the top of Home.
-private struct NowCard: View {
-    private var store: Store { .shared }
+/// What Start fast needs beyond Home's albums.
+private struct StartData {
+    var favorites = 0
+    var songs: UInt32 = 0
+    var seed: Ranked?
+}
+
+/// One of Start fast's quick starts.
+enum QuickStart: Identifiable {
+    case favorites
+    /// Your station, from this song (the Radio page's), or as the Radio page picks one.
+    case station(Ranked?)
+    case album(AlbumSummary)
+    case playlist(Playlist)
+
+    var id: String {
+        switch self {
+        case .favorites: "favorites"
+        case .station: "station"
+        case .album(let album): "album|" + album.key
+        case .playlist(let playlist): "playlist|" + playlist.id
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .favorites: "Favorites"
+        case .station: "Your station"
+        case .album(let album): album.title
+        case .playlist(let playlist): playlist.name
+        }
+    }
+
+    /// The song playing comes from this (by the reason it plays for; the core puts "Shuffled · "
+    /// before the reason of a shuffled play).
+    func holds(_ playback: MacPlayback?) -> Bool {
+        guard let p = playback, p.hasSong else { return false }
+        let shuffled = "Shuffled · "
+        let reason = p.reason.hasPrefix(shuffled) ? String(p.reason.dropFirst(shuffled.count)) : p.reason
+        switch self {
+        case .favorites: return reason == "From your favorites" || reason == "From favorites"
+        case .station: return reason.hasPrefix("Radio")
+        case .album(let album): return p.album == album.album && reason == "From the album \(album.album)"
+        case .playlist(let playlist): return reason == "From your playlist \(playlist.name)"
+        }
+    }
+
+    /// Plays it: the favorites shuffled, the station as the Radio page starts it, an album or a
+    /// playlist from its first song.
+    @MainActor
+    func play(shuffle: Bool = false) {
+        let store = Store.shared
+        switch self {
+        case .favorites:
+            let rule = Route.favorites.base
+            Task { _ = await store.ask { try $0.playView(query: rule, playlist: nil, filter: "", start: 0, shuffle: true, reason: "From your favorites") } }
+        case .station(let seed):
+            RadioPage.startYourStation(from: seed)
+        case .album(let album):
+            let (rule, reason) = (album.query, "From the album \(album.album)")
+            Task { _ = await store.ask { try $0.playView(query: rule, playlist: nil, filter: "", start: 0, shuffle: shuffle, reason: reason) } }
+        case .playlist(let playlist):
+            let id = playlist.id
+            // Gone meanwhile: never an empty rule, which plays the whole library.
+            guard let model = store.playlistModel(id) else { store.playlistGone(id); return }
+            let rule = model.query ?? ""
+            let reason = "From your playlist \(playlist.name)"
+            Task { _ = await store.ask { try $0.playView(query: rule, playlist: rule.isEmpty ? id : nil, filter: "", start: 0, shuffle: shuffle, reason: reason) } }
+        }
+    }
+}
+
+/// Start fast: up to six quick starts under the greeting, three across. A click plays one; a
+/// right click gives its menu.
+private struct StartFast: View {
+    let items: [QuickStart]
 
     var body: some View {
-        if let p = store.playback, p.hasSong {
-            let colors = store.colors
-            HStack(spacing: 18) {
-                Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: 96, corner: 8) }
-                    .buttonStyle(.plain)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(p.playing ? "Playing now" : "Paused").font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.accent)
-                    Text(p.title).font(.needle(.title2).weight(.semibold)).lineLimit(1)
-                    Text("\(p.artist) · \(p.album)").foregroundStyle(colors.ink2).lineLimit(1)
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top), count: 3), spacing: 10) {
+            ForEach(items) { QuickTile(item: $0) }
+        }
+    }
+}
+
+/// A quick start: its cover square at the left, its name. The one the song playing comes from
+/// shows the playing bars and its name in the accent; nothing moves when it lights.
+private struct QuickTile: View {
+    private var store: Store { .shared }
+    let item: QuickStart
+    @State private var hover = false
+
+    private static let side: CGFloat = 56
+
+    var body: some View {
+        let colors = store.colors
+        let lit = item.holds(store.playback)
+        let shape = RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+        Button { item.play() } label: {
+            HStack(spacing: 12) {
+                art
+                Text(item.name)
+                    .font(.needle(.callout).weight(.semibold))
+                    .foregroundStyle(lit ? colors.accent : colors.ink)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // The playing bars' room is kept always, so a name never rewraps as it lights.
+                    .padding(.trailing, 32)
+            }
+            .frame(height: Self.side)
+            .background(hover ? colors.raisedHover : colors.raised)
+            .overlay(alignment: .trailing) {
+                if lit {
+                    Equalizer(color: colors.accent, playing: store.isPlaying)
+                        .frame(width: 14, height: 12)
+                        .padding(.trailing, 12)
+                        .accessibilityHidden(true)
                 }
-                .frame(minWidth: 0)
-                Spacer(minLength: 8)
-                Button { store.toggle() } label: { Label(p.playing ? "Pause" : "Resume", systemImage: p.playing ? "pause.fill" : "play.fill") }
-                    .glassButton(prominent: true)
-                    .controlSize(.large)
             }
-            .padding(16)
-            .background {
-                LinearGradient(colors: [colors.glow.opacity(0.35), colors.raised.opacity(0.6)], startPoint: .leading, endPoint: .trailing)
-                    .clipShape(RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
-            }
+            .clipShape(shape)
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("Play \(item.name)")
+        .accessibilityLabel("Play \(item.name)")
+        .accessibilityValue(lit ? "Playing now" : "")
+        .contextMenu { menu }
+    }
+
+    @ViewBuilder
+    private var art: some View {
+        let side = Self.side
+        let colors = store.colors
+        switch item {
+        case .favorites:
+            Image(systemName: "heart.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(colors.accentInk)
+                .frame(width: side, height: side)
+                .background(colors.accent)
+        case .station(let seed):
+            // The song it starts from is its colour, as on the Radio page.
+            Cover(path: seed?.artwork, seed: (seed?.album ?? "") + (seed?.artist ?? "radio"), side: side, corner: 0)
+                .overlay(Color.black.opacity(0.35))
+                .overlay {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+        case .album(let album):
+            Cover(path: album.artwork, seed: album.album + album.artist, side: side, corner: 0)
+        case .playlist(let playlist):
+            PlaylistArt(playlist: playlist, side: side, corner: 0)
+        }
+    }
+
+    /// The item's own menu, with Open.
+    @ViewBuilder
+    private var menu: some View {
+        switch item {
+        case .favorites:
+            Button("Open Favorites") { store.navigate(.favorites) }
+            Divider()
+            GroupMenu(route: .favorites, title: "Favorites")
+        case .station:
+            Button("Open Radio") { store.navigate(.radio) }
+        case .album(let album):
+            GroupMenu(route: album.route, title: album.title)
+        case .playlist(let playlist):
+            Button("Open Playlist") { store.navigate(.playlist(playlist.id)) }
+            Divider()
+            Button("Play") { item.play() }
+            Button("Shuffle") { item.play(shuffle: true) }
         }
     }
 }
@@ -196,9 +372,25 @@ struct AlbumTile: View {
     /// Where on its page the tile is (a shelf's title, "albums"): the same album may show on
     /// two shelves, and only the one clicked is the cover that flies to the album and back.
     var place = ""
+    /// Search's words: their letters lit in the name.
+    var words: [String] = []
+    /// Search: told when the album is opened or played, to remember it.
+    var opened: (() -> Void)?
     @State private var hover = false
     /// The cover's own colour, for the light behind it under the pointer.
     @State private var glow: Color?
+
+    init(album: AlbumSummary, side: CGFloat, place: String = "", words: [String] = [], opened: (() -> Void)? = nil) {
+        self.album = album
+        self.side = side
+        self.place = place
+        self.words = words
+        self.opened = opened
+        // A colour found before shows at once, so the light never starts black.
+        if let known = Covers.knownPageColor(album.artwork, seed: album.album + album.artist) {
+            _glow = State(initialValue: Color(nsColor: known))
+        }
+    }
 
     /// This tile, among others showing the same album (see `Store.travelingTile`).
     private var me: String { place + "|" + album.query }
@@ -213,7 +405,7 @@ struct AlbumTile: View {
                     // Under the pointer the cover lifts a little, with a soft light in its own colour.
                     .shadow(color: hover ? (glow ?? .black).opacity(0.55) : .black.opacity(0.15), radius: hover ? 16 : 6, y: hover ? 6 : 4)
                     .offset(y: hover && store.motion ? -2 : 0)
-                Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(words.isEmpty ? AttributedString(album.title) : litText(album.title, words)).font(.needle(.callout).weight(.medium)).lineLimit(1)
                 Text(album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist)
                     .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
@@ -233,24 +425,31 @@ struct AlbumTile: View {
                 .padding(8)
                 .frame(width: side, height: side, alignment: .bottomTrailing)
                 .offset(y: store.motion ? -2 : 0)
-                .transition(store.motion ? .scale.combined(with: .opacity) : .opacity)
+                // From its corner, never from nothing.
+                .transition(store.motion ? .scale(scale: 0.85, anchor: .bottomTrailing).combined(with: .opacity) : .opacity)
             }
         }
         .onHover { h in withAnimation(store.motion ? .snappy(duration: 0.15) : nil) { hover = h } }
-        .task(id: hover) {
-            guard hover, glow == nil else { return }
-            glow = Color(nsColor: await Covers.pageColor(album.artwork, seed: album.album + album.artist))
+        // The light's colour is found when the tile shows, not under the pointer, so the light
+        // lifts in its own colour and never turns from black to it.
+        .task(id: album.artwork ?? album.album + album.artist) {
+            guard glow == nil else { return }
+            let found = Color(nsColor: await Covers.pageColor(album.artwork, seed: album.album + album.artist))
+            withAnimation(hover ? .easeOut(duration: 0.15) : nil) { glow = found }
         }
         .accessibilityAction(named: "Play") { play() }
         .contextMenu { GroupMenu(route: album.route, title: album.title) }
     }
 
     private func open() {
+        opened?()
         store.travelingTile = me
-        store.navigate(album.route)
+        // The one page change that animates: the clicked cover flies to the album's page.
+        withAnimation(store.motion ? .smooth(duration: 0.3) : nil) { store.navigate(album.route) }
     }
 
     private func play() {
+        opened?()
         let (rule, reason) = (album.query, "From the album \(album.album)")
         Task { _ = await store.ask { try $0.playView(query: rule, playlist: nil, filter: "", start: 0, shuffle: false, reason: reason) } }
     }
@@ -261,14 +460,21 @@ struct ArtistTile: View {
     private var store: Store { .shared }
     let artist: ArtistSummary
     let side: CGFloat
+    /// Search's words: their letters lit in the name.
+    var words: [String] = []
+    /// Search: told when the artist is opened, to remember it.
+    var opened: (() -> Void)?
 
     var body: some View {
         // A real button, so the keyboard reaches it.
-        Button { store.navigate(.artist(artist.name)) } label: {
+        Button {
+            opened?()
+            store.navigate(.artist(artist.name))
+        } label: {
             VStack(spacing: 6) {
                 ArtistPhoto(name: artist.name, side: side)
                     .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
-                Text(artist.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                Text(words.isEmpty ? AttributedString(artist.title) : litText(artist.title, words)).font(.needle(.callout).weight(.medium)).lineLimit(1)
                 Text(artist.albums == 1 ? count(artist.tracks, "track") : "\(artist.albums) albums · \(count(artist.tracks, "track"))")
                     .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
@@ -337,7 +543,7 @@ struct ArtistsPage: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(store.search.isEmpty ? "Artists" : "Artists matching “\(store.search)”").font(store.display(28))
+                            Text(store.search.isEmpty ? "Artists" : "Artists matching “\(store.search)”").font(store.display(28)).tracking(store.displayTracking(28))
                             Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                         }
                         Spacer()
@@ -492,7 +698,7 @@ struct TileGrid<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(store.search.isEmpty ? title : "\(title) matching “\(store.search)”").font(store.display(28))
+                    Text(store.search.isEmpty ? title : "\(title) matching “\(store.search)”").font(store.display(28)).tracking(store.displayTracking(28))
                     Text(summary ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
@@ -633,7 +839,7 @@ struct ArtistPage: View {
                     } else {
                         Text(name.isEmpty ? "Unknown artist" : name)
                             .font(store.display(64))
-                            .tracking(-1.2)
+                            .tracking(store.displayTracking(64, system: -1.2))
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
                             .minimumScaleFactor(0.5)
@@ -747,7 +953,10 @@ struct ArtistPage: View {
                     .padding(.vertical, 5)
                     .overlay(alignment: .bottom) { Rectangle().fill(colors.lineSoft).frame(height: 1).padding(.leading, 56) }
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { store.play(top.map(\.asTrack), from: index, reason: "From \(name)") }
+                    .hoverHighlight(outset: 6)
+                    // One click plays, as on search songs.
+                    .onTapGesture { store.play(top.map(\.asTrack), from: index, reason: "From \(name)") }
+                    .accessibilityAddTraits(.isButton)
                     .contextMenu { SongMenu(tracks: [song.fullTrack]) }
                 }
             }
@@ -776,7 +985,7 @@ struct FoldersPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Folders").font(store.display(28))
+                    Text("Folders").font(store.display(28)).tracking(store.displayTracking(28))
                     Text("Your music folders, as they are on disk.").foregroundStyle(store.colors.ink2)
                 }
                 if roots.isEmpty {

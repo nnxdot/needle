@@ -269,7 +269,6 @@ impl AppView {
                             Sort::Desc(f) if f == field => Sort::Default,
                             _ => Sort::Asc(field),
                         };
-                        this.page_offset = 0;
                         this.refresh(cx);
                     }))
                     .on_drag(DraggedColumn(key.to_string()), move |_, _, _, cx| {
@@ -500,9 +499,13 @@ impl AppView {
                 cx.notify();
             }))
             .children(rows);
-        let body = motion::animate(body, ("header-menu-in", menu.serial), 140, cx, |el, t| {
-            el.opacity(t).mt(px(6. * (1. - t)))
-        });
+        let body = motion::fade(
+            body,
+            ("header-menu-in", menu.serial),
+            140,
+            cx,
+            |el, f, m| el.opacity(f).mt(px(6. * (1. - m))),
+        );
         Some(
             deferred(
                 anchored()

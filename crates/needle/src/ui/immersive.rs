@@ -185,8 +185,21 @@ impl AppView {
         // The controls rest out of sight while the music plays and the pointer is still.
         let shown = !playing || self.immersive_moved.elapsed() < IDLE;
         if shown != self.immersive_shown {
+            // From the strength they have now: quick to show (the pointer moved), slow to rest.
+            let from = self.immersive_strength(self.immersive_shown);
             self.immersive_shown = shown;
-            self.immersive_serial += 1;
+            let target = if shown { 1. } else { 0. };
+            // With Reduce motion, a short fade both ways.
+            let ms = if shown || !motion::enabled(cx) {
+                150.
+            } else {
+                600.
+            };
+            self.immersive_fade = (from, Instant::now(), ms * (target - from).abs());
+        }
+        let strength = self.immersive_strength(shown);
+        if strength != if shown { 1. } else { 0. } {
+            window.request_animation_frame();
         }
         // Look again when the pointer has rested long enough: one wait at a time, and the
         // next render starts another if the pointer moved in the meantime.
@@ -203,13 +216,7 @@ impl AppView {
             })
             .detach();
         }
-        // Keyed by the serial, so each change between shown and resting fades once.
-        let serial = self.immersive_serial;
-        let fade = move |el: Div, id: &'static str, cx: &App| {
-            motion::animate(el, (id, serial as usize), 450, cx, move |el, t| {
-                el.opacity(if shown { t } else { 1. - t })
-            })
-        };
+        let fade = move |el: Div, _: &'static str, _: &App| el.opacity(strength);
 
         let left_w = if lyrics { w * 0.44 } else { w };
         let art = if lyrics {
@@ -566,5 +573,16 @@ impl AppView {
             )
             .child(fade(corner, "imm-corner", cx))
             .into_any_element()
+    }
+
+    /// How strong the controls are now (0 to 1) on their way to shown (or resting).
+    fn immersive_strength(&self, shown: bool) -> f32 {
+        let target = if shown { 1. } else { 0. };
+        let (from, since, ms) = self.immersive_fade;
+        if ms <= 0. {
+            return target;
+        }
+        let t = (since.elapsed().as_secs_f32() * 1000. / ms).min(1.);
+        from + (target - from) * motion::ease_out(t)
     }
 }

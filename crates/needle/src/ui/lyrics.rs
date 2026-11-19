@@ -170,8 +170,10 @@ impl AppView {
         let line = lyrics.line_at(self.playback.position + 0.15);
         if line != self.lyric_line {
             self.lyric_line = line;
-            self.lyric_glide = line.is_some();
-            self.mini_lyric_glide = line.is_some();
+            // Scrolled by hand a moment ago: the lyrics stay where they were put.
+            let follow = line.is_some() && self.lyrics_hand.is_none();
+            self.lyric_glide = follow;
+            self.mini_lyric_glide = follow;
         }
     }
 
@@ -187,15 +189,30 @@ impl AppView {
             self.lyrics_shown = (big_shown, side_shown);
             self.lyric_glide = self.lyric_line.is_some();
         }
-        if self.lyric_glide {
+        // Three seconds after a scroll by hand, the lyrics follow the singer again.
+        if self
+            .lyrics_hand
+            .is_some_and(|at| at.elapsed() >= HAND_PAUSE)
+        {
+            self.lyrics_hand = None;
+            self.lyric_glide = self.lyric_line.is_some();
+            self.mini_lyric_glide = self.lyric_line.is_some();
+        }
+        if self.lyrics_hand.is_some() {
+            self.lyric_glide = false;
+        }
+        if !self.lyric_glide {
+            MAIN_GLIDE.with(|g| g.set(None));
+        } else {
+            let dt = MAIN_GLIDE.with(glide_step);
             let off = Glide::Done;
             let big = if big_shown {
-                glide(&self.lyrics_scroll, self.lyric_line, cx)
+                glide(&self.lyrics_scroll, self.lyric_line, dt, cx)
             } else {
                 off
             };
             let side = if side_shown {
-                glide(&self.panel_lyrics_scroll, self.lyric_line, cx)
+                glide(&self.panel_lyrics_scroll, self.lyric_line, dt, cx)
             } else {
                 off
             };
@@ -222,8 +239,11 @@ impl AppView {
     /// they are still moving.
     pub(super) fn glide_mini_lyrics(&mut self, cx: &App) -> bool {
         if self.mini_lyric_glide {
+            let dt = MINI_GLIDE.with(glide_step);
             self.mini_lyric_glide =
-                glide(&self.mini_lyrics_scroll, self.lyric_line, cx) == Glide::Moving;
+                glide(&self.mini_lyrics_scroll, self.lyric_line, dt, cx) == Glide::Moving;
+        } else {
+            MINI_GLIDE.with(|g| g.set(None));
         }
         self.mini_lyric_glide
     }
@@ -486,10 +506,17 @@ impl AppView {
                         }),
                     );
                     if state == 0 && karaoke.is_none() {
-                        // The new line brightens in as it arrives.
+                        // The new line brightens in as it arrives, while the line before it
+                        // dims, so the light passes from one to the next.
                         let (dim, ink) = (p.ink.opacity(0.4), p.ink);
-                        motion::animate(line_el, ("lyric-on", i), 380, cx, move |el, t| {
+                        motion::fade(line_el, ("lyric-on", i), 240, cx, move |el, t, _| {
                             el.text_color(motion::mix(dim, ink, t))
+                        })
+                    } else if state == 1 && active == Some(i + 1) {
+                        let past = p.ink.opacity(if p.dark { 0.28 } else { 0.4 });
+                        let ink = p.ink;
+                        motion::fade(line_el, ("lyric-off", i), 240, cx, move |el, t, _| {
+                            el.text_color(motion::mix(ink, past, t))
                         })
                     } else {
                         line_el.into_any_element()
@@ -510,6 +537,18 @@ impl AppView {
                 &self.lyrics_scroll
             })
             .pr_2()
+            // Scrolled by hand, the lyrics stop following the singer for a while.
+            .on_scroll_wheel(cx.listener(|this, _: &ScrollWheelEvent, _, cx| {
+                this.lyrics_hand = Some(std::time::Instant::now());
+                this.lyric_glide = false;
+                this.mini_lyric_glide = false;
+                let wait = HAND_PAUSE + std::time::Duration::from_millis(50);
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(wait).await;
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                })
+                .detach();
+            }))
             // Room above and below so any line can glide to the reading spot.
             .when(!lyrics.lines.is_empty(), |el| {
                 // Enough room below for the last lines to move up, not a screenful of nothing.
@@ -637,7 +676,29 @@ enum Glide {
     NotLaidOut,
 }
 
-fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> Glide {
+/// The time since the last step of a glide, in seconds (one frame at 60 Hz for the first).
+fn glide_step(last: &std::cell::Cell<Option<std::time::Instant>>) -> f32 {
+    let now = std::time::Instant::now();
+    let dt = last
+        .get()
+        .map(|at| now.duration_since(at).as_secs_f32())
+        .filter(|dt| *dt < 0.1)
+        .unwrap_or(1. / 60.);
+    last.set(Some(now));
+    dt
+}
+
+/// How long the lyrics stay where they were scrolled by hand.
+const HAND_PAUSE: std::time::Duration = std::time::Duration::from_secs(3);
+
+thread_local! {
+    static MAIN_GLIDE: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+    static MINI_GLIDE: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn glide(scroll: &ScrollHandle, line: Option<usize>, dt: f32, cx: &App) -> Glide {
     let Some(line) = line else {
         return Glide::Done;
     };
@@ -646,8 +707,11 @@ fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> Glide {
     };
     let mut offset = scroll.offset();
     let now = f32::from(offset.y);
+    // By real time, not per frame, so it moves the same at 60 Hz and at 180 Hz: a settle with
+    // a time constant of 90 ms.
     let next = if motion::enabled(cx) {
-        now + (target - now) * 0.14
+        let k = 1. - (-dt / 0.09).exp();
+        now + (target - now) * k
     } else {
         target
     };

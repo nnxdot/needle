@@ -221,6 +221,7 @@ impl AppView {
                 el.text_color(if glass { p.ink } else { p.ink_2 })
                     .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
                     .hover(move |s| s.text_color(p.ink))
+                    .active(move |s| s.bg(super::glass::press_fill(&p)))
                     .map(|el| super::glass::hover_row(el, radius, cx))
             })
             .child(picture.unwrap_or_else(|| {
@@ -689,8 +690,17 @@ impl AppView {
         if fold == 0 || since.elapsed() > std::time::Duration::from_millis(300) {
             return element.into_any_element();
         }
-        super::motion::animate(element, ("sidebar-fold", fold), 220, cx, move |el, t| {
-            el.w(px(from + (width - from) * t))
+        // The sidebar is drawn at its new width at once, inside a clip that opens or closes
+        // to it: its rows keep their final layout, so no label runs through "S…", "Se…".
+        let margin = if pane { super::SIDEBAR_INSET } else { 0. };
+        let clip = div()
+            .flex_shrink_0()
+            .flex()
+            .overflow_hidden()
+            .when(!pane, |el| el.h_full())
+            .child(element);
+        super::motion::animate(clip, ("sidebar-fold", fold), 220, cx, move |el, t| {
+            el.w(px(margin + from + (width - from) * t))
         })
     }
 
@@ -767,12 +777,12 @@ impl AppView {
                 .flex()
                 .items_center()
                 .bg(p.back)
-                .child(super::motion::animate(
+                .child(super::motion::fade(
                     text,
                     ("player-lyric", serial),
                     220,
                     cx,
-                    |el, t| el.opacity(t),
+                    |el, f, _| el.opacity(f),
                 ))
                 .into_any_element(),
         )
@@ -868,10 +878,13 @@ impl AppView {
                     .child(
                         div()
                             .id("open-big")
+                            .relative()
                             .cursor_pointer()
                             .rounded(px(4.))
                             .hover(|s| s.opacity(0.85))
+                            .active(|s| s.opacity(0.7))
                             .child(artwork(current.as_ref(), 56., cx))
+                            .child(self.big_art_probe())
                             .tooltip(|window, cx| {
                                 gpui_component::tooltip::Tooltip::new(super::widgets::keys(
                                     "Open the big player · Ctrl+P",
@@ -908,6 +921,7 @@ impl AppView {
                                         .text_size(px(13.5))
                                         .font_weight(FontWeight::MEDIUM)
                                         .truncate()
+                                        .map(|el| full_text(el, track.title.clone()))
                                         .cursor_pointer()
                                         .hover(|s| s.underline())
                                         .child(track.title.clone())
@@ -921,6 +935,7 @@ impl AppView {
                                         .text_size(px(12.))
                                         .text_color(p.ink_2)
                                         .truncate()
+                                        .map(|el| full_text(el, track.display_artist().to_string()))
                                         .cursor_pointer()
                                         .hover(|s| s.underline().text_color(p.ink))
                                         .child(track.display_artist().to_string())
@@ -1221,7 +1236,7 @@ impl AppView {
                     .cursor_pointer()
                     .hover(|s| s.opacity(0.88))
                     // Pressed: shrink inside the same space so nothing around it moves.
-                    .active(move |s| s.size(px(play - 4.)).m(px(2.)).opacity(0.8))
+                    .active(move |s| super::glass::press_round(s, play))
                     .child(
                         glyph(if playing { "pause" } else { "play" })
                             .size(px((play * 0.45).round()))
@@ -1773,6 +1788,16 @@ impl AppView {
                                                         .min_w_0()
                                                         .text_size(px(12.5))
                                                         .truncate()
+                                                        .map(|el| {
+                                                            full_text(
+                                                                el,
+                                                                format!(
+                                                                    "{} · {}",
+                                                                    track.title,
+                                                                    track.display_artist()
+                                                                ),
+                                                            )
+                                                        })
                                                         .cursor_pointer()
                                                         .hover(|s| s.underline())
                                                         .child(format!(
@@ -1900,6 +1925,16 @@ impl AppView {
                     div()
                         .id("toast")
                         .occlude()
+                        // While the pointer rests on it, it stays (its life goes on after).
+                        .on_hover(cx.listener(|this, hovered: &bool, _, _| {
+                            if let Some(toast) = &mut this.toast {
+                                match (*hovered, toast.hovered.take()) {
+                                    (true, _) => toast.hovered = Some(std::time::Instant::now()),
+                                    (false, Some(since)) => toast.shown += since.elapsed(),
+                                    (false, None) => {}
+                                }
+                            }
+                        }))
                         .max_w(px(560.))
                         .pl_4()
                         .pr_2()
@@ -1933,25 +1968,33 @@ impl AppView {
                                 })),
                         )
                         .map(|el| match toast.leaving {
-                            // It fades out where it is.
-                            Some(_) => super::motion::animate(
+                            // It fades out where it is, quicker than it came.
+                            Some(_) => super::motion::fade(
                                 el,
-                                ElementId::Name(format!("toast-out-{:?}", toast.shown).into()),
+                                ElementId::Name(format!("toast-out-{:?}", toast.entered).into()),
                                 super::TOAST_OUT_MS,
                                 cx,
-                                |el, t| el.opacity(1. - t),
+                                |el, t, _| el.opacity(1. - t),
                             ),
-                            None => super::motion::animate(
+                            None => super::motion::fade(
                                 el,
-                                ElementId::Name(format!("toast-{:?}", toast.shown).into()),
-                                180,
+                                ElementId::Name(format!("toast-{:?}", toast.entered).into()),
+                                240,
                                 cx,
-                                |el, t| el.opacity(t).mt(px(8. * (1. - t))),
+                                |el, f, m| el.opacity(f).mt(px(8. * (1. - m))),
                             ),
                         }),
                 ),
         )
     }
+}
+
+/// A name that may be cut short with an ellipsis: its tip shows it in full.
+pub(super) fn full_text(el: Stateful<Div>, text: impl Into<SharedString>) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    el.tooltip(move |window, cx| {
+        gpui_component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+    })
 }
 
 /// The sidebar folded to a strip of icons, as in Apple Music.
@@ -1991,7 +2034,8 @@ fn rail_item(
             el.rounded_full()
                 .when(active, |el| el.bg(super::glass::capsule(&p, false)))
                 .when(!active, |el| {
-                    el.map(|el| super::glass::hover_row(el, 20., cx))
+                    el.active(move |s| s.bg(super::glass::press_fill(&p)))
+                        .map(|el| super::glass::hover_row(el, 20., cx))
                 })
         })
         .when(!p.glass, |el| {
@@ -2008,7 +2052,10 @@ fn rail_item(
                             .bg(p.accent),
                     )
                 })
-                .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
+                .when(!active, |el| {
+                    el.hover(|s| s.bg(p.raised.opacity(0.6)))
+                        .active(|s| s.bg(p.raised))
+                })
         })
         .child(picture.unwrap_or_else(|| {
             glyph(glyph_name)

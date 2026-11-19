@@ -57,13 +57,15 @@ struct ScanPill: View {
 
 // MARK: - Home
 
-/// Home, as on the Mac: the greeting as its title, the song playing now, and shelves of albums
+/// Home: the greeting as its title, "Start fast" (up to six quick starts), and shelves of albums
 /// and artists, each with a line saying what it holds.
 struct HomeView: View {
     @Environment(Store.self) private var store
     @Environment(WindowState.self) private var window
     @Environment(\.wide) private var wide
     @State private var home: Home?
+    /// "Start fast": loaded with `home`, so both come in together.
+    @State private var starts: [QuickStart] = []
     @State private var favorites: [Album] = []
     /// What played on this day one and five years ago.
     @State private var days: [OnThisDay] = []
@@ -73,7 +75,7 @@ struct HomeView: View {
     /// In December, the year for Your year in music.
     @State private var reviewYear: Int32?
 
-    /// The Mac's Home: a greeting, the song playing now, then shelves of covers.
+    /// A greeting, the quick starts, then shelves of covers.
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -81,7 +83,8 @@ struct HomeView: View {
                     if home.recent.isEmpty && home.added.isEmpty && home.mostPlayed.isEmpty {
                         empty
                     } else {
-                        NowCard()
+                        // There whether music plays or not: the player bar shows the song.
+                        if !starts.isEmpty { QuickStartGrid(starts: starts) }
                         if let reviewYear {
                             YearHomeCard(year: reviewYear)
                                 .frame(maxWidth: wide ? 620 : .infinity)
@@ -131,7 +134,12 @@ struct HomeView: View {
             if case .success(let urls) = result { store.importFiles(urls) }
         }
         .task(id: store.libraryVersion) {
-            home = await store.load { try $0.home() }
+            let loaded = await store.load { core -> (Home, [QuickStart]) in
+                let home = try core.home()
+                return (home, QuickStart.all(core, home: home))
+            }
+            home = loaded?.0
+            starts = loaded?.1 ?? []
             favorites = await store.load { try $0.homeShelves(limit: 20).favorites } ?? []
             let offset = Int32(TimeZone.current.secondsFromGMT())
             days = await store.load { try $0.onThisDay(utcOffset: offset, limit: 12) } ?? []
@@ -182,73 +190,203 @@ struct HomeView: View {
     }
 }
 
-/// The song playing, at the top of Home, as on the Mac: its cover, "Playing now", the song and
-/// "artist · album", and a round Play/Pause in the accent. A tap opens the player. It comes in
-/// and goes softly when music starts or ends.
-struct NowCard: View {
-    @Environment(Store.self) private var store
-    @Environment(\.wide) private var wide
+/// One of Home's quick starts ("Start fast"): one press plays it.
+struct QuickStart: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        /// The favorite songs, shuffled.
+        case favorites
+        /// Your station, as the Radio page starts it; the cover of the song it likely starts
+        /// from gives the tile its picture.
+        case station(MixCover?)
+        case album(Album)
+        case playlist(Playlist)
+    }
 
-    var body: some View {
-        ZStack {
-            if let song = store.playback?.current {
-                NowCardBody(song: song)
-                    // A card, not a band across a wide window.
-                    .frame(maxWidth: wide ? 620 : .infinity)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Tiles.margin(wide)).padding(.top, 6)
-                    .transition(Motion.transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity)))
-            }
+    let kind: Kind
+
+    /// As `Store.startedFrom` names what began the music.
+    var id: String {
+        switch kind {
+        case .favorites: "favorites"
+        case .station: "station"
+        case .album(let album): "album:" + album.key
+        case .playlist(let playlist): "playlist:" + playlist.id
         }
-        .animation(Motion.fade(.smooth(duration: 0.35)), value: store.playingID == nil)
+    }
+
+    var name: String {
+        switch kind {
+        case .favorites: "Favorites"
+        case .station: "Your station"
+        case .album(let album): album.shownTitle
+        case .playlist(let playlist): playlist.name
+        }
+    }
+
+    /// Up to six, in this order, leaving out what the library does not have: the favorites,
+    /// your station, the two albums played most, the first two playlists; then the albums
+    /// played last that are not there yet. An even number, and none with fewer than two.
+    nonisolated static func all(_ core: Needle, home: Home) -> [QuickStart] {
+        var starts: [QuickStart] = []
+        if (try? core.favorites().isEmpty) == false { starts.append(QuickStart(kind: .favorites)) }
+        if ((try? core.songCount()) ?? 0) > 0 {
+            let seed = (try? core.stats(days: 90).topSongs.first { $0.songId != nil }) ?? nil
+            starts.append(QuickStart(kind: .station(seed.map { MixCover(path: $0.artwork, seed: $0.album + $0.artist) })))
+        }
+        starts += home.mostPlayed.prefix(2).map { QuickStart(kind: .album($0)) }
+        // A playlist with no songs would play nothing.
+        let playlists = ((try? core.playlists()) ?? []).filter { $0.smart || $0.songs > 0 }
+        starts += playlists.prefix(2).map { QuickStart(kind: .playlist($0)) }
+        for album in home.recent where starts.count < 6 {
+            let start = QuickStart(kind: .album(album))
+            if !starts.contains(where: { $0.id == start.id }) { starts.append(start) }
+        }
+        starts = Array(starts.prefix(6))
+        if starts.count % 2 == 1 { starts.removeLast() }
+        return starts.count >= 2 ? starts : []
     }
 }
 
-private struct NowCardBody: View {
+/// "Start fast" at the top of Home: two across on a phone, three in a wide window. The tile of
+/// what plays now is lit.
+struct QuickStartGrid: View {
     @Environment(Store.self) private var store
-    @Environment(WindowState.self) private var window
-    let song: Song
-    /// Presses of Play/Pause here: the buzz is for them only.
-    @State private var presses = 0
+    @Environment(\.wide) private var wide
+    let starts: [QuickStart]
+    /// The song playing, read when the song changes (not with every tick of `playback`).
+    @State private var song: Song?
 
     var body: some View {
-        let playing = store.isPlaying
-        let colors = store.colors
-        HStack(spacing: 14) {
-            Button { window.showPlayer = true } label: {
-                HStack(spacing: 14) {
-                    Artwork(path: song.artwork, seed: song.album + song.artist, size: 200)
-                        .frame(width: 72, height: 72)
-                        .clipShape(.soft(Corner.cover))
-                        .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(playing ? "Playing now" : "Paused").font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.accent)
-                        Text(song.title).font(.needle(.headline)).lineLimit(1)
-                        Text([song.artist, song.album].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Opens the player")
-            Button { presses += 1; store.toggle() } label: {
-                Image(systemName: playing ? "pause.fill" : "play.fill")
-                    .font(.needle(.title3))
-                    .foregroundStyle(colors.onAccent)
-                    .contentTransition(.symbolEffect(.replace))
-                    .frame(width: 48, height: 48)
-                    .background(colors.accent, in: .circle)
-            }
-            .buttonStyle(Pressable())
-            .accessibilityLabel(playing ? "Pause" : "Resume")
-            .sensoryFeedback(.impact(weight: .light), trigger: presses) { _, _ in store.app.haptics }
+        let lit = litID
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: wide ? 12 : 9), count: wide ? 3 : 2),
+                  spacing: wide ? 12 : 9) {
+            ForEach(starts) { QuickStartTile(start: $0, lit: $0.id == lit) }
         }
-        .padding(12)
-        // Glass in the playing cover's colour (the accent until it is known), faint so the
-        // words read on it.
-        .glassEffect(.regular.tint((store.coverColor ?? colors.accent).opacity(0.22)), in: .soft(Corner.large))
+        .padding(.horizontal, Tiles.margin(wide))
+        .padding(.top, 10)
+        .task(id: store.playingID) { song = store.playback?.current }
+    }
+
+    /// The tile of what plays now: the one that began it, or else the album the song is from.
+    private var litID: String? {
+        guard store.playingID != nil else { return nil }
+        if let from = store.startedFrom { return from }
+        guard let song else { return nil }
+        return starts.first { start in
+            guard case .album(let album) = start.kind else { return false }
+            return song.album == album.title
+                && (song.artist == album.artist || isPlaceholderArtist(album.artist) || song.artist.contains(album.artist))
+        }?.id
+    }
+}
+
+/// A quick start: its cover as a square at the left, the full height of the tile, then its
+/// name, on the page's raised colour. A press plays it; a long press gives its menu.
+private struct QuickStartTile: View {
+    @Environment(Store.self) private var store
+    @Environment(WindowState.self) private var window
+    /// The tile grows with the text size, so two lines of the name always fit.
+    @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 58
+    let start: QuickStart
+    let lit: Bool
+
+    var body: some View {
+        let colors = store.colors
+        Button(action: play) {
+            HStack(spacing: 10) {
+                cover
+                    .frame(width: side, height: side)
+                    .clipped()
+                Text(start.name)
+                    .font(.needle(.subheadline).weight(.semibold))
+                    .foregroundStyle(lit ? colors.accent : colors.text)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The app's own playing mark; its room is kept, so the name never moves.
+                Image(systemName: "waveform")
+                    .font(.needle(.footnote).weight(.semibold))
+                    .foregroundStyle(colors.accent)
+                    .symbolEffect(.variableColor.iterative, isActive: lit && store.isPlaying)
+                    .opacity(lit ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            .padding(.trailing, 10)
+            .frame(height: side)
+            .background(colors.card)
+            .clipShape(.soft(Corner.middle))
+            .contentShape(.soft(Corner.middle))
+            .animation(Motion.fade(), value: lit)
+        }
+        .buttonStyle(Pressable())
+        .hoverEffect(.lift)
+        .contextMenu { menu }
+        .accessibilityLabel("Play \(start.name)")
+        .accessibilityValue(lit ? "Playing" : "")
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        let colors = store.colors
+        switch start.kind {
+        case .favorites:
+            Image(systemName: "heart.fill")
+                .font(.needle(.title3).weight(.semibold))
+                .foregroundStyle(colors.onAccent)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(colors.accent.gradient)
+        case .station(let seed):
+            Artwork(path: seed?.path, seed: seed?.seed ?? "Needle", size: 200)
+                .overlay(Color.black.opacity(0.35))
+                .overlay {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.needle(.title3).weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+        case .album(let album):
+            Artwork(path: album.artwork, seed: album.title + album.artist, size: 200)
+        case .playlist(let playlist):
+            PlaylistCover(playlist: playlist)
+        }
+    }
+
+    /// The item's own menu, with Open (a press plays).
+    @ViewBuilder
+    private var menu: some View {
+        switch start.kind {
+        case .favorites:
+            Button("Open", systemImage: "heart") { window.opening = .favorites }
+        case .station:
+            EmptyView()
+        case .album(let album):
+            Button("Open", systemImage: "square.stack") { window.opening = .album(album) }
+            Divider()
+            AlbumMenu(album: album)
+        case .playlist(let playlist):
+            Button("Open", systemImage: "music.note.list") { window.opening = .playlist(playlist) }
+            Button("Shuffle", systemImage: "shuffle") { playPlaylist(playlist, shuffled: true) }
+        }
+    }
+
+    private func play() {
+        switch start.kind {
+        case .favorites:
+            store.starting(start.id)
+            store.playIDs({ try $0.favorites().map(\.id) }, shuffled: true)
+        case .station:
+            store.starting(start.id)
+            store.startYourStation()
+        case .album(let album):
+            store.playAlbum(album)
+        case .playlist(let playlist):
+            playPlaylist(playlist, shuffled: false)
+        }
+    }
+
+    private func playPlaylist(_ playlist: Playlist, shuffled: Bool) {
+        let id = playlist.id
+        store.starting(start.id)
+        store.playIDs({ try $0.playlistSongs(id: id).map(\.id) }, shuffled: shuffled)
     }
 }
 
@@ -261,9 +399,12 @@ struct TopArtist: Identifiable, Hashable, Sendable {
 
 /// An artist as a round picture with their name under it.
 struct ArtistBubble: View {
+    @Environment(Store.self) private var store
     @Environment(\.wide) private var wide
     let name: String
     let artwork: String?
+    /// Search: the words typed, lit in the name.
+    var match: String?
 
     var body: some View {
         let side = Tiles.bubble(wide)
@@ -273,7 +414,7 @@ struct ArtistBubble: View {
                     .frame(width: side, height: side)
                     .clipShape(.circle)
                     .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-                Text(name).font(.needle(.footnote).weight(.medium)).lineLimit(1)
+                Text(litMatches(name, match, accent: store.colors.accent)).font(.needle(.footnote).weight(.medium)).lineLimit(1)
             }
             .frame(width: side + 6)
             .contentShape(.rect)
@@ -493,29 +634,46 @@ struct GenreTiles: View {
     @Environment(Store.self) private var store
     @Environment(\.wide) private var wide
     let genres: [Genre]
+    /// So many across (Search's Browse, which shows whole lines); nil: as many as fit.
+    var across: Int?
 
     var body: some View {
-        let colors = store.colors
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: wide ? 200 : 150), spacing: wide ? 16 : 12)], spacing: wide ? 16 : 12) {
+        let gap: CGFloat = wide ? 16 : 12
+        let columns = across.map { Array(repeating: GridItem(.flexible(), spacing: gap), count: $0) }
+            ?? [GridItem(.adaptive(minimum: wide ? 200 : 150), spacing: gap)]
+        LazyVGrid(columns: columns, spacing: gap) {
             ForEach(genres) { genre in
                 NavigationLink(value: Route.genre(genre.name)) {
-                    Artwork(path: genre.artwork, seed: genre.name, size: 300)
-                        .frame(height: wide ? 124 : 104)
-                        .frame(maxWidth: .infinity)
-                        .overlay(alignment: .bottomLeading) {
-                            Text(genre.name).font(.needle(.subheadline).bold()).lineLimit(1)
-                                .foregroundStyle(colors.text)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(colors.card.opacity(0.92), in: .soft(Corner.small))
-                                .padding(8)
-                        }
-                        .clipShape(.soft(Corner.middle))
+                    BrowseTile(name: genre.name, artwork: genre.artwork)
                 }
                 .buttonStyle(Pressable())
                 .hoverEffect(.lift)
             }
         }
         .padding(.horizontal, Tiles.margin(wide))
+    }
+}
+
+/// A genre's or a decade's tile: one of its covers, with its name on the page's raised colour.
+struct BrowseTile: View {
+    @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
+    let name: String
+    let artwork: String?
+
+    var body: some View {
+        let colors = store.colors
+        Artwork(path: artwork, seed: name, size: 300)
+            .frame(height: wide ? 124 : 104)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .bottomLeading) {
+                Text(name).font(.needle(.subheadline).bold()).lineLimit(1)
+                    .foregroundStyle(colors.text)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(colors.card.opacity(0.92), in: .soft(Corner.small))
+                    .padding(8)
+            }
+            .clipShape(.soft(Corner.middle))
     }
 }
 
@@ -748,8 +906,14 @@ struct HeaderGlow: View {
     let path: String?
     let seed: String
     let look: PageColors
+    /// Reduce Transparency: no glow; the page's own plain colour.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
+        if !reduceTransparency { glow }
+    }
+
+    private var glow: some View {
         Artwork(path: path, seed: seed, size: 200)
             .aspectRatio(contentMode: .fill)
             .frame(height: 460)

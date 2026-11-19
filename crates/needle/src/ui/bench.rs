@@ -58,7 +58,6 @@ fn type_search(view: &mut AppView, tick: u32, window: &mut Window, cx: &mut Cont
     let text = &"the love song"[..((tick / 9) as usize % 13) + 1];
     view.search
         .update(cx, |s, cx| s.set_value(text, window, cx));
-    view.page_offset = 0;
     view.refresh(cx);
     view.update_suggestions(cx);
 }
@@ -133,7 +132,6 @@ fn steps() -> Vec<Step> {
             start: |v, w, cx| {
                 open(v, Page::Songs, w, cx);
                 v.sort = super::Sort::Asc("title");
-                v.page_offset = 0;
                 v.refresh(cx);
             },
             tick: None,
@@ -392,12 +390,29 @@ impl AppView {
                         v.genre_by_plays = by == "plays";
                         open(v, Page::MoodMap, window, cx);
                     }
-                    // "search:harbor": the Search page, with that typed.
-                    Some(("search", text)) => {
-                        v.search
-                            .update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
-                        v.page = Page::Search;
-                        v.run_find(cx);
+                    // "search-decades:": the Search page before typing, Browse on its decades
+                    // (for this run only; the kept choice stays as it is).
+                    Some(("search-decades", _)) => {
+                        v.browse_decades = true;
+                        open(v, Page::Search, window, cx);
+                        cx.notify();
+                    }
+                    // "search:harbor": the Search page, with that typed ("search:" before
+                    // typing); "search-songs:harbor" on its Songs chip.
+                    Some((how @ ("search" | "search-songs"), text)) => {
+                        if text.is_empty() {
+                            open(v, Page::Search, window, cx);
+                        } else {
+                            v.search
+                                .update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
+                            v.page = Page::Search;
+                            v.search_tab = if how == "search-songs" {
+                                super::search_page::SearchTab::Songs
+                            } else {
+                                Default::default()
+                            };
+                            v.run_find(cx);
+                        }
                         cx.notify();
                     }
                     // "long-album": an album page that holds every song, scrolled down
@@ -556,14 +571,15 @@ impl AppView {
             .detach();
         }
         // For screenshots: play what a rule finds (NEEDLE_SHOW_PLAY), from NEEDLE_SHOW_SEEK
-        // seconds into the first song.
+        // seconds into the first song, with why it plays (NEEDLE_SHOW_WHY, "From Albums").
         if let Ok(rule) = std::env::var("NEEDLE_SHOW_PLAY") {
+            let why = std::env::var("NEEDLE_SHOW_WHY").unwrap_or_else(|_| "From Albums".into());
             let seek = std::env::var("NEEDLE_SHOW_SEEK")
                 .ok()
                 .and_then(|s| s.parse::<f64>().ok());
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
-                let _ = view.update(cx, |v, _| v.play_rule(rule, "From Albums".into()));
+                let _ = view.update(cx, |v, _| v.play_rule(rule, why));
                 if let Some(at) = seek {
                     cx.background_executor().timer(Duration::from_secs(2)).await;
                     let _ = view.update(cx, |v, _| {

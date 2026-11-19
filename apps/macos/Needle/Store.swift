@@ -47,6 +47,22 @@ final class Store {
     private(set) var current: Track?
     /// The songs up next (the first few hundred), read again whenever the queue changes.
     private(set) var queue: [QueueEntry] = []
+    /// Until when a queue change slides its rows (see `editQueue`).
+    @ObservationIgnored private var queueSlidesUntil = Date.distantPast
+
+    /// A change made by a click in the queue panel: its rows slide into their new places.
+    func editQueue(_ change: () -> Void) {
+        queueSlidesUntil = Date().addingTimeInterval(1)
+        change()
+    }
+
+    /// A row dragged to a new place in the queue panel: it stays where it was dropped (no
+    /// animation), and the core is told after.
+    func moveQueueRow(from: IndexSet, to: Int) {
+        guard let first = from.first else { return }
+        withTransaction(Transaction(animation: nil)) { queue.move(fromOffsets: from, toOffset: to) }
+        core.moveUpNext(from: UInt32(first), to: UInt32(to > first ? to - 1 : to))
+    }
     private(set) var queueSeconds: Double = 0
     /// The playing song's lyrics, once looked up.
     private(set) var lyrics: Lyrics?
@@ -428,8 +444,11 @@ final class Store {
             let first = queueVersion == .max
             queueVersion = now.queueVersion
             let next = core.queueEntries(offset: 0, limit: 400)
-            // Rows come, go, and move into place (still with Reduce motion, and the first time).
-            withAnimation(motion && !first ? .smooth(duration: 0.3) : nil) { queue = next }
+            // Rows slide into place only after a click in the queue panel (Remove, Move Up,
+            // Clear); a skipped song, ⌘→, or songs added elsewhere change the list at once. Never
+            // with Reduce motion, nor the first time.
+            let slide = motion && !first && Date() < queueSlidesUntil
+            withAnimation(slide ? .smooth(duration: 0.3) : nil) { queue = next }
             queueSeconds = core.queueSeconds()
         }
         if now.artwork != tintFor {
@@ -538,14 +557,21 @@ final class Store {
     }
 
     private func show(_ next: Toast) {
-        withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = next }
+        // A message already showing takes the new text in place; a first one comes in.
+        withAnimation(toast != nil ? nil : motion ? .smooth(duration: 0.3) : .easeInOut(duration: 0.2)) { toast = next }
         NSAccessibility.post(element: NSApp!, notification: .announcementRequested,
                              userInfo: [.announcement: next.text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         toastTask?.cancel()
         toastTask = Task {
             try? await Task.sleep(for: .seconds(next.error ? 14 : 6))
-            if !Task.isCancelled, toast?.id == next.id { withAnimation(motion ? .snappy : .easeInOut(duration: 0.2)) { toast = nil } }
+            if !Task.isCancelled, toast?.id == next.id { closeToast() }
         }
+    }
+
+    /// The message leaves, faster than it came.
+    func closeToast() {
+        toastTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) { toast = nil }
     }
 
     /// Runs `work` away from the window, then shows its error, if any.
@@ -703,7 +729,35 @@ final class Store {
     func openBig() {
         Task { @MainActor in
             await Task.yield()
-            big = true
+            showBig(true)
+        }
+    }
+
+    /// Opens a side panel, or closes it when it is the one open. From a click (`animated`) the
+    /// panel slides in over 220 ms and out over 180 ms; from a key it shows and goes at once.
+    func togglePanel(_ panel: Panel, animated: Bool) {
+        let close = settings.showInspector && self.panel == panel
+        let animation: Animation? = animated && motion ? .easeOut(duration: close ? 0.18 : 0.22) : nil
+        withAnimation(animation) {
+            if close {
+                set(["show_inspector": false])
+            } else {
+                self.panel = panel
+                set(["show_inspector": true])
+            }
+        }
+    }
+
+    /// The big player opened or closed by a click: it slides in from its side, and leaves
+    /// faster than it came. Keys set `big` and `immersive` directly, with no animation.
+    func showBig(_ on: Bool) {
+        if on {
+            withAnimation(motion ? .smooth(duration: 0.28) : nil) { big = true }
+        } else {
+            withAnimation(motion ? .smooth(duration: 0.2) : nil) {
+                big = false
+                setImmersive(false)
+            }
         }
     }
 

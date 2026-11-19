@@ -73,6 +73,12 @@ final class Store {
     /// these, which change only with the song, not four times a second as `playback` does.
     private(set) var playingID: String?
     private(set) var isPlaying = false
+    /// What began the music that plays, when Home's "Start fast" knows it: "favorites",
+    /// "station", "album:<key>" or "playlist:<id>" (its tile there is lit). Any other start
+    /// forgets it.
+    private(set) var startedFrom: String?
+    /// What a start that is on its way comes from, until the music starts (`played`).
+    @ObservationIgnored private var startingFrom: String?
     /// The songs up next, read again whenever the queue changes.
     private(set) var upNext: [Song] = []
     /// The core's sleep timer, while it runs (its seconds left change once a second here).
@@ -629,6 +635,7 @@ final class Store {
     }
 
     func playAlbum(key: String, shuffled: Bool = false) {
+        starting("album:" + key)
         playIDs({ try $0.albumSongs(key: key).map(\.id) }, shuffled: shuffled)
     }
 
@@ -662,6 +669,7 @@ final class Store {
     }
 
     func playedWhenReady() {
+        took()
         guard app.openPlayerOnPlay else { return }
         let before = local?.queueVersion
         Task {
@@ -695,8 +703,21 @@ final class Store {
         text.replacingOccurrences(of: #"https?://\S+"#, with: "the server", options: .regularExpression)
     }
 
+    /// The next start comes from `source` (see `startedFrom`): call it just before the start.
+    func starting(_ source: String) {
+        startingFrom = source
+    }
+
+    /// The music started: from what `starting` named, or from something else.
+    private func took() {
+        let source = startingFrom
+        startingFrom = nil
+        if source != startedFrom { startedFrom = source }
+    }
+
     /// Opens the player when a song is chosen, if that is on.
     func played() {
+        took()
         if app.openPlayerOnPlay { inFront { $0.showPlayer = true } }
     }
 
@@ -813,6 +834,11 @@ final class Store {
     }
 
     private func perform(_ action: Action) {
+        // A widget's or Siri's favorites or station is none of Home's quick starts.
+        switch action {
+        case .favourites, .radio: startingFrom = nil; startedFrom = nil
+        default: break
+        }
         switch action {
         case .toggle: toggle()
         case .next: next()

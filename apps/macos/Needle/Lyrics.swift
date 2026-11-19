@@ -11,6 +11,9 @@ struct LyricsView: View {
     var light = false
     /// A line chosen to share as a picture.
     @State private var card: CardLine?
+    /// When the lyrics were last scrolled by hand, and whether they are being scrolled now.
+    @State private var handScrolled: Date?
+    @State private var handScrolling = false
     /// Each line in your language, under it, translated on this Mac (Apple's Translation).
     @AppStorage("translateLyrics") private var translate = false
     @State private var translations: [Int: String] = [:]
@@ -128,13 +131,19 @@ struct LyricsView: View {
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, l in
                         let state: LyricLineView.State = index == line ? .sung : (line.map { index < $0 } ?? false) ? .past : .ahead
                         VStack(alignment: center ? .center : .leading, spacing: 4) {
-                            if state == .sung, !l.words.isEmpty {
-                                SungLine(line: l, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
-                                         size: size, ink: ink, center: center)
-                            } else {
-                                LyricLineView(text: l.text, state: state, size: size, ink: ink, center: center, motion: store.motion)
-                                    .equatable()
+                            // One scale and one timing for the sung line, word-timed or not: the
+                            // line grows the same way when it changes from one view to the other.
+                            Group {
+                                if state == .sung, !l.words.isEmpty {
+                                    SungLine(line: l, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
+                                             size: size, ink: ink, center: center)
+                                } else {
+                                    LyricLineView(text: l.text, state: state, size: size, ink: ink, center: center)
+                                        .equatable()
+                                }
                             }
+                            .scaleEffect(state == .sung && store.motion ? 1.02 : 1, anchor: center ? .center : .leading)
+                            .animation(store.motion ? .smooth(duration: 0.3) : nil, value: state)
                             // The line in your language, under it (Translate on).
                             if translate, let translated = translations[index] {
                                 Text(translated)
@@ -144,6 +153,7 @@ struct LyricsView: View {
                             }
                         }
                         .id(index)
+                        .hoverHighlight(outset: 8)
                         .onTapGesture { store.seek(l.time) }
                         .contextMenu {
                             if !l.text.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -158,8 +168,21 @@ struct LyricsView: View {
                 .frame(maxWidth: .infinity, alignment: center ? .center : .leading)
             }
             .scrollIndicators(.never)
+            // Scrolled by hand, the lyrics stay where they were put: following the song stops,
+            // and comes back 3 seconds after the scrolling ends.
+            .onScrollPhaseChange { old, new in
+                let hand: (ScrollPhase) -> Bool = { $0 == .tracking || $0 == .interacting || $0 == .decelerating }
+                handScrolling = hand(new)
+                if hand(old) || hand(new) { handScrolled = .now }
+            }
             .onChange(of: line) { _, now in
-                guard let now else { return }
+                guard let now, !handScrolling, handScrolled.map({ Date().timeIntervalSince($0) >= 3 }) ?? true else { return }
+                withAnimation(store.motion ? .smooth(duration: 0.6) : nil) { reader.scrollTo(now, anchor: UnitPoint(x: 0.5, y: 0.38)) }
+            }
+            .task(id: handScrolled) {
+                guard handScrolled != nil else { return }
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled, !handScrolling, let now = store.lyricLine else { return }
                 withAnimation(store.motion ? .smooth(duration: 0.6) : nil) { reader.scrollTo(now, anchor: UnitPoint(x: 0.5, y: 0.38)) }
             }
             .onAppear { if let line { reader.scrollTo(line, anchor: UnitPoint(x: 0.5, y: 0.38)) } }
@@ -205,15 +228,13 @@ struct LyricLineView: View, Equatable {
     let size: CGFloat
     let ink: Color
     let center: Bool
-    let motion: Bool
 
     var body: some View {
+        // Its scale and timing are its row's (see `LyricsView.timed`), shared with `SungLine`.
         Text(text.isEmpty ? "♪" : text)
             .font(.system(size: size, weight: .bold))
             .foregroundStyle(ink.opacity(state == .sung ? 1 : state == .past ? 0.42 : 0.3))
             .multilineTextAlignment(center ? .center : .leading)
-            .scaleEffect(state == .sung && motion ? 1.02 : 1, anchor: center ? .center : .leading)
-            .animation(motion ? .smooth(duration: 0.3) : nil, value: state)
             .contentShape(Rectangle())
     }
 }
@@ -241,7 +262,6 @@ struct SungLine: View {
         return Text(text)
             .font(.system(size: size, weight: .bold))
             .multilineTextAlignment(center ? .center : .leading)
-            .scaleEffect(store.motion ? 1.02 : 1, anchor: center ? .center : .leading)
             .contentShape(Rectangle())
     }
 }
@@ -312,7 +332,7 @@ struct TimingPage: View {
         let title = store.current.map { "\($0.title) · \($0.artist)" } ?? ""
         return HStack(alignment: .bottom, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Time the lyrics").font(store.display(28))
+                Text("Time the lyrics").font(store.display(28)).tracking(store.displayTracking(28))
                 if !title.isEmpty { Text(title).foregroundStyle(colors.ink2).lineLimit(1) }
             }
             Spacer()
@@ -366,7 +386,7 @@ struct TimingPage: View {
                 }
                 .padding(6)
             }
-            .onChange(of: next.line) { _, line in withAnimation(store.motion ? .default : nil) { reader.scrollTo(line, anchor: .center) } }
+            .onChange(of: next.line) { _, line in reader.scrollTo(line, anchor: .center) }
         }
         .background(colors.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.small, style: .continuous))
     }
@@ -546,7 +566,7 @@ struct LyricStrip: View {
         .contentShape(Capsule())
         .pane(Capsule(), interactive: true, tinted: true, id: "lyrics", in: space)
         .animation(store.motion ? .easeOut(duration: 0.35) : nil, value: store.lyricLine)
-        .onTapGesture { store.panel = .lyrics; store.set(["show_inspector": true]) }
+        .onTapGesture { if !(store.settings.showInspector && store.panel == .lyrics) { store.togglePanel(.lyrics, animated: true) } }
         .help("Lyrics: click to see them all")
     }
 }

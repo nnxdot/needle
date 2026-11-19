@@ -449,7 +449,7 @@
 					"@executable_path/Frameworks",
 				);
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -502,7 +502,7 @@
 					"@executable_path/Frameworks",
 				);
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -546,7 +546,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -578,7 +578,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -611,7 +611,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -645,7 +645,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -670,7 +670,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -693,7 +693,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 2.0.6;
+				MARKETING_VERSION = 2.0.7;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",

@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import kotlinx.coroutines.flow.first
+
 import android.content.pm.PackageManager
 import androidx.compose.foundation.IndicationNodeFactory
 import androidx.compose.foundation.clickable
@@ -90,11 +92,15 @@ fun Modifier.firstFocus(): Modifier {
     if (!usingKeys()) return this
     val requester = remember { FocusRequester() }
     val opened = LocalPageOpened.current
+    val page = LocalAnimated.current
     LaunchedEffect(Unit) {
         // A slow TV can take a few seconds to load a page's songs, and so its Play.
         if (android.os.SystemClock.uptimeMillis() - opened > 3000) return@LaunchedEffect
-        // After the frame gives the page the focus (Root.kt), so this one is the last.
-        delay(500)
+        // As soon as the page has come in (not after a fixed wait a quick press could beat), and
+        // once it is placed: then the page's own focus (Root.kt) does not take it back.
+        androidx.compose.runtime.snapshotFlow { page == null || page.transition.currentState == page.transition.targetState }
+            .first { it }
+        androidx.compose.runtime.withFrameNanos {}
         runCatching { requester.requestFocus() }
     }
     return focusRequester(requester)

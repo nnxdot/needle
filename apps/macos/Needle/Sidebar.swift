@@ -20,7 +20,7 @@ struct Sidebar: View {
             }
             Section {
                 item("Favorites", "heart", .favorites)
-                    .dropDestination(for: String.self) { ids, _ in
+                    .dropTarget(RoundedRectangle(cornerRadius: 6, style: .continuous), outset: 8) { ids in
                         store.addToFavorites(ids)
                         return true
                     }
@@ -226,12 +226,7 @@ struct PlaylistRow: View {
         }
         .frame(maxWidth: .infinity, alignment: rail ? .center : .leading)
         .help(playlist.name)
-        .dropDestination(for: String.self) { ids, _ in
-            // A read-only server playlist takes no songs: not a place to drop.
-            guard !playlist.smart, !playlist.readOnly else { return false }
-            store.addToPlaylist(playlist, ids)
-            return true
-        }
+        .modifier(PlaylistDrop(playlist: playlist, shape: RoundedRectangle(cornerRadius: 6, style: .continuous), outset: rail ? 0 : 8))
         .contextMenu {
             Button("Play") { playAll(shuffle: false) }
             Button("Shuffle") { playAll(shuffle: true) }
@@ -304,7 +299,7 @@ struct Rail: View {
                     page("Folders", "folder", .folders)
                     Divider().padding(.vertical, 4).padding(.horizontal, 12)
                     page("Favorites", "heart", .favorites)
-                        .dropDestination(for: String.self) { ids, _ in
+                        .dropTarget(Capsule()) { ids in
                             store.addToFavorites(ids)
                             return true
                         }
@@ -328,11 +323,7 @@ struct Rail: View {
                             .help(playlist.name)
                             .accessibilityLabel(playlist.name)
                             .accessibilityAddTraits(store.route == .playlist(playlist.id) ? .isSelected : [])
-                            .dropDestination(for: String.self) { ids, _ in
-                                guard !playlist.smart, !playlist.readOnly else { return false }
-                                store.addToPlaylist(playlist, ids)
-                                return true
-                            }
+                            .modifier(PlaylistDrop(playlist: playlist, shape: Capsule(), outset: 0))
                         }
                     }
                 }
@@ -376,6 +367,25 @@ struct Rail: View {
     /// The chosen icon's light capsule, as the open sidebar's chosen row.
     private func selectedBackground(_ selected: Bool) -> some View {
         Capsule().fill(selected ? store.colors.ink.opacity(store.colors.dark ? 0.12 : 0.08) : .clear)
+    }
+}
+
+/// Songs dropped on a playlist join it; it lights up while they are dragged over it. Smart and
+/// read-only server playlists take none, so they never light up.
+private struct PlaylistDrop<S: InsettableShape>: ViewModifier {
+    let playlist: Playlist
+    let shape: S
+    let outset: CGFloat
+
+    func body(content: Content) -> some View {
+        if playlist.smart || playlist.readOnly {
+            content
+        } else {
+            content.dropTarget(shape, outset: outset) { ids in
+                Store.shared.addToPlaylist(playlist, ids)
+                return true
+            }
+        }
     }
 }
 

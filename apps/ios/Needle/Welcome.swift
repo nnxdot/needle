@@ -90,7 +90,9 @@ struct WelcomeView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.needle(.body).weight(.semibold))
-                    Text(detail).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
+                    // Whole, on as many lines as it needs.
+                    Text(detail).font(.needle(.subheadline)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.needle(.footnote).weight(.bold)).foregroundStyle(.tertiary)

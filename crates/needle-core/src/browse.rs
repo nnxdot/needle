@@ -265,6 +265,18 @@ impl Library {
         let rows = stmt.query_map(params![album_artist, album], Self::row_track)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
+    /// The album identified by [`AlbumSummary::key`], when the library still holds it.
+    pub fn album_by_key(&self, key: &str) -> Result<Option<AlbumSummary>> {
+        let [album_artist, album]: [String; 2] =
+            serde_json::from_str(key).context("Invalid album key")?;
+        let db = self.connection()?;
+        let albums = self.album_rows(
+            &db,
+            "tracks t WHERE t.album_artist=? COLLATE NOCASE AND t.album=? COLLATE NOCASE",
+            &[Value::Text(album_artist), Value::Text(album)],
+        )?;
+        Ok(albums.into_iter().next())
+    }
     /// Albums containing a track by `name` (as the artist, a guest, one half of "A & B", or the
     /// album artist), with whole-album totals.
     pub fn artist_albums(&self, name: &str) -> Result<Vec<AlbumSummary>> {
@@ -472,6 +484,15 @@ impl Library {
     pub fn genres(&self) -> Result<Vec<(String, usize)>> {
         let db = self.connection()?;
         let mut stmt = db.prepare("SELECT min(genre), count(*) FROM tracks WHERE genre != '' GROUP BY genre COLLATE NOCASE ORDER BY genre COLLATE NOCASE")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as usize)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+    /// Decades that have songs, the newest first: each decade's first year (2020 for the
+    /// 2020s) and how many songs it has. Songs with no year, and missing songs, are left out.
+    /// For Search's Browse, where tags for the genre are often poor and the year is not.
+    pub fn decades(&self) -> Result<Vec<(i64, usize)>> {
+        let db = self.connection()?;
+        let mut stmt = db.prepare("SELECT (year / 10) * 10 AS decade, count(*) FROM tracks WHERE year > 0 AND missing = 0 GROUP BY decade ORDER BY decade DESC")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as usize)))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }

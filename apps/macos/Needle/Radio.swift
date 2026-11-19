@@ -20,11 +20,11 @@ struct RadioPage: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 30) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Radio").font(store.display(28))
+                Text("Radio").font(store.display(28)).tracking(store.displayTracking(28))
                 Text("Stations that start with a song and flow on from it, and mixes of your whole library.")
                     .font(.needle(.callout)).foregroundStyle(store.colors.ink2)
             }
-            StationHero(seed: seeds?.first, loaded: seeds != nil) { yourStation() }
+            StationHero(seed: seeds?.first, loaded: seeds != nil) { RadioPage.startYourStation(from: seeds?.first) }
             mixes
             stations
         }
@@ -111,10 +111,11 @@ struct RadioPage: View {
     }
 
     /// Your station: from the song it shows (played most lately), else another played most,
-    /// or any song when nothing has played yet.
-    private func yourStation() {
+    /// or any song when nothing has played yet. Home's "Your station" tile starts it the same way.
+    static func startYourStation(from seed: Ranked?) {
+        let store = Store.shared
         store.notify("Tuning in…")
-        let shown = seeds?.first.flatMap { s in s.songId.map { ($0, s.title) } }
+        let shown = seed.flatMap { s in s.songId.map { ($0, s.title) } }
         Task {
             let started = await store.ask { core -> (String, UInt32) in
                 let top = try core.stats(days: 30).topSongs.compactMap { s in s.songId.map { ($0, s.title) } }
@@ -212,6 +213,14 @@ struct StationTile: View {
     @State private var hover = false
     @State private var glow: Color?
 
+    init(seed: Ranked) {
+        self.seed = seed
+        // A colour found before shows at once, so the light never starts black.
+        if let known = Covers.knownPageColor(seed.artwork, seed: seed.album + seed.artist) {
+            _glow = State(initialValue: Color(nsColor: known))
+        }
+    }
+
     var body: some View {
         Button { start() } label: {
             VStack(alignment: .leading, spacing: 5) {
@@ -235,9 +244,11 @@ struct StationTile: View {
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(store.motion ? .snappy(duration: 0.15) : nil) { hover = h } }
-        .task(id: hover) {
-            guard hover, glow == nil else { return }
-            glow = Color(nsColor: await Covers.pageColor(seed.artwork, seed: seed.album + seed.artist))
+        // Found when the tile shows, not under the pointer (see `AlbumTile`).
+        .task(id: seed.artwork ?? seed.album + seed.artist) {
+            guard glow == nil else { return }
+            let found = Color(nsColor: await Covers.pageColor(seed.artwork, seed: seed.album + seed.artist))
+            withAnimation(hover ? .easeOut(duration: 0.15) : nil) { glow = found }
         }
         .help("\(seed.title) Radio")
         .accessibilityLabel("\(seed.title) Radio, by \(seed.artist)")

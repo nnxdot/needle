@@ -311,6 +311,15 @@ extension Store {
         Self.titleFont(displayFont, size: size, weight: weight)
     }
 
+    /// The letter spacing for a title in `display(size)`. The system font spaces itself by
+    /// size; a chosen title font does not, so from 28 points up its letters close in a little
+    /// (1.5 % of the size), as large type should. `system`: the system font's own, where a
+    /// page sets one.
+    func displayTracking(_ size: CGFloat, system: CGFloat = 0) -> CGFloat {
+        guard NeedleFonts.family(displayFont, in: NeedleFonts.titles) != nil else { return system }
+        return size >= 28 ? -size * 0.015 : 0
+    }
+
     /// A title font by its settings name (see `NeedleFonts.titles`; "own:<family>" for one on
     /// this Mac).
     static func titleFont(_ name: String, size: CGFloat, weight: Font.Weight = .bold) -> Font {
@@ -338,6 +347,70 @@ enum Radius {
     static let small: CGFloat = 8
     static let medium: CGFloat = 14
     static let large: CGFloat = 22
+}
+
+/// The soft highlight under the pointer on a row that can be clicked, as on search songs:
+/// at once, with no animation. `outset` draws it that far past the row's sides (and half that
+/// above and below), so the row's own layout does not change.
+struct HoverHighlight: ViewModifier {
+    var outset: CGFloat = 0
+    @State private var hover = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if hover {
+                    RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                        .fill(Color.primary.opacity(0.07))
+                        .padding(.horizontal, -outset)
+                        .padding(.vertical, -outset / 2)
+                }
+            }
+            .onHover { hover = $0 }
+    }
+}
+
+extension View {
+    func hoverHighlight(outset: CGFloat = 0) -> some View { modifier(HoverHighlight(outset: outset)) }
+
+    /// Takes songs' ids (or a player button's name) dropped on it, as `dropDestination` does, and
+    /// shows that it will while something is dragged over it: an accent fill in `shape`, or with
+    /// `ring` a 2 pt accent ring, at once. `outset` draws it that far past the sides (and half
+    /// that above and below).
+    func dropTarget<S: InsettableShape>(_ shape: S, ring: Bool = false, outset: CGFloat = 0,
+                                        action: @escaping ([String]) -> Bool) -> some View {
+        modifier(DropTarget(shape: shape, ring: ring, outset: outset, action: action))
+    }
+}
+
+/// See `View.dropTarget`.
+struct DropTarget<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let ring: Bool
+    let outset: CGFloat
+    let action: ([String]) -> Bool
+    @State private var targeted = false
+
+    func body(content: Content) -> some View {
+        let accent = Store.shared.colors.accent
+        content
+            .background {
+                if targeted && !ring {
+                    shape.fill(accent.opacity(0.15))
+                        .padding(.horizontal, -outset)
+                        .padding(.vertical, -outset / 2)
+                }
+            }
+            .overlay {
+                if targeted && ring {
+                    shape.strokeBorder(accent, lineWidth: 2)
+                        .padding(.horizontal, -outset)
+                        .padding(.vertical, -outset / 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            .dropDestination(for: String.self) { items, _ in action(items) } isTargeted: { targeted = $0 }
+    }
 }
 
 /// How much of the page's right side the open side panel covers: pages that run a picture on

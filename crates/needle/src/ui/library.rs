@@ -1,5 +1,5 @@
 use super::{
-    AppView, PAGE_SIZE, Page, Sort, motion, pal,
+    AppView, Page, Sort, motion, pal,
     widgets::{
         artwork, count as thousands, cover, faint, glyph, icon, icon_button, meta, page_title,
         quality,
@@ -158,10 +158,11 @@ impl AppView {
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }
-            Page::Home => self.home_view(cx).into_any_element(),
+            Page::Home => self.home_view(width, cx).into_any_element(),
             Page::Artist(ref name) => self.artist_page(name, width, window, cx),
             _ => self.collection(width, window, cx).into_any_element(),
         };
+        // A new page shows at once: it is opened too often to wait for a fade.
         let page = div()
             .flex_1()
             .min_w_0()
@@ -169,19 +170,7 @@ impl AppView {
             .flex()
             .flex_col()
             .child(body);
-        // A short fade each time the page changes.
-        div()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .flex()
-            .child(motion::animate(
-                page,
-                ("page", self.page_serial),
-                200,
-                cx,
-                |el, t| el.opacity(t).pt(px((1. - t) * 10.)),
-            ))
+        div().flex_1().min_w_0().h_full().flex().child(page)
     }
 
     fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -740,7 +729,12 @@ impl AppView {
                 self.tracks.is_empty()
             }
         {
-            self.skeleton(cx).into_any_element()
+            // Grey rows only for a load that has already taken 300 ms; before that, nothing.
+            if self.loading_since.elapsed() >= super::SKELETON_AFTER {
+                self.skeleton(cx).into_any_element()
+            } else {
+                div().into_any_element()
+            }
         } else if self.page.is_grid() && !self.groups.is_empty() {
             self.grid(width, cx).into_any_element()
         } else if matches!(&self.page, Page::Playlist(id) if !self.playlists.iter().any(|p| &p.id == id))
@@ -842,64 +836,6 @@ impl AppView {
                                     this.move_in_playlist(&dragged.ids, end, cx)
                                 },
                             )),
-                    )
-                },
-            )
-            .when(
-                self.page.is_tracks() && !self.page.is_grid() && self.matched_total > PAGE_SIZE,
-                |el| {
-                    el.child(
-                        div()
-                            .h(px(44.))
-                            .px_6()
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .border_t_1()
-                            .border_color(p.line_soft)
-                            .child(meta(
-                                format!(
-                                    "{}–{} of {} tracks",
-                                    thousands(self.page_offset + 1),
-                                    thousands(self.page_offset + self.tracks.len()),
-                                    thousands(self.matched_total)
-                                ),
-                                cx,
-                            ))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_1()
-                                    .child(
-                                        icon_button(
-                                            "previous-page",
-                                            "chevron-left",
-                                            "Previous 1,000",
-                                        )
-                                        .small()
-                                        .disabled(self.page_offset == 0)
-                                        .on_click(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.page_offset =
-                                                    this.page_offset.saturating_sub(PAGE_SIZE);
-                                                this.refresh(cx);
-                                            }),
-                                        ),
-                                    )
-                                    .child(
-                                        icon_button("next-page", "chevron-right", "Next 1,000")
-                                            .small()
-                                            .disabled(
-                                                self.page_offset + self.tracks.len()
-                                                    >= self.matched_total,
-                                            )
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.page_offset += PAGE_SIZE;
-                                                this.refresh(cx);
-                                            })),
-                                    ),
-                            ),
                     )
                 },
             )
@@ -1031,7 +967,6 @@ impl AppView {
                     Sort::Desc(f) if f == field => Sort::Default,
                     _ => Sort::Asc(field),
                 };
-                this.page_offset = 0;
                 this.refresh(cx);
             }))
     }
@@ -1137,11 +1072,20 @@ impl AppView {
             .child(with_scrollbar(
                 uniform_list(
                     "track-list",
-                    self.tracks.len(),
+                    // Every row of the list, also those still coming in.
+                    if self.matched_total == usize::MAX {
+                        self.tracks.len()
+                    } else {
+                        self.matched_total.max(self.tracks.len())
+                    },
                     cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                         range
                             .map(|index| {
-                                this.track_row(index, album_view, show_album, &row_columns, cx)
+                                if index < this.tracks.len() {
+                                    this.track_row(index, album_view, show_album, &row_columns, cx)
+                                } else {
+                                    this.coming_row(cx)
+                                }
                             })
                             .collect::<Vec<_>>()
                     }),
@@ -1151,6 +1095,26 @@ impl AppView {
                 .pb(px(16.) + self.foot_room()),
                 &self.list_scroll,
             ))
+    }
+
+    /// A row of the list whose song is still coming in: a plain bar where its title goes.
+    fn coming_row(&self, cx: &App) -> Div {
+        let p = pal(cx);
+        let height = self.settings.layout.row_height.clamp(32., 76.);
+        div()
+            .h(px(height))
+            .w_full()
+            .px_2()
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .ml(px(44.))
+                    .w(px(180.))
+                    .h(px(10.))
+                    .rounded(px(5.))
+                    .bg(p.raised),
+            )
     }
 
     fn track_row(
@@ -1190,7 +1154,7 @@ impl AppView {
         let number = if album_view && self.sort == Sort::Default && track.track_number > 0 {
             track.track_number.to_string()
         } else {
-            thousands(self.page_offset + index + 1)
+            thousands(index + 1)
         };
         let row = div()
             .id(("row", index))
@@ -1509,10 +1473,13 @@ impl AppView {
             .cursor_pointer()
             .child(
                 div()
+                    .id(("tile-cover", index))
                     .relative()
                     .mb_2()
                     .rounded(if round { px(size) } else { px(8.) })
                     .shadow_md()
+                    // Pressed, the cover dims a little at once.
+                    .group_active("tile", |s| s.opacity(0.85))
                     .when(super::motion::enabled(cx), |el| {
                         let glow = self.cover_glow(group.artwork.as_deref(), cx);
                         el.group_hover("tile", move |s| s.top(px(-2.)).shadow(glow.clone()))

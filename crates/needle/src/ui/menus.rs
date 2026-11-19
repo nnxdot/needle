@@ -657,8 +657,8 @@ impl AppView {
                 .child(div().my_1().mx_1().h(px(1.)).bg(p.line))
             })
             .children(rows);
-        let body = motion::animate(body, ("menu-in", menu.serial), 140, cx, |el, t| {
-            el.opacity(t).mt(px(6. * (1. - t)))
+        let body = motion::fade(body, ("menu-in", menu.serial), 140, cx, |el, f, m| {
+            el.opacity(f).mt(px(6. * (1. - m)))
         });
         Some(
             deferred(
@@ -700,7 +700,12 @@ impl AppView {
     }
 
     /// Play a playlist's songs (a smart playlist's current matches), loaded in the background.
-    fn play_playlist(&mut self, playlist: needle_core::model::Playlist, shuffle: bool, next: bool) {
+    pub(super) fn play_playlist(
+        &mut self,
+        playlist: needle_core::model::Playlist,
+        shuffle: bool,
+        next: bool,
+    ) {
         let library = self.library.clone();
         let sender = self.sender.clone();
         std::thread::spawn(move || {
@@ -884,9 +889,13 @@ impl AppView {
                 cx.notify();
             }))
             .children(rows);
-        let body = motion::animate(body, ("playlist-menu-in", menu.serial), 140, cx, |el, t| {
-            el.opacity(t).mt(px(6. * (1. - t)))
-        });
+        let body = motion::fade(
+            body,
+            ("playlist-menu-in", menu.serial),
+            140,
+            cx,
+            |el, f, m| el.opacity(f).mt(px(6. * (1. - m))),
+        );
         Some(
             deferred(
                 anchored()
@@ -1072,8 +1081,8 @@ impl AppView {
                 .child(div().my_1().mx_1().h(px(1.)).bg(p.line))
             })
             .children(rows);
-        let body = motion::animate(body, ("group-menu-in", menu.serial), 140, cx, |el, t| {
-            el.opacity(t).mt(px(6. * (1. - t)))
+        let body = motion::fade(body, ("group-menu-in", menu.serial), 140, cx, |el, f, m| {
+            el.opacity(f).mt(px(6. * (1. - m)))
         });
         Some(
             deferred(
@@ -1140,9 +1149,13 @@ impl AppView {
                 cx.notify();
             }))
             .children(rows);
-        let body = motion::animate(body, ("collections-menu-in", serial), 140, cx, |el, t| {
-            el.opacity(t).mt(px(6. * (1. - t)))
-        });
+        let body = motion::fade(
+            body,
+            ("collections-menu-in", serial),
+            140,
+            cx,
+            |el, f, m| el.opacity(f).mt(px(6. * (1. - m))),
+        );
         Some(
             deferred(
                 anchored()

@@ -199,7 +199,7 @@ struct SongsHeader: View {
                 if !store.headerFolded {
                     Text("Album").font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.ink2)
                 }
-                Text(title).font(store.display(store.headerFolded ? 22 : 44)).lineLimit(store.headerFolded ? 1 : 2).foregroundStyle(colors.ink)
+                Text(title).font(store.display(store.headerFolded ? 22 : 44)).tracking(store.displayTracking(store.headerFolded ? 22 : 44)).lineLimit(store.headerFolded ? 1 : 2).foregroundStyle(colors.ink)
                 Button(album.displayAlbumArtist) { store.navigate(.artist(album.displayAlbumArtist)) }
                     .buttonStyle(.plain)
                     .font(.needle(.title2).weight(.medium))
@@ -215,7 +215,8 @@ struct SongsHeader: View {
         .padding(.horizontal, 28)
         .padding(.top, store.headerFolded ? 14 : 30)
         .padding(.bottom, store.headerFolded ? 12 : 22)
-        .animation(store.motion ? .smooth(duration: 0.3) : nil, value: store.headerFolded)
+        // Folds at once, never in an animation: the header sits over the table, and a header
+        // that shrank over 300 ms pulled the songs away from the pointer mid-scroll.
         .padding(.trailing, panelInset)
         .background(alignment: .top) { HeaderBackdrop(path: album.artwork, seed: seed) }
         .task(id: album.artwork ?? seed) {
@@ -241,6 +242,7 @@ struct SongsHeader: View {
                 if case .folder(let path) = route { Breadcrumbs(path: path) }
                 Text(title)
                     .font(big ? store.display(40) : store.display(28))
+                    .tracking(store.displayTracking(big ? 40 : 28))
                     .lineLimit(2)
                     .foregroundStyle(colors.ink)
                 if let album {
@@ -580,8 +582,22 @@ struct Problem: View {
 struct Skeleton: View {
     private var store: Store { .shared }
     @State private var on = false
+    /// Shown only once the load has taken 300 ms: a quick local load shows nothing new, not a
+    /// grey flicker.
+    @State private var late = false
 
     var body: some View {
+        if late {
+            bars
+        } else {
+            Color.clear.task {
+                try? await Task.sleep(for: .milliseconds(300))
+                if !Task.isCancelled { late = true }
+            }
+        }
+    }
+
+    private var bars: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(0..<9, id: \.self) { i in
                 HStack(spacing: 12) {

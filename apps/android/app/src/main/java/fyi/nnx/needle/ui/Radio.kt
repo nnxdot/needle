@@ -156,8 +156,28 @@ private fun startStation(id: String, title: String) {
     showMessage("Starting radio from $title…")
     NeedleApp.instance.scope.launch(Dispatchers.IO) {
         runCatching { core.startRadio(id) }
-            .onSuccess { NeedleApp.instance.openPlayer.tryEmit(Unit) }
+            .onSuccess { startedFrom.value = null; NeedleApp.instance.openPlayer.tryEmit(Unit) }
             .onFailure { showMessage(it.message ?: "Could not start the radio") }
+    }
+}
+
+/**
+ * Starts your station, as the Radio page's own start and Home's "Your station" tile: from the
+ * songs played most of late, or any song when nothing has played yet; the first that can start
+ * one (a song whose file is gone cannot).
+ */
+internal fun startYourStation() {
+    showMessage("Tuning in…")
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        val top = runCatching { core.stats(30u).topSongs.mapNotNull { it.songId } }.getOrDefault(emptyList())
+        val any = runCatching { core.songs().randomOrNull()?.id }.getOrNull()
+        val started = (top + listOfNotNull(any)).firstOrNull { runCatching { core.startRadio(it) }.isSuccess }
+        if (started == null) {
+            showMessage("Add music first")
+        } else {
+            startedFrom.value = StartStation
+            NeedleApp.instance.openPlayer.tryEmit(Unit)
+        }
     }
 }
 
@@ -183,14 +203,7 @@ private fun YourStation(seed: Ranked?, loading: Boolean) {
             .focusRing(interaction, 12.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClickLabel = "Start a radio station", enabled = !loading) {
-                showMessage("Tuning in…")
-                NeedleApp.instance.scope.launch(Dispatchers.IO) {
-                    val top = runCatching { core.stats(30u).topSongs.mapNotNull { it.songId } }.getOrDefault(emptyList())
-                    val any = runCatching { core.songs().randomOrNull()?.id }.getOrNull()
-                    // The first that can start one (a song whose file is gone cannot).
-                    val started = (top + listOfNotNull(any)).firstOrNull { runCatching { core.startRadio(it) }.isSuccess }
-                    if (started == null) showMessage("Add music first") else NeedleApp.instance.openPlayer.tryEmit(Unit)
-                }
+                startYourStation()
             }
             .semantics { contentDescription = seed?.let { "Your station, from ${it.title} by ${it.artist}" } ?: "Your station" },
     ) {
@@ -239,16 +252,29 @@ private fun MixGrid(mixes: List<Mix>) {
     }
 }
 
+@Composable
+private fun MixTile(mix: Mix, modifier: Modifier) =
+    PlainTile(mix.title, mix.detail, mix.icon, mix.cover?.path, mix.cover?.seed, modifier, mix.enabled, mix.onClick)
+
 /**
- * A mix's tile: a plain fill in the page's raised colour (content, not glass), its sign in the
- * colour of a cover from the mix, a made-up cover's colour when it has no picture, or the accent
- * before one is known.
+ * A plain tile, as a quick mix's (and the Library's Explore tiles): a fill in the page's raised
+ * colour (content, not glass), its sign in the colour of a cover (`coverPath`), a made-up
+ * cover's colour when there is no picture (`coverSeed`), or the accent before one is known.
  */
 @Composable
-private fun MixTile(mix: Mix, modifier: Modifier) {
+internal fun PlainTile(
+    title: String,
+    detail: String,
+    icon: ImageVector,
+    coverPath: String?,
+    coverSeed: String?,
+    modifier: Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
-    val scheme = rememberCoverScheme(mix.cover?.path)
-    val seeded = mix.cover?.takeIf { it.path == null }?.seed?.let { seedColor(it) }
+    val scheme = rememberCoverScheme(coverPath)
+    val seeded = if (coverPath == null) coverSeed?.let { seedColor(it) } else null
     val sign = scheme?.primaryContainer ?: seeded ?: MaterialTheme.colorScheme.primary
     val ink = scheme?.onPrimaryContainer ?: if (seeded != null) Color.White else MaterialTheme.colorScheme.onPrimary
     Column(
@@ -256,7 +282,7 @@ private fun MixTile(mix: Mix, modifier: Modifier) {
             .pressScale(interaction)
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .clickable(interactionSource = interaction, indication = null, enabled = mix.enabled, role = Role.Button, onClick = mix.onClick)
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -264,12 +290,12 @@ private fun MixTile(mix: Mix, modifier: Modifier) {
             Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Brush.verticalGradient(listOf(sign, sign.copy(alpha = 0.78f)))),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(mix.icon, contentDescription = null, tint = ink, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(22.dp))
         }
         Column {
-            Text(mix.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                mix.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }

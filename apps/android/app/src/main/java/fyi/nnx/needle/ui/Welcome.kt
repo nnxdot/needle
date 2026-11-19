@@ -94,8 +94,11 @@ fun WelcomeGuide(open: (Route) -> Unit) {
             .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal))
             .padding(24.dp),
     ) {
+        val reduce = reduceMotion()
         AnimatedContent(step, transitionSpec = {
-            (slideInHorizontally { it / 4 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 } + fadeOut())
+            // Reduce motion: the steps fade, with no slide.
+            if (reduce) fadeIn(androidx.compose.animation.core.tween(150)) togetherWith fadeOut(androidx.compose.animation.core.tween(150))
+            else (slideInHorizontally { it / 4 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 } + fadeOut())
         }, label = "welcome") { page ->
             // Centred where there is room; scrolled where there is not (a TV, a phone on its side,
             // large text), so every choice stays in reach. Room at the foot for the dots.

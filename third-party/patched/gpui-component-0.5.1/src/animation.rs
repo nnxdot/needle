@@ -17,3 +17,16 @@ pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> impl Fn(f32) -> f32 {
         y
     }
 }
+
+static REDUCE_MOTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Patched (Needle): the app's "reduce motion" (its own switch or the system's). Dialogs and
+/// switches then show their final state at once.
+pub fn set_reduce_motion(on: bool) {
+    REDUCE_MOTION.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Patched (Needle): whether motion is reduced (see [`set_reduce_motion`]).
+pub fn reduce_motion() -> bool {
+    REDUCE_MOTION.load(std::sync::atomic::Ordering::Relaxed)
+}

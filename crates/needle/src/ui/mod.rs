@@ -164,9 +164,16 @@ const MIN_WINDOW: (f32, f32) = (900., 620.);
 
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
-const PAGE_SIZE: usize = 1000;
-/// How long the big player takes to grow or shrink.
+/// A song list shows its first 1,000 songs at once; the rest come in blocks of 5,000 in the
+/// background, into the same list (its scroll bar covers the whole list from the start).
+const FIRST_ROWS: usize = 1000;
+const MORE_ROWS: usize = 5000;
+/// How long a load runs before its grey placeholder rows show.
+const SKELETON_AFTER: Duration = Duration::from_millis(300);
+
+/// How long the big player takes to grow; shrinking is quicker.
 const BIG_MS: u64 = 260;
+const BIG_OUT_MS: u64 = 200;
 
 /// Windows and Linux glass: how far the floating sidebar and the page sheet keep from the
 /// window's edges and from each other.
@@ -377,7 +384,12 @@ pub enum Sort {
 pub struct Toast {
     text: String,
     error: bool,
+    /// When its life started (a new message in its place starts it again).
     shown: Instant,
+    /// When it came in: its entrance plays once, and a new message only changes the text.
+    entered: Instant,
+    /// The pointer rests on it since then: its life waits meanwhile.
+    hovered: Option<Instant>,
     /// It is fading out, since then; it goes once the fade is over.
     leaving: Option<Instant>,
 }
@@ -401,6 +413,8 @@ enum Event {
     FolderRemoved(String, Result<usize, String>),
     Error(String),
     Loaded(u64, Vec<Track>, usize),
+    /// More of the same list: its generation, where the block starts, and the songs.
+    LoadedMore(u64, usize, Vec<Track>),
     Groups(u64, Vec<library::Group>),
     History(Box<needle_core::history::HistoryStats>, Vec<Listen>, usize),
     MoreHistory(usize, Vec<Listen>),
@@ -446,10 +460,18 @@ enum Event {
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
     /// The year Home shows "Your year in music" for (December, with listening).
     HomeYear(Option<i32>),
-    /// What a search found (its generation, then the finds or the problem).
-    Found(u64, Result<Box<needle_core::find::Found>, String>),
-    /// Every line of lyrics that holds the search (its generation).
-    FoundLyrics(u64, Vec<needle_core::find::LyricMatch>),
+    /// What a search found (its generation, the chip it was asked for, then the finds or the
+    /// problem).
+    Found(
+        u64,
+        search_page::SearchTab,
+        Result<Box<needle_core::find::Found>, String>,
+    ),
+    /// Search before typing: the recent searches, and the genres and decades to browse (once).
+    SearchHome(
+        Vec<needle_core::find::Recent>,
+        Option<search_page::BrowseTiles>,
+    ),
     /// A song's shape for the waveform seek bar: its id and 120 heights, 0 to 1.
     Waveform(String, Vec<f32>),
     /// A song's lyrics translated, one line for each line: its id and the lines.
@@ -516,9 +538,21 @@ pub struct AppView {
     /// The Search page: what it shows, its newest answer, and that answer's number.
     search_tab: search_page::SearchTab,
     found: Option<Box<needle_core::find::Found>>,
+    /// The chip the answer in `found` was asked for, and the answer's number (for its fade).
+    found_for: search_page::SearchTab,
+    found_shown: u64,
     found_error: Option<String>,
-    found_lyrics: Vec<needle_core::find::LyricMatch>,
     find_generation: u64,
+    /// Search before typing: what was looked for before, and the genres and decades to browse
+    /// (`None` until read).
+    search_recent: Vec<needle_core::find::Recent>,
+    search_browse: Option<std::rc::Rc<search_page::BrowseTiles>>,
+    /// An arrow key moved to another song found: its row scrolls into view at the next draw.
+    search_reveal: std::rc::Rc<std::cell::Cell<bool>>,
+    /// Browse shows decades in place of genres (kept in the library, see
+    /// `search_page::saved_browse_decades`), and when the switch last changed (for its fade).
+    browse_decades: bool,
+    browse_switched: (usize, Option<Instant>),
     /// The playing song's shape, for the waveform seek bar: its id and heights.
     waveform: Option<(String, Vec<f32>)>,
     /// Lyrics translated by a plugin, shown under each line while Translate is on.
@@ -561,13 +595,13 @@ pub struct AppView {
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
     panel: Panel,
-    /// The side panel as last drawn (`None` when hidden), and a count that goes up each time
-    /// it opens or changes tab, so its content slides in once.
+    /// The side panel as last drawn (`None` when hidden).
     panel_shown: Option<Panel>,
     /// Details was picked in the panel on a page that is not a song list, so it stays open
     /// there until the page changes.
     details_here: bool,
-    panel_serial: u64,
+    /// The side panel's tab changed: a count, and when (the new tab fades in once).
+    panel_tab: (u64, Instant),
     /// The side panel's openings so far, and when the last one was.
     panel_opened: (u64, Instant),
     /// The side panel is sliding out (the opening it closes).
@@ -608,12 +642,11 @@ pub struct AppView {
     /// Settings cards opened with their arrow (by id).
     settings_open: std::collections::HashSet<&'static str>,
     palette: palette::PaletteState,
-    /// Changes whenever the visible page (or settings section) changes, to replay its fade.
-    page_serial: usize,
     sort: Sort,
     total: usize,
     matched_total: usize,
-    page_offset: usize,
+    /// The list load running now (its generation), so an older one stops early.
+    load_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     loop_start: Option<f64>,
     search: Entity<InputState>,
     /// The names of fonts on this computer, for the title and the text font (Settings ›
@@ -661,6 +694,9 @@ pub struct AppView {
     explanation: Option<String>,
     generation: u64,
     loading: bool,
+    /// When the load running now started: the grey placeholder rows show only once it has
+    /// taken 300 ms (a quick load shows nothing in between).
+    loading_since: Instant,
     /// The playlist window, while it is open.
     editor: Option<playlist_editor::PlaylistEditor>,
     /// When the seek bar was last moved by hand.
@@ -669,6 +705,11 @@ pub struct AppView {
     polled_redraw: Instant,
     /// When a playing server song's shape was last asked for.
     waveform_asked: Instant,
+    /// The wave seek bar's height: whether it is on its way to moving (or flat), from what
+    /// height, and since when. It grows and flattens over 250 ms.
+    wave_amp: std::cell::Cell<(bool, f32, Instant)>,
+    /// The window's title as last set (the song playing, or "Needle").
+    window_title: String,
     /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
     /// gathered for.
     playlist_art: std::collections::HashMap<String, Vec<String>>,
@@ -717,7 +758,9 @@ pub struct AppView {
     album_moving: Option<(String, Option<String>)>,
     /// Music server songs whose moving cover was asked for this time Needle runs.
     moving_cover_asked: std::collections::HashSet<String>,
-    immersive_serial: u64,
+    /// The controls' fade: their strength when it started, when, and how long it takes (ms).
+    /// A change mid-way goes on from where they are.
+    immersive_fade: (f32, Instant, f32),
     /// Whether it shows the lyrics beside the cover, when the song has them.
     immersive_lyrics: bool,
     /// Full screen shows what plays next beside the cover (the queue button there).
@@ -729,6 +772,13 @@ pub struct AppView {
     /// The window's size before immersive mode, given back when it ends.
     immersive_restore: Option<Size<Pixels>>,
     big_serial: usize,
+    /// The big player's move: how far open it was when it started (0 to 1), when, and how
+    /// long it takes (ms). A second press goes on from where it is.
+    big_from: (f32, Instant, f32),
+    /// Where the cover that opens the big player was drawn, and the body under the title
+    /// bar, so the player grows out of that cover in every layout.
+    big_art: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
+    body_bounds: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
     /// Big player background: the colour it is fading from, to, and a counter for the fade.
     big_tint: (Hsla, Hsla, usize),
     looks: ambient::Looks,
@@ -765,6 +815,8 @@ pub struct AppView {
     lyric_glide: bool,
     /// Frames waited for newly opened lyrics to be laid out before gliding.
     lyric_glide_waits: u8,
+    /// When the lyrics were last scrolled by hand: they then stay put for 3 seconds.
+    lyrics_hand: Option<Instant>,
     /// Whether the big (or full screen) lyrics and the side panel's were on screen.
     lyrics_shown: (bool, bool),
     artist_images: std::collections::HashMap<String, Option<String>>,
@@ -956,9 +1008,8 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
             set_theme(&settings.theme, None, cx);
             theme::set_display_font(&settings.display_font);
             theme::set_text_font(&settings.text_font, cx);
-            cx.set_global(motion::Motion {
-                enabled: !settings.reduce_motion && motion::system_allows_animation(),
-            });
+            motion::refresh_system();
+            motion::set_reduce(settings.reduce_motion);
             timing::bind_keys(cx);
             // macOS: an app menu with Quit (Cmd+Q), and Control-Command-F for full screen.
             #[cfg(target_os = "macos")]
@@ -1182,7 +1233,6 @@ impl AppView {
         let subscriptions = vec![
             cx.subscribe_in(&search, window, |this, _, event, window, cx| match event {
                 InputEvent::Change => {
-                    this.page_offset = 0;
                     let typing = !this.search.read(cx).value().is_empty();
                     if typing
                         && !matches!(
@@ -1203,6 +1253,8 @@ impl AppView {
                         this.forward.clear();
                         this.page = Page::Search;
                         this.search_tab = Default::default();
+                        // The library may have changed since Search was last open.
+                        this.load_search_home(true);
                     }
                     if this.page == Page::Search {
                         this.run_find(cx);
@@ -1221,6 +1273,10 @@ impl AppView {
                 }
                 InputEvent::PressEnter { .. } => {
                     this.suggestions.clear();
+                    let text = this.search_text(cx);
+                    if this.page == Page::Search && !text.is_empty() {
+                        this.remember_search("words", &text);
+                    }
                     window.focus(&this.focus);
                     if this.selection.cursor.is_none() && !this.tracks.is_empty() {
                         this.select_single(0, cx);
@@ -1278,9 +1334,15 @@ impl AppView {
             home_year: None,
             search_tab: Default::default(),
             found: None,
+            found_for: Default::default(),
+            found_shown: 0,
             found_error: None,
-            found_lyrics: vec![],
             find_generation: 0,
+            search_recent: vec![],
+            search_browse: None,
+            search_reveal: Default::default(),
+            browse_decades: search_page::saved_browse_decades(&library),
+            browse_switched: (0, None),
             waveform: None,
             translate_lyrics: false,
             translation: None,
@@ -1307,7 +1369,7 @@ impl AppView {
             panel: Panel::Details,
             panel_shown: None,
             details_here: false,
-            panel_serial: 0,
+            panel_tab: (0, Instant::now()),
             panel_opened: (0, Instant::now()),
             panel_closing: None,
             queue_move: None,
@@ -1346,10 +1408,9 @@ impl AppView {
             hidden: false,
             discord_idle_since: None,
             palette,
-            page_serial: 0,
             sort: Sort::Default,
             matched_total: 0,
-            page_offset: 0,
+            load_generation: Default::default(),
             loop_start: None,
             search,
             own_font,
@@ -1386,11 +1447,14 @@ impl AppView {
             explanation: None,
             generation: 0,
             loading: true,
+            loading_since: Instant::now(),
             editor: None,
             add_songs: None,
             seek_moved: None,
             polled_redraw: Instant::now(),
             waveform_asked: Instant::now(),
+            wave_amp: std::cell::Cell::new((false, 0., Instant::now())),
+            window_title: "Needle".into(),
             thumbs_seen: 0,
             server_songs: vec![],
             playlist_art: Default::default(),
@@ -1419,13 +1483,16 @@ impl AppView {
             record_spin: (30., None),
             album_moving: None,
             moving_cover_asked: Default::default(),
-            immersive_serial: 0,
+            immersive_fade: (1., Instant::now(), 0.),
             immersive_lyrics: true,
             immersive_queue: false,
             immersive_waiting: false,
             immersive_restore: None,
             immersive_toggled: false,
             big_serial: 0,
+            big_from: (0., Instant::now(), 0.),
+            big_art: Default::default(),
+            body_bounds: Default::default(),
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
@@ -1449,6 +1516,7 @@ impl AppView {
             mini_lyric_glide: false,
             lyric_glide: false,
             lyric_glide_waits: 0,
+            lyrics_hand: None,
             lyrics_shown: (false, false),
             artist_images: Default::default(),
             artist_view: Default::default(),
@@ -1528,6 +1596,15 @@ impl AppView {
             }
         }
         cx.on_release(|_, cx| cx.quit()).detach();
+        // The system's animation setting may change while Needle runs: read it again each
+        // time the window comes to the front.
+        cx.observe_window_activation(window, |_, window, cx| {
+            if window.is_window_active() {
+                motion::refresh_system();
+                cx.notify();
+            }
+        })
+        .detach();
         {
             // With hide to tray on, closing hides the window instead; the music plays on.
             let weak = cx.entity().downgrade();
@@ -1576,28 +1653,39 @@ impl AppView {
     }
 
     fn notify(&mut self, text: impl Into<String>) {
-        self.toast = Some(Toast {
-            text: text.into(),
-            error: false,
-            shown: Instant::now(),
-            leaving: None,
-        });
+        self.show_toast(text.into(), false);
     }
-    /// Let the message go: it fades out (at once with Reduce motion).
-    fn dismiss_toast(&mut self, cx: &App) {
-        if !motion::enabled(cx) {
-            self.toast = None;
-        } else if let Some(toast) = &mut self.toast {
+    /// Show a message. One already showing takes the new text where it is, without coming in
+    /// again (quick actions in a row no longer make it blink).
+    fn show_toast(&mut self, text: String, error: bool) {
+        let now = Instant::now();
+        match &mut self.toast {
+            Some(toast) if toast.leaving.is_none() => {
+                toast.text = text;
+                toast.error = error;
+                toast.shown = now;
+                toast.hovered = toast.hovered.map(|_| now);
+            }
+            _ => {
+                self.toast = Some(Toast {
+                    text,
+                    error,
+                    shown: now,
+                    entered: now,
+                    hovered: None,
+                    leaving: None,
+                })
+            }
+        }
+    }
+    /// Let the message go: it fades out (a short fade with Reduce motion).
+    fn dismiss_toast(&mut self, _cx: &App) {
+        if let Some(toast) = &mut self.toast {
             toast.leaving.get_or_insert_with(Instant::now);
         }
     }
     fn fail(&mut self, text: impl Into<String>) {
-        self.toast = Some(Toast {
-            text: without_repeats(&text.into()),
-            error: true,
-            shown: Instant::now(),
-            leaving: None,
-        });
+        self.show_toast(without_repeats(&text.into()), true);
     }
 
     /// Reads the online services' state on another thread: it asks the keyring, which on
@@ -1626,11 +1714,15 @@ impl AppView {
     }
     fn toggle_sidebar(&mut self) {
         self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
-        self.sidebar_fold = (
-            self.sidebar_fold.0 + 1,
-            self.sidebar_drawn.get(),
-            Instant::now(),
-        );
+        // From Ctrl+B the new width shows at once; from a click it moves there.
+        let now = Instant::now();
+        let since = if motion::by_key() {
+            // Long enough ago that the sidebar does not move.
+            now.checked_sub(Duration::from_secs(1)).unwrap_or(now)
+        } else {
+            now
+        };
+        self.sidebar_fold = (self.sidebar_fold.0 + 1, self.sidebar_drawn.get(), since);
         self.persist_settings();
     }
     fn persist_settings(&mut self) {
@@ -1742,7 +1834,9 @@ impl AppView {
                     events = true;
                 }
                 Some(_) => {}
-                None if toast.shown.elapsed() > Duration::from_secs(life) => {
+                None if toast.hovered.is_none()
+                    && toast.shown.elapsed() > Duration::from_secs(life) =>
+                {
                     self.dismiss_toast(cx);
                     events = true;
                 }
@@ -1796,9 +1890,20 @@ impl AppView {
                         self.tracks = tracks;
                         self.matched_total = total;
                         self.loading = false;
-                        self.reconcile_selection();
+                        // A selection further down waits for the rest of the list.
+                        if self.tracks.len() >= total {
+                            self.reconcile_selection();
+                        }
                         if std::mem::take(&mut self.scroll_on_load) {
                             self.restore_scroll();
+                        }
+                    }
+                }
+                Event::LoadedMore(generation, from, tracks) => {
+                    if generation == self.generation && from == self.tracks.len() {
+                        self.tracks.extend(tracks);
+                        if self.tracks.len() >= self.matched_total {
+                            self.reconcile_selection();
                         }
                     }
                 }
@@ -1837,12 +1942,8 @@ impl AppView {
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
                 Event::HomeYear(year) => self.home_year = year,
-                Event::Found(generation, found) => self.found(generation, found),
-                Event::FoundLyrics(generation, found) => {
-                    if generation == self.find_generation {
-                        self.found_lyrics = found;
-                    }
-                }
+                Event::Found(generation, tab, found) => self.found(generation, tab, found),
+                Event::SearchHome(recent, browse) => self.search_home(recent, browse),
                 Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
@@ -2125,6 +2226,7 @@ impl AppView {
             }
         }
         self.follow_playlist_art();
+        self.follow_title(window);
         if self.drain_playlist_saves(window, cx) {
             events = true;
         }
@@ -2269,12 +2371,26 @@ impl AppView {
                 return;
             }
         }
+        if !self.loading {
+            self.loading_since = Instant::now();
+        }
         self.loading = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SKELETON_AFTER).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.loading && this.generation == generation {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
         let library = self.library.clone();
         let sender = self.sender.clone();
         let manual = self.manual_playlist();
-        let offset = self.page_offset;
         let filter = self.search_text(cx);
+        self.load_generation
+            .store(generation, std::sync::atomic::Ordering::Relaxed);
+        let current = self.load_generation.clone();
         if self.page.is_grid() {
             let page = self.page.clone();
             // Grid pages have no loaded tracks; playing them fetches every match.
@@ -2297,6 +2413,10 @@ impl AppView {
             cx.notify();
             return;
         }
+        // A shuffled or spread rule is read in one go: its order is only the same within one
+        // read.
+        let whole = query::compile(&expression, chrono::Utc::now().timestamp())
+            .is_ok_and(|q| q.order.contains("random") || q.spread.is_some());
         std::thread::spawn(move || {
             let result = (|| -> Result<needle_core::database::SearchPage> {
                 if let Some(list) = manual {
@@ -2310,16 +2430,36 @@ impl AppView {
                         tracks.retain(|t| ids.contains(&t.id));
                     }
                     let total = tracks.len();
-                    let tracks = tracks.into_iter().skip(offset).take(PAGE_SIZE).collect();
                     Ok(needle_core::database::SearchPage { tracks, total })
+                } else if whole {
+                    library.search_page(&expression, 0, usize::MAX)
                 } else {
-                    library.search_page(&expression, offset, PAGE_SIZE)
+                    library.search_page(&expression, 0, FIRST_ROWS)
                 }
             })();
-            let _ = sender.send(match result {
-                Ok(page) => Event::Loaded(generation, page.tracks, page.total),
-                Err(e) => Event::SearchFailed(generation, format!("{e:#}")),
-            });
+            let total = match result {
+                Ok(page) => {
+                    let (shown, total) = (page.tracks.len(), page.total);
+                    let _ = sender.send(Event::Loaded(generation, page.tracks, total));
+                    (shown, total)
+                }
+                Err(e) => {
+                    let _ = sender.send(Event::SearchFailed(generation, format!("{e:#}")));
+                    return;
+                }
+            };
+            // The rest of the list, a block at a time, while it is still the one asked for.
+            let (mut from, total) = total;
+            while from < total && current.load(std::sync::atomic::Ordering::Relaxed) == generation {
+                match library.search_page(&expression, from, MORE_ROWS) {
+                    Ok(page) if !page.tracks.is_empty() => {
+                        let count = page.tracks.len();
+                        let _ = sender.send(Event::LoadedMore(generation, from, page.tracks));
+                        from += count;
+                    }
+                    _ => break,
+                }
+            }
         });
         cx.notify();
     }
@@ -2407,15 +2547,14 @@ impl AppView {
         let _slow = bench::Slow::new("open");
         self.details_here = false;
         self.page = page;
-        self.page_serial += 1;
         self.page_scroll.set_offset(point(px(0.), px(0.)));
         self.pending_scroll = None;
         self.scroll_on_load = true;
         self.confirm_delete = false;
         self.menu = None;
         self.sort = Sort::Default;
-        self.page_offset = 0;
         self.tracks.clear();
+        self.matched_total = 0;
         self.selection = Selection::default();
         self.search.update(cx, |s, cx| s.set_value("", window, cx));
         if self.page == Page::History {
@@ -2448,6 +2587,10 @@ impl AppView {
         }
         if self.page == Page::Radio {
             self.load_radio();
+        }
+        if self.page == Page::Search {
+            self.load_search_home(true);
+            self.found_tracks();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
@@ -2556,6 +2699,8 @@ impl AppView {
             ScrollStrategy::Bottom
         };
         self.list_scroll.scroll_to_item(next, strategy);
+        // Search's rows are in the page, not in the list: see `search_page::song_row`.
+        self.search_reveal.set(self.page == Page::Search);
     }
     fn selected_tracks(&self) -> Vec<Track> {
         self.tracks
@@ -2704,8 +2849,8 @@ impl AppView {
         } else {
             self.reason(cx)
         };
-        let start = self.page_offset + index;
-        let complete = self.page_offset == 0 && self.tracks.len() >= self.matched_total;
+        let start = index;
+        let complete = self.tracks.len() >= self.matched_total;
         let sender = self.sender.clone();
         let finish = move |mut tracks: Vec<Track>, start: usize, truncated: bool| {
             let notice = truncated.then(|| {
@@ -2837,8 +2982,13 @@ impl AppView {
     }
 
     fn set_rating(&mut self, ids: &[String], rating: i64) {
+        // The heart pops for a click, not for Ctrl+D.
+        if motion::by_key() {
+            self.heart_pop = None;
+        }
         if let [id] = ids
             && rating >= 4
+            && !motion::by_key()
         {
             let serial = self.heart_pop.as_ref().map_or(0, |(_, n)| n + 1);
             self.heart_pop = Some((id.clone(), serial));
@@ -3168,6 +3318,21 @@ impl AppView {
         let style = self.settings.seek_style.clone();
         // The wave moves only while the music plays, and not with Reduce motion.
         let moving = style == "wave" && self.playback.playing && self.motion_allowed();
+        // On pause the wave flattens (and on play grows) over 250 ms, from where it is.
+        let wave_height = |(on, from, since): (bool, f32, Instant)| {
+            let target = if on { 2.5 } else { 0. };
+            let t = (since.elapsed().as_secs_f32() / 0.25).min(1.);
+            (from + (target - from) * motion::ease_out(t), t < 1.)
+        };
+        if self.wave_amp.get().0 != moving {
+            let (now, _) = wave_height(self.wave_amp.get());
+            self.wave_amp.set((moving, now, Instant::now()));
+        }
+        let (amplitude, settling) = if self.motion_allowed() {
+            wave_height(self.wave_amp.get())
+        } else {
+            (0., false)
+        };
         let (accent, rest) = (p.accent, p.ink.opacity(0.22));
         div()
             .flex_1()
@@ -3204,8 +3369,7 @@ impl AppView {
                         );
                         if style == "wave" && split > b.left() {
                             // What has played: one smooth wave, flat while the music rests.
-                            let amplitude = if moving { 2.5 } else { 0. };
-                            let phase = if moving {
+                            let phase = if amplitude > 0. {
                                 std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     // In whole turns first: seconds since 1970 are too
@@ -3237,8 +3401,12 @@ impl AppView {
                                         .corner_radii(thick / 2.),
                                 );
                             }
-                            if moving {
+                            // It moves on Needle's 25-a-second clock, not at the screen's rate;
+                            // only the short grow or flatten asks for every frame.
+                            if settling {
                                 window.request_animation_frame();
+                            } else if moving {
+                                motion::mark_slow_loop();
                             }
                         } else if split > b.left() {
                             window.paint_quad(
@@ -3403,6 +3571,7 @@ fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        motion::begin_frame();
         self.window_height = f32::from(widgets::content_size(window).height);
         let _slow = bench::Slow::new("render");
         // The artist pictures sweep looks only with online lookups and its setting on, and not
@@ -3453,7 +3622,7 @@ impl Render for AppView {
                     self.panel_opened = (self.panel_opened.0 + 1, Instant::now());
                     self.panel_closing = None;
                 }
-                (Some(_), None) if motion::enabled(cx) => {
+                (Some(_), None) if !motion::by_key() => {
                     let serial = self.panel_opened.0;
                     self.panel_closing = Some(serial);
                     cx.spawn(async move |this, cx| {
@@ -3471,10 +3640,11 @@ impl Render for AppView {
                 }
                 _ => {}
             }
-            self.panel_shown = shown;
-            if shown.is_some() {
-                self.panel_serial += 1;
+            // A change of tab (not the panel opening) fades the new tab in.
+            if shown.is_some() && self.panel_shown.is_some() {
+                self.panel_tab = (self.panel_tab.0 + 1, Instant::now());
             }
+            self.panel_shown = shown;
         }
         // The page and the side panel share one content surface to the right of the sidebar.
         // Windows and Linux glass: the sheet keeps clear of the sidebar and the window's edge.
@@ -3498,23 +3668,26 @@ impl Render for AppView {
         let ambient_layer = self.ambient_layer(window, cx);
         self.glide_lyrics(window, cx);
         if self.big != self.big_was {
+            // Turned around mid-way, it goes on from where it is; from a key (or with Reduce
+            // motion) it is there at once.
+            let from = self.big_shown_toward(self.big_was);
             self.big_was = self.big;
             self.big_serial += 1;
-            self.big_moving = motion::enabled(cx);
-            if self.big_moving {
-                let serial = self.big_serial;
-                cx.spawn(async move |this, cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(BIG_MS + 20))
-                        .await;
-                    let _ = this.update(cx, |this, cx| {
-                        if this.big_serial == serial {
-                            this.big_moving = false;
-                            cx.notify();
-                        }
-                    });
-                })
-                .detach();
+            let (target, ms) = if self.big {
+                (1., BIG_MS)
+            } else {
+                (0., BIG_OUT_MS)
+            };
+            let ms = ms as f32 * (target - from).abs();
+            self.big_moving = motion::enabled(cx) && !motion::by_key() && ms > 1.;
+            self.big_from = (from, Instant::now(), ms);
+        }
+        if self.big_moving {
+            let (_, since, ms) = self.big_from;
+            if ms > 0. && since.elapsed().as_secs_f32() * 1000. >= ms {
+                self.big_moving = false;
+            } else {
+                window.request_animation_frame();
             }
         }
         // The big player grows over the page, under the usual title bar; once open, it fills the
@@ -3646,12 +3819,19 @@ impl Render for AppView {
                 if selected.len() > 1 {
                     let reason = this.reason(cx);
                     this.play_tracks(selected, &reason);
+                } else if this.page == Page::Search {
+                    // A song found: the same as a press on its row.
+                    let at = this.selection.cursor.unwrap_or(0);
+                    if let Some(id) = this.tracks.get(at).map(|t| t.id.clone()) {
+                        this.play_found(&id);
+                    }
                 } else {
                     this.play_view(this.selection.cursor.unwrap_or(0), false, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &EditTags, window, cx| this.edit_tags(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleFavorite, _, cx| {
+                motion::key_started();
                 let selected = this.selected_tracks();
                 let rating = if selected.iter().all(|t| t.rating >= 4) {
                     0
@@ -3663,21 +3843,32 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                motion::key_started();
                 this.toggle_sidebar();
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleQueue, _, cx| {
+                motion::key_started();
                 this.toggle_panel(Panel::Queue);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleLyrics, _, cx| {
+                motion::key_started();
                 this.toggle_panel(Panel::Lyrics);
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
-            .on_action(cx.listener(|this, _: &GoForward, window, cx| this.go_forward(window, cx)))
+            .on_action(cx.listener(|this, _: &GoBack, window, cx| {
+                motion::key_started();
+                this.go_back(window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &GoForward, window, cx| {
+                motion::key_started();
+                this.go_forward(window, cx)
+            }))
             // The mouse's side buttons, heard before anything under the pointer can keep them.
             .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                // What a click starts may move (a key's change shows at once).
+                motion::mouse_started();
                 match event.button {
                     MouseButton::Navigate(NavigationDirection::Back) => this.mouse_back(window, cx),
                     MouseButton::Navigate(NavigationDirection::Forward) => {
@@ -3688,6 +3879,7 @@ impl Render for AppView {
                 }
             }))
             .on_action(cx.listener(|this, _: &OpenPalette, window, cx| {
+                motion::key_started();
                 if this.palette.open {
                     this.close_palette(window, cx)
                 } else {
@@ -3695,6 +3887,7 @@ impl Render for AppView {
                 }
             }))
             .on_action(cx.listener(|this, _: &ToggleBigPlayer, _, cx| {
+                motion::key_started();
                 this.big = !this.big;
                 cx.notify();
             }))
@@ -3702,12 +3895,14 @@ impl Render for AppView {
                 cx.listener(|this, _: &OpenMiniPlayer, window, cx| this.open_mini(window, cx)),
             )
             .on_action(cx.listener(|this, _: &ToggleImmersive, window, cx| {
+                motion::key_started();
                 let on = !this.immersive;
                 this.set_immersive(on, window, cx);
             }))
             .on_action(|_: &FocusNext, window, _| window.focus_next())
             .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
             .on_action(cx.listener(|this, GoTo(index): &GoTo, window, cx| {
+                motion::key_started();
                 let page = match index {
                     0 => Page::Home,
                     1 => Page::Songs,
@@ -3721,6 +3916,7 @@ impl Render for AppView {
                 this.navigate(page, window, cx);
             }))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                motion::key_started();
                 // With the search field hidden, the command palette searches instead.
                 if this.settings.layout.search_hidden {
                     this.open_palette(window, cx);
@@ -3732,6 +3928,7 @@ impl Render for AppView {
                 cx.listener(|this, _: &ImportFolder, window, cx| this.import_folder(window, cx)),
             )
             .on_action(cx.listener(|this, _: &EscapePanel, window, cx| {
+                motion::key_started();
                 if this.immersive {
                     this.set_immersive(false, window, cx);
                     return;
@@ -3785,6 +3982,12 @@ impl Render for AppView {
                     .flex()
                     .flex_col()
                     .relative()
+                    .child({
+                        let cell = self.body_bounds.clone();
+                        canvas(move |bounds, _, _| cell.set(Some(bounds)), |_, _, _, _| {})
+                            .absolute()
+                            .size_full()
+                    })
                     .when(self.immersive, |el| {
                         el.child(self.immersive_view(window, cx))
                     })

@@ -1,3 +1,23 @@
+# 2.0.7
+A new player, a new Search, a new Library, and a Home that starts fast.
+! **A new player.** The cover fills the top of the screen and fades into its own colour, or sits as a plain card (Settings › Appearance › Player › Immersive cover). Under it are the song, the line being sung, the seek bar, and one glass pill with Lyrics, Up next, Play on, the sleep timer, and More. On a tablet or an unfolded phone the player follows the shape of the screen, and the side pane with Up next and Lyrics opens and closes.
+- **A shorter More menu.** The song and its stars on top, four buttons for Playlist, Radio, the album, and the artist, then the look, A-B loop, Speed and pitch, and Full screen.
+- **Six looks for Play.** Settings › Appearance › Player › Buttons: Accent, Glass, Wide, Ring, Soft square, or Trio.
+- **A new Search.** Before you type, Search shows what you looked for last, your genres to browse, and the rules you can type. As you type, the best match is on top on a card in its cover's colour, each kind shows how many it found, and the letters you typed are lit.
+- **Browse by decade.** Search's Browse has a switch: Genres or Decades. A decade opens its songs.
+- **Start fast on Home.** In place of the Playing now card: Favorites, your station, the albums you play most, your playlists, and the albums you played last. One press plays.
+- **A new Library.** One bar of words with a sliding light, a shelf of covers, and three albums across.
+- **A calmer feel.** Swipes and pulls go on at your finger's speed. Tabs switch at once. A song you drag to a new place makes the rows slide aside, and the list scrolls near its edges. The lyrics wait 3 seconds after you scroll them.
+- Up next has Shuffle and Add songs.
+- The year in review follows your theme.
+- Pulling the Library down shows Needle's own glass sign.
+- The clock and the icons at the top stay readable with the Night theme on a phone in light mode.
+- A foldable opened or closed keeps your page, with a way back.
+- A page's cover no longer shows over the dock on Back.
+- At the largest text sizes the dock's names get smaller instead of cut.
+- Counts carry the thousands mark of your language.
+- TV: the picture behind Home changes once the focus rests, and the side bar opens quickly.
+
 # 2.0.6
 Glass all over, your Navidrome playlists, and a Radio page.
 ! **Navidrome playlists.** Playlists you make in Navidrome's web page (or any Subsonic server) show up in Needle, with a small server mark. Changes go both ways: rename, add, remove, or reorder in Needle, and the server gets them. If a playlist changed on both sides, the server's version stays and yours is kept as a copy: Needle tells you, and opens the copy. A weak connection does not undo a change; Needle keeps it and sends it later. Playlists you can only read on the server say so.

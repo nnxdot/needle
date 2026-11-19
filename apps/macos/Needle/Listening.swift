@@ -18,7 +18,7 @@ struct HistoryPage: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Listening history").font(store.display(28))
+                        Text("Listening history").font(store.display(28)).tracking(store.displayTracking(28))
                         Text("Every listen is recorded on this Mac, even offline.").foregroundStyle(colors.ink2)
                     }
                     Spacer()

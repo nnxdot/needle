@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.runtime.mutableIntStateOf
+
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -87,6 +89,15 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -227,12 +238,17 @@ fun DetailHeader(
                     .shadow(28.dp, CoverShape, ambientColor = Color.Black, spotColor = Color.Black),
                 seed = title,
             )
+            // As it narrows with the scroll it keeps the lines it had, so the rows under the finger
+            // do not jump when a long name goes from two lines to one.
+            var lines by remember(title) { mutableIntStateOf(1) }
             Text(
                 title,
                 style = MaterialTheme.typography.displaySmall.copy(fontFamily = titleFamily(0.3f + squeeze * 0.7f)),
                 textAlign = TextAlign.Center,
+                minLines = lines,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                onTextLayout = { if (it.lineCount > lines) lines = it.lineCount },
                 modifier = Modifier.padding(top = 24.dp).semantics { heading() },
             )
             if (sub != null) {
@@ -311,11 +327,15 @@ private fun WideDetailHeader(
                 seed = title,
             )
             Column(Modifier.weight(1f)) {
+                // Keeps the lines it had as it narrows (see DetailHeader).
+                var lines by remember(title) { mutableIntStateOf(1) }
                 Text(
                     title,
                     style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.3f + squeeze * 0.7f)),
+                    minLines = lines,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (it.lineCount > lines) lines = it.lineCount },
                     modifier = Modifier.semantics { heading() },
                 )
                 if (sub != null) {
@@ -473,6 +493,7 @@ private fun LazyListScope.songList(
 ) {
     // Keys that follow each song, so a row moved with a remote keeps its focus as it moves.
     val keys = songKeys(list)
+    reorder?.keys = keys
     itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
         // A list that changes in place (a playlist's): its rows slide when one goes or moves.
         val moving = if (reorder != null || remove != null) Modifier.movingRow(this, reorder) else Modifier
@@ -499,7 +520,7 @@ private fun length(songs: List<Song>): String {
 @Composable
 fun AlbumScreen(album: Album, open: (Route) -> Unit) {
     // Its menus, and its songs' menus, know they are on this album already.
-    CompositionLocalProvider(LocalAlbumHere provides album.title) { AlbumPage(album, open) }
+    CompositionLocalProvider(LocalAlbumHere provides album) { AlbumPage(album, open) }
 }
 
 @Composable
@@ -653,7 +674,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     val written: (fyi.nnx.needle.core.PlaylistSaved) -> Unit = { tellSaved(route.id, it, null) }
     // Put in order: each row gets a handle to drag it by.
     var arranging by remember { mutableStateOf(false) }
-    val reorder = rememberReorder(list.size) { from, to ->
+    val reorder = rememberReorder(list.size, state) { from, to ->
         val positions = d?.positions.orEmpty()
         // One change at a time: until the list is read again, its places are the old ones.
         if (!writing && from in positions.indices && to in positions.indices) {
@@ -913,12 +934,16 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
                     modifier = Modifier.widthIn(max = 300.dp).heightIn(max = 120.dp).fillMaxWidth(),
                 )
             } else {
+                // Keeps the lines it had as it narrows with the scroll, so the page does not jump.
+                var lines by remember(name) { mutableIntStateOf(1) }
                 Text(
                     name,
                     style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.5f + squeeze * 0.5f)),
                     textAlign = TextAlign.Center,
+                    minLines = lines,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (it.lineCount > lines) lines = it.lineCount },
                     modifier = Modifier.semantics { heading() },
                 )
             }
@@ -1050,9 +1075,9 @@ private fun LatestRelease(album: Album, open: (Route) -> Unit) {
 // ---------- Home
 
 /**
- * Home, as on the Mac: a greeting, the song playing now, then shelves of covers (albums played
- * lately, new, played most, loved) and the artists played most, each shelf with a grey line
- * under its title.
+ * Home, as on the Mac: a greeting, "Start fast" (up to six things to play with one press), then
+ * shelves of covers (albums played lately, new, played most, loved) and the artists played most,
+ * each shelf with a grey line under its title.
  */
 @Composable
 fun HomeScreen(open: (Route) -> Unit) {
@@ -1064,7 +1089,7 @@ fun HomeScreen(open: (Route) -> Unit) {
             return
         }
     }
-    val homeLoad = rememberLoaded { homeShelves(20u) }
+    val homeLoad = rememberLoaded { homeShelves(20u).let { HomeData(it, quickStarts(it)) } }
     val home by homeLoad
     val countLoad = rememberLoaded { songCount() }
     val count by countLoad
@@ -1093,11 +1118,12 @@ fun HomeScreen(open: (Route) -> Unit) {
             item { HomeEmpty(scan.running, scan.scanned, open) }
             return@LazyColumn
         }
-        item { NowCard() }
+        // Start fast: there whether music plays or not, so the page never moves with the player.
+        item(key = "start") { QuickStartGrid(home?.starts, open) }
         // In December: the year in review.
         item { YearReviewRow(open, december = true) }
         // Soft tiles hold the shelves' places while they are read.
-        val h = home ?: run {
+        val h = home?.shelves ?: run {
             item { ShelfTitle("Jump back in", "Albums you played last") }
             item {
                 val tile = if (isWide()) 176.dp else 148.dp
@@ -1130,59 +1156,204 @@ private fun greeting(): String {
     }
 }
 
+// ---------- Home: Start fast
+
 /**
- * The song playing, large, at the top of Home: its cover, "Playing now" in the accent, the
- * song, and a round Play/Pause, on a wash of the cover's colour.
+ * One of Home's quick starts: Favorites, your station, an album, or a playlist. [ids] are its
+ * songs, to know when it plays (none for the station: its songs come as it plays).
+ */
+private class QuickStart(
+    val key: String,
+    val name: String,
+    val album: Album? = null,
+    val playlist: fyi.nnx.needle.core.Playlist? = null,
+    val ids: Set<String> = emptySet(),
+)
+
+/** What Home reads: its shelves, and the quick starts made from them. */
+private class HomeData(val shelves: fyi.nnx.needle.core.HomeShelves, val starts: List<QuickStart>)
+
+/**
+ * Home's quick starts, in this order: Favorites (with one loved song or more), your station, the
+ * two albums played most, the first two playlists that have songs (in the user's order); then
+ * the albums played last that are not there yet. An even number, six at most; with fewer than
+ * two, none.
+ */
+private fun fyi.nnx.needle.core.Needle.quickStarts(h: fyi.nnx.needle.core.HomeShelves): List<QuickStart> {
+    val list = mutableListOf<QuickStart>()
+    val loved = runCatching { favorites().map { it.id } }.getOrDefault(emptyList())
+    if (loved.isNotEmpty()) list += QuickStart("favorites", "Favorites", ids = loved.toSet())
+    list += QuickStart(StartStation, "Your station")
+    fun album(a: Album) = QuickStart(
+        "album/${a.key}",
+        a.title.ifBlank { "Unknown album" },
+        album = a,
+        ids = runCatching { albumSongs(a.key).map { it.id }.toSet() }.getOrDefault(emptySet()),
+    )
+    h.mostPlayed.take(2).forEach { list += album(it) }
+    // An empty playlist cannot start anything; only a few are read to find two.
+    runCatching { playlists() }.getOrDefault(emptyList()).asSequence().take(8)
+        .map { p -> p to runCatching { playlistSongs(p.id).map { it.id }.toSet() }.getOrDefault(emptySet()) }
+        .filter { it.second.isNotEmpty() }
+        .take(2)
+        .forEach { (p, ids) -> list += QuickStart("playlist/${p.id}", p.name.ifBlank { "Playlist" }, playlist = p, ids = ids) }
+    h.recent.forEach { a -> if (list.size < 6 && list.none { it.key == "album/${a.key}" }) list += album(a) }
+    val shown = list.take(6).let { it.take(it.size / 2 * 2) }
+    return if (shown.size < 2) emptyList() else shown
+}
+
+/** Plays a quick start: Favorites shuffled, an album or a playlist from its first song, your station as the Radio page starts it. */
+private fun playQuick(q: QuickStart) {
+    if (q.key == StartStation) {
+        startYourStation()
+        return
+    }
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        val ids = runCatching {
+            when {
+                q.album != null -> core.albumSongs(q.album.key).map { it.id }
+                q.playlist != null -> core.playlistSongs(q.playlist.id).map { it.id }
+                else -> core.favorites().map { it.id }.shuffled()
+            }
+        }.getOrElse { showMessage(it.message ?: "Could not play these songs"); return@launch }
+        if (ids.isEmpty()) {
+            showMessage("Nothing to play yet")
+            return@launch
+        }
+        playSongs(ids)
+        startedFrom.value = q.key
+    }
+}
+
+private val QuickHeight = 58.dp
+private val QuickShape = RoundedCornerShape(12.dp)
+
+/**
+ * "Start fast", under Home's greeting: up to six things to play with one press, two across on a
+ * phone and three on a wide page. It is there whether music plays or not, so Home never moves
+ * with the player; while it is read, quiet tiles hold its place. The tile that holds what plays
+ * shows the playing bars and its name in the accent.
  */
 @Composable
-private fun NowCard() {
-    val playbackState = NeedleApp.instance.playback.collectAsState()
-    val song by remember { derivedStateOf { playbackState.value?.current } }
-    val playing by remember { derivedStateOf { playbackState.value?.playing == true } }
-    val s = song ?: return
-    val haptics = rememberHaptics()
-    CoverTheme(s.artwork) {
-        val scheme = MaterialTheme.colorScheme
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Brush.horizontalGradient(listOf(scheme.primaryContainer.copy(alpha = 0.55f), scheme.surfaceContainer.copy(alpha = 0.6f))))
-                .clickable(onClickLabel = "Open the player") { Ui.showPlayer.tryEmit(Unit) }
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Cover(s.artwork, Modifier.size(76.dp).shadow(8.dp, CoverShape), CoverShape, seed = s.album + s.artist)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (playing) "Playing now" else "Paused",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = scheme.primary,
-                )
-                Text(s.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOf(s.artist, s.album).filter { it.isNotBlank() }.joinToString(" · "),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+private fun QuickStartGrid(starts: List<QuickStart>?, open: (Route) -> Unit) {
+    val current = playingSongId()
+    val from by startedFrom.collectAsState()
+    val playing by NeedleApp.instance.isPlaying.collectAsState()
+    // One tile at most: the one that started what plays, else the album it is from.
+    val lit = remember(starts, current, from) {
+        val list = starts.orEmpty()
+        val chosen = list.firstOrNull { it.key == from }
+        when {
+            current == null -> null
+            chosen != null && (chosen.key == StartStation || current in chosen.ids) -> chosen.key
+            else -> list.firstOrNull { it.album != null && current in it.ids }?.key
+        }
+    }
+    val columns = if (isWide()) 3 else 2
+    val count = starts?.size ?: 6
+    if (count == 0) return
+    Column(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        (0 until count).chunked(columns).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { i ->
+                    val cell = Modifier.weight(1f)
+                    if (starts == null) {
+                        Box(cell.height(QuickHeight).clip(QuickShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    } else {
+                        val q = starts[i]
+                        androidx.compose.runtime.key(q.key) { QuickTile(q, q.key == lit, playing, open, cell) }
+                    }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
-            androidx.compose.material3.FilledIconButton(
-                onClick = { haptics(false); Controls.toggle() },
-                shape = CircleShape,
-                modifier = Modifier.size(52.dp).playPauseSemantics(playing) { haptics(false); Controls.toggle() },
-            ) { PlayPauseIcon(playing, 28.dp) }
         }
     }
 }
 
-/** A shelf's title, with a grey line under it, and See all where there is a page of it. */
+/**
+ * A quick start: its cover as a square at the left, the full height of the tile, then its name
+ * (two lines at most), on the page's raised colour. A press plays it; a long press gives an
+ * album its own menu (with Go to album). TalkBack hears "Play <name>".
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun ShelfTitle(title: String, detail: String?, onMore: (() -> Unit)? = null) {
+private fun QuickTile(q: QuickStart, lit: Boolean, playing: Boolean, open: (Route) -> Unit, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = rememberHaptics()
+    var menu by remember { mutableStateOf(false) }
+    val album = q.album
+    if (menu && album != null) AlbumSheet(album, open) { menu = false }
+    Row(
+        modifier
+            .height(QuickHeight)
+            .pressScale(interaction, corner = 12.dp)
+            .clip(QuickShape)
+            .background(scheme.surfaceContainer)
+            .semantics {
+                contentDescription = "Play ${q.name}"
+                if (lit) stateDescription = if (playing) "Playing" else "Paused"
+            }
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                role = Role.Button,
+                onLongClickLabel = if (album != null) "More" else null,
+                onLongClick = if (album != null) ({ haptics(true); menu = true }) else null,
+                onClick = { playQuick(q) },
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        QuickCover(q, Modifier.size(QuickHeight).clearAndSetSemantics {})
+        Text(
+            q.name,
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 18.sp),
+            fontWeight = FontWeight.SemiBold,
+            color = if (lit) scheme.primary else scheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).padding(start = 10.dp, end = if (lit) 6.dp else 10.dp).clearAndSetSemantics {},
+        )
+        if (lit) PlayingBars(playing, Modifier.padding(end = 12.dp))
+    }
+}
+
+/** A quick start's cover: the album's or the playlist's; Favorites a heart on the accent, your station the radio on the second accent. */
+@Composable
+private fun QuickCover(q: QuickStart, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    when {
+        q.album != null -> Cover(q.album.artwork, modifier, RectangleShape, seed = q.album.title + q.album.artist)
+        q.playlist != null -> PlaylistCover(q.playlist, modifier, RectangleShape)
+        else -> {
+            val station = q.key == StartStation
+            Box(modifier.background(if (station) scheme.tertiary else scheme.primary), contentAlignment = Alignment.Center) {
+                Icon(
+                    if (station) Icons.Rounded.Radio else Icons.Rounded.Favorite,
+                    contentDescription = null,
+                    tint = if (station) scheme.onTertiary else scheme.onPrimary,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A shelf's title, with a grey line under it, and See all where there is a page of it. `switch`
+ * goes before See all (Search's Genres | Decades).
+ */
+@Composable
+internal fun ShelfTitle(
+    title: String,
+    detail: String?,
+    more: String = "See all",
+    switch: (@Composable () -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
+) {
     Row(
         Modifier.fillMaxWidth().padding(start = Edge, end = 8.dp, top = 26.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1191,14 +1362,15 @@ internal fun ShelfTitle(title: String, detail: String?, onMore: (() -> Unit)? = 
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
             if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (onMore != null) TextButton(onClick = onMore) { Text("See all") }
+        switch?.invoke()
+        if (onMore != null) TextButton(onClick = onMore) { Text(more) }
     }
 }
 
 private fun LazyListScope.shelf(title: String, detail: String, albums: List<Album>, open: (Route) -> Unit, more: Route? = null) {
     if (albums.isEmpty()) return
     // "See all" only where there is a page of the same albums in the same order.
-    item(key = "shelf-title/$title/$detail") { ShelfTitle(title, detail, more?.let { { open(it) } }) }
+    item(key = "shelf-title/$title/$detail") { ShelfTitle(title, detail, onMore = more?.let { { open(it) } }) }
     // Kept by its name: when Home gains or loses a part above it (the song playing, a shelf),
     // its row keeps its own scroll and tiles, not the ones of the shelf that was in its place.
     item(key = "shelf/$title/$detail") {
@@ -1266,15 +1438,26 @@ fun SearchScreen(open: (Route) -> Unit) {
     val rules by rememberLoaded { ruleExamples().chunked(2).filter { it.size == 2 }.map { it[0] to it[1] } }
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
+    val decadesLoad = rememberLoaded { decades() }
+    val decades by decadesLoad
+    val browseBy by BrowseBy.chosen.collectAsState()
+    // Recent searches, read again after each change (see keepSearch).
+    val version = recentVersion.intValue
+    val recent by produceState(emptyList<fyi.nnx.needle.core.RecentSearch>(), version) {
+        value = withContext(Dispatchers.IO) { runCatching { core.recentSearches(8u) }.getOrDefault(emptyList()) }
+    }
     val playing = playingId()
     LaunchedEffect(query) {
         delay(200)
+        // The old results stay until the new ones are ready: no empty flash, no jump.
         answer = if (query.isBlank()) null else withContext(Dispatchers.IO) {
             // The best match and a few of each (up to 50, for the chips), and every song.
             runCatching { SearchAnswer(query, core.find(query, 50u), runCatching { core.search(query) }.getOrDefault(emptyList()), null) }
                 .getOrElse { SearchAnswer(query, null, emptyList(), it.message ?: "This rule is not right.") }
         }
         lastSearch = answer
+        // A kind with nothing in it now cannot stay chosen.
+        answer?.found?.let { f -> if (f.countOf(kind) == 0) kind = SearchKind.All }
         // Music servers that search (octo-fiesta) answer a moment later.
         server = null
         if (query.isNotBlank()) {
@@ -1290,27 +1473,32 @@ fun SearchScreen(open: (Route) -> Unit) {
     val hints by produceState(emptyList<fyi.nnx.needle.core.Suggestion>(), query) {
         value = if (query.isBlank()) emptyList() else withContext(Dispatchers.IO) { runCatching { core.suggest(query, query.length.toUInt()) }.getOrDefault(emptyList()) }
     }
+    val shown = answer.takeIf { query.isNotBlank() }
+    val found = shown?.found
+    // The kinds show while there is something to choose among (not over "Nothing for …").
+    val kinds = query.isNotBlank() && shown?.error == null && found?.nothing() != true
+    val wide = isWide()
+    val duo = wide && LocalPageWidth.current >= 672.dp
+    // How many genre tiles go across (as gridColumns(210.dp) below).
+    val across = if (wide) (LocalPageWidth.current / 210.dp).toInt().coerceAtLeast(2) else 2
     Page("Search") { padding, scroll ->
-        // Two genres across on a phone, more on a tablet; the rows run to the edges.
-        LazyVerticalGrid(
-            columns = gridColumns(210.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp + LocalBottomInset.current),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
-        ) {
-            edgeToEdge(16.dp) {
-                RemoteTyping(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { field ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // The field and the kinds stay at the top while the results scroll.
+            RemoteTyping(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { field ->
                 TextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Songs, albums, artists") },
+                    placeholder = { Text("Songs, albums, artists, lyrics") },
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, contentDescription = "Clear") } },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    // The results come as it is typed; the keyboard's Search puts the keyboard away.
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { keyboard?.hide() }),
+                    // The results come as it is typed; the keyboard's Search keeps the words in
+                    // Recent and puts the keyboard away.
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                        if (query.isNotBlank()) keepSearch("words", query.trim())
+                        keyboard?.hide()
+                    }),
                     shape = RoundedCornerShape(28.dp),
                     colors = TextFieldDefaults.colors(
                         focusedIndicatorColor = Color.Transparent,
@@ -1320,14 +1508,14 @@ fun SearchScreen(open: (Route) -> Unit) {
                     ),
                     modifier = field.fillMaxWidth(),
                 )
-                }
             }
             // Typing a smart rule (rating >= 4, genre = "K-pop"): what can come next, with
             // the library's own names.
-            if (hints.isNotEmpty()) edgeToEdge(16.dp) {
+            if (hints.isNotEmpty()) {
                 androidx.compose.foundation.lazy.LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 8.dp),
                 ) {
                     items(hints) { h ->
                         androidx.compose.material3.SuggestionChip(
@@ -1337,24 +1525,79 @@ fun SearchScreen(open: (Route) -> Unit) {
                     }
                 }
             }
-            if (query.isBlank()) {
-                val list = genres.orEmpty()
-                if (list.isNotEmpty()) {
-                    edgeToEdge(16.dp) { SectionHeader("Browse by genre", Modifier.padding(top = 4.dp)) }
-                    items(list.size, key = { list[it].name }) { i ->
-                        GenreTile(list[i].name, list[i].artwork, Modifier) { open(Route.Genre(list[i].name)) }
+            if (kinds) Box(Modifier.padding(top = 8.dp)) { SearchKinds(found, kind) { kind = it } }
+            // Two genres across on a phone, more on a tablet; the rows run to the edges.
+            LazyVerticalGrid(
+                columns = gridColumns(210.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp + LocalBottomInset.current),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth().then(scroll),
+            ) {
+                if (query.isBlank()) {
+                    recentSection(recent, { query = it }, open)
+                    // The rules come before the genres: one short line, so a library with many
+                    // genres never puts them a long scroll away.
+                    rulesSection(rules.orEmpty()) { query = it }
+                    // Browse by genre: the genres with the most songs, in whole lines (three on a
+                    // phone, two on a wide page); the rest are on the Genres page. By decade:
+                    // the newest first, 8 at most, in whole lines. A library with only one of
+                    // the two shows that one, with no switch.
+                    val all = genres.orEmpty()
+                    val list = all.sortedByDescending { it.songs }.take(across * if (wide) 2 else 3)
+                    val years = decades.orEmpty().take(if (across > 8) 8 else 8 / across * across)
+                    val byDecade = when {
+                        list.isEmpty() -> true
+                        years.isEmpty() -> false
+                        else -> browseBy == BrowseBy.Decades
                     }
-                }
-            } else {
-                answer?.takeIf { it.query == query }?.let { a ->
-                    searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, playing, open)
-                }
-                if (kind == SearchKind.All || kind == SearchKind.Songs) server?.let { (number, found) ->
-                    edgeToEdge(16.dp) { SectionHeader("On your server") }
-                    items(found.size, key = { "server-$it-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                        SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = found.place(i)) {
-                            core.playServerSongs(number, i.toUInt())
-                            NeedleApp.instance.openPlayer.tryEmit(Unit)
+                    // Decades chosen and still read: wait for them, rather than show the
+                    // genres for a moment.
+                    val waiting = browseBy == BrowseBy.Decades && decadesLoad.loading
+                    if (!waiting && (list.isNotEmpty() || years.isNotEmpty())) {
+                        edgeToEdge(16.dp, key = "browse-title") {
+                            ShelfTitle("Browse", null, switch = {
+                                // 48 dp with or without the switch: the line keeps its height
+                                // when the decades come a moment after the genres.
+                                Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                                    if (list.isNotEmpty() && years.isNotEmpty()) BrowseSwitch(if (byDecade) BrowseBy.Decades else BrowseBy.Genres)
+                                }
+                                // Decades have no "All": it fades out but keeps its place, so
+                                // the switch does not move under the finger.
+                                if (all.size > list.size) {
+                                    val shown by animateFloatAsState(if (byDecade) 0f else 1f, tween(180), label = "browse-all")
+                                    Box(Modifier.graphicsLayer { alpha = shown }.then(if (byDecade) Modifier.clearAndSetSemantics { } else Modifier)) {
+                                        TextButton(onClick = { open(Route.Genres) }, enabled = !byDecade) { Text("All ${all.size} ›") }
+                                    }
+                                }
+                            })
+                        }
+                        // The tiles change in place, each with the short fade.
+                        val gap = Modifier.padding(bottom = 12.dp)
+                        if (byDecade) {
+                            items(years.size, key = { "decade-" + years[it].year }) { i ->
+                                GenreTile(years[i].label, years[i].artwork, Modifier.animateItem(fadeInSpec = tween(180), placementSpec = null, fadeOutSpec = null).then(gap)) {
+                                    // Its rule in the field: the decade's songs show here, in Search.
+                                    query = years[i].rule
+                                }
+                            }
+                        } else {
+                            items(list.size, key = { "genre-" + list[it].name }) { i ->
+                                GenreTile(list[i].name, list[i].artwork, Modifier.animateItem(fadeInSpec = tween(180), placementSpec = null, fadeOutSpec = null).then(gap)) { open(Route.Genre(list[i].name)) }
+                            }
+                        }
+                    }
+                } else {
+                    shown?.let { a ->
+                        searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, recent, looksLikeRule(a.query, hints.isNotEmpty()), duo, playing, open, serverHas = server != null)
+                    }
+                    // Also when the library itself has nothing: the server's songs are the answer then.
+                    if (kind == SearchKind.All || kind == SearchKind.Songs) server?.let { (number, list) ->
+                        edgeToEdge(16.dp, key = "server-title") { ShelfTitle("On your server", null) }
+                        items(list.size, key = { "server-$it-" + list[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
+                            SongRow(list[i], playing == list[i].id, null, Modifier.bleed(16.dp), place = list.place(i)) {
+                                core.playServerSongs(number, i.toUInt())
+                                NeedleApp.instance.openPlayer.tryEmit(Unit)
+                            }
                         }
                     }
                 }

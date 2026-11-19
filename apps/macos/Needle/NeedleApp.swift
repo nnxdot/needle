@@ -83,9 +83,17 @@ struct TrayMenu: View {
     private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
 
+    /// At most 60 letters, ending in "…" when cut.
+    static func cut(_ text: String) -> String {
+        text.count > 60 ? String(text.prefix(59)).trimmingCharacters(in: .whitespaces) + "…" : text
+    }
+
     var body: some View {
         if let p = store.playback, p.hasSong {
-            Text("\(p.title) · \(p.artist)")
+            // Two lines, each cut at 60 letters: a long classical title no longer stretches the
+            // whole menu across the screen. The full title is in Needle's own window.
+            Text(Self.cut(p.title))
+            if !p.artist.isEmpty { Text(Self.cut(p.artist)) }
             Divider()
         }
         Button(store.isPlaying ? "Pause" : "Play") { store.toggle() }
@@ -212,13 +220,9 @@ struct NeedleCommands: Commands {
         }
     }
 
+    /// From the menu or its key (⌘J, ⌘L, ⌘I): at once.
     private func togglePanel(_ panel: Store.Panel) {
-        if store.settings.showInspector && store.panel == panel {
-            store.set(["show_inspector": false])
-        } else {
-            store.panel = panel
-            store.set(["show_inspector": true])
-        }
+        store.togglePanel(panel, animated: false)
     }
 
     private func importPlaylist() {

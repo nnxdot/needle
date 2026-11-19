@@ -1,3 +1,19 @@
+# 2.0.7
+A new player, a new Search, and a Home that starts fast.
+! **A new player.** The cover fills the top of the screen and fades into its own colour, or sits as a plain card (Settings › Appearance › The player › Immersive cover). Under it are the song, the line being sung, the seek bar, and one glass pill with Lyrics, Up Next, Play On, the sleep timer, and More. On an iPad the player follows the shape of the window, and the pane with Lyrics and Up Next opens and closes.
+- **A shorter More menu.** The song and its stars on top, four buttons for Playlist, Radio, the album, and the artist, then the look, A-B loop, Speed and pitch, and Full screen.
+- **Six looks for Play.** Settings › Appearance › The player › Buttons: Accent, Glass, Wide, Ring, Soft square, or Trio.
+- **A new Search.** Before you type, Search shows what you looked for last, your genres to browse, and the rules you can type. As you type, the best match is on top on a card in its cover's colour, each kind shows how many it found, and the letters you typed are lit.
+- **Browse by decade.** Search's Browse has a switch: Genres or Decades. A decade opens its songs.
+- **Start fast on Home.** In place of the Playing now card: Favorites, your station, the albums you play most, your playlists, and the albums you played last. One tap plays.
+- **A calmer feel.** The cover follows your finger when you swipe it. Touching the seek bar no longer jumps the song. The lyrics wait 3 seconds after you scroll them. Buttons press down at once, with no wobble.
+- Up Next has Shuffle and Add songs.
+- iPad: Search shows each song's full title and artist, and the players no longer keep room for a keyboard that has gone.
+- iPad keyboard: shortcuts show their result at once.
+- At large text sizes the Sleep timer's Start is always reachable, and the iPad's song table never cuts a time.
+- Increase Contrast and Reduce Transparency change the player too.
+- A message keeps clear of the screen's edges, and a tap or a swipe up puts it away.
+
 # 2.0.6
 Needle for iPad, your Navidrome playlists, and more glass.
 ! **Needle for iPad.** A real iPad app: a sidebar with your library and playlists, a player that floats over the page, a big player with the lyrics or Up Next beside the cover, song tables on album and playlist pages, Settings in two columns, and small tools that open beside their buttons. A keyboard, a pointer, and dragging songs onto a playlist all work.

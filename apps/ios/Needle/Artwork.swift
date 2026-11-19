@@ -444,6 +444,8 @@ struct CoverBackdrop: View {
     var blur: CGFloat = 70
     var moving = true
     @State private var soft: UIImage?
+    /// Reduce Transparency: the blurred picture stands still.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(path: String?, seed: String, blur: CGFloat = 70, moving: Bool = true) {
         self.path = path
@@ -477,7 +479,7 @@ struct CoverBackdrop: View {
             let side = max(geo.size.width, geo.size.height) * 1.6
             // The blur, in the small picture's pixels: as soft as `blur` points at full size.
             let radius = max(1, blur * Self.pixels / max(1, side))
-            RecordSpin(on: moving, period: 60, rate: 15) {
+            RecordSpin(on: moving && !reduceTransparency, period: 60, rate: 15) {
                 Group {
                     if let soft { Image(uiImage: soft).resizable().interpolation(.medium) } else { Color.black }
                 }
