@@ -604,11 +604,29 @@ impl AppView {
                         v.big_was = true;
                         v.big_moving = true;
                     }
-                    // "visualizer": with the visualizer on.
-                    v.visualizer = how == "visualizer";
-                    // "alone": with no pane beside it.
-                    if how == "alone" {
-                        v.big_side = super::now_playing::Side::None;
+                    // Words joined with commas. "alone": with no pane beside it; "queue":
+                    // with Up next in it. "card" and "immersive": Immersive cover off or on.
+                    // "record", "lyrics", "cover": the look. "more": with More open.
+                    // Nothing here is saved.
+                    for word in how.split(',') {
+                        match word {
+                            "alone" => v.big_side = super::now_playing::Side::None,
+                            "queue" => {
+                                v.big_side = super::now_playing::Side::Queue;
+                                v.big_sheet = true;
+                            }
+                            "card" => v.settings.immersive_cover = false,
+                            "immersive" => v.settings.immersive_cover = true,
+                            "visualizer" => v.visualizer = true,
+                            "cover" | "record" | "lyrics" | "visualizer-look" => {
+                                v.settings.big_look = word.trim_end_matches("-look").to_string()
+                            }
+                            _ => {}
+                        }
+                    }
+                    if how.split(',').any(|w| w == "more") {
+                        let at = gpui::point(gpui::px(900.), gpui::px(60.));
+                        v.open_big_more(at, false, cx);
                     }
                     cx.notify();
                 });

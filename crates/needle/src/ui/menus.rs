@@ -71,6 +71,8 @@ pub struct TrackMenu {
     pub serial: usize,
     /// A song that is not a row of the list: the one playing, from the player bar.
     pub track: Option<needle_core::model::Track>,
+    /// The big player's More: its looks and tools above the song's own entries.
+    pub more: bool,
 }
 
 impl AppView {
@@ -89,6 +91,7 @@ impl AppView {
             highlight: None,
             serial: self.menu_serial,
             track: Some(track),
+            more: false,
         });
         cx.notify();
     }
@@ -145,9 +148,11 @@ impl AppView {
         entries.extend([
             Entry::Separator,
             Entry::item("albums", "Go to album", None, move |this, window, cx| {
+                this.big = false;
                 this.navigate(album.clone(), window, cx)
             }),
             Entry::item("artists", "Go to artist", None, move |this, window, cx| {
+                this.big = false;
                 this.navigate(artist.clone(), window, cx)
             }),
             Entry::item("radio", "Start radio", None, move |this, _, _| {
@@ -213,6 +218,7 @@ impl AppView {
             highlight: None,
             serial: self.menu_serial,
             track: None,
+            more: false,
         });
         cx.notify();
     }
@@ -222,6 +228,20 @@ impl AppView {
             return vec![];
         };
         if let Some(track) = menu.track.clone() {
+            if menu.more && menu.sub.is_none() {
+                let mut entries = self.big_more_entries(menu.position);
+                // The heart is beside the title already.
+                let song: Vec<Entry> = self
+                    .playing_entries(track, None)
+                    .into_iter()
+                    .skip(1)
+                    .collect();
+                if !matches!(song.first(), Some(Entry::Separator)) {
+                    entries.push(Entry::Separator);
+                }
+                entries.extend(song);
+                return entries;
+            }
             return self.playing_entries(track, menu.sub);
         }
         let Some(track) = self.tracks.get(menu.index).cloned() else {
@@ -613,6 +633,7 @@ impl AppView {
         let entries = self.menu_entries(cx);
         let highlight = menu.highlight;
         let rows = Self::menu_rows(&entries, highlight, cx);
+        let more = menu.more && menu.sub.is_none();
         let title = match menu.sub {
             Some("playlists") => Some("Add to playlist"),
             Some("plugins") => Some("Plugins"),
@@ -621,7 +642,7 @@ impl AppView {
         let body = div()
             .id("track-menu")
             .occlude()
-            .w(px(252.))
+            .w(px(if menu.more { 300. } else { 252. }))
             .p_1()
             .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .flex()
@@ -656,6 +677,7 @@ impl AppView {
                 )
                 .child(div().my_1().mx_1().h(px(1.)).bg(p.line))
             })
+            .when(more, |el| el.child(self.big_look_row(cx)))
             .children(rows);
         let body = motion::fade(body, ("menu-in", menu.serial), 140, cx, |el, f, m| {
             el.opacity(f).mt(px(6. * (1. - m)))
