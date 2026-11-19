@@ -1,6 +1,8 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.composed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material3.Icon
@@ -45,6 +47,30 @@ class Reorder(var move: (from: Int, to: Int) -> Unit) {
     /** When a dragged row was last let go (uptime, ms): its list's rows are in place already. */
     var droppedAt = 0L
 
+    /** The list the rows are in, scrolled while a row is held near its top or foot. */
+    var list: androidx.compose.foundation.lazy.LazyListState? = null
+
+    /** The rows' keys in that list, to find the row held. */
+    var keys: List<Any> = emptyList()
+
+    /** The last drop: where the row landed, and how far from its new place it was let go. */
+    var drops by mutableIntStateOf(0)
+    var droppedTo = -1
+    var droppedOffset = 0f
+
+    /** Lets go of the row held: it goes to its new place, from where the finger left it. */
+    fun drop() {
+        val from = dragging
+        val to = target
+        droppedAt = android.os.SystemClock.uptimeMillis()
+        droppedTo = to
+        droppedOffset = offset - (to - from) * rowHeight
+        dragging = -1
+        offset = 0f
+        drops++
+        if (from >= 0 && to >= 0 && from != to) move(from, to)
+    }
+
 
     /** Where the dragged row would land now. */
     val target: Int
@@ -63,9 +89,9 @@ class Reorder(var move: (from: Int, to: Int) -> Unit) {
 }
 
 @Composable
-fun rememberReorder(count: Int, move: (from: Int, to: Int) -> Unit): Reorder =
+fun rememberReorder(count: Int, list: androidx.compose.foundation.lazy.LazyListState? = null, move: (from: Int, to: Int) -> Unit): Reorder =
     // The latest `move` each time: the first one may hold a list that had not loaded yet.
-    remember { Reorder(move) }.also { it.move = move; it.count = count }
+    remember { Reorder(move) }.also { it.move = move; it.count = count; it.list = list }
 
 /**
  * A row of a list that changes in place (the queue, a playlist): when a song is taken out or moved
@@ -84,19 +110,43 @@ fun Modifier.movingRow(item: androidx.compose.foundation.lazy.LazyItemScope, reo
     ) }
 }
 
-/** The row's place while one is dragged: the dragged one follows the finger, others step aside. */
-fun Modifier.reorderRow(reorder: Reorder, index: Int): Modifier =
+/**
+ * The row's place while one is dragged: the dragged one follows the finger and lifts; the others
+ * slide aside to make room for it. Let go, it slides from where it was into its new place.
+ * Reduce motion: they move at once.
+ */
+fun Modifier.reorderRow(reorder: Reorder, index: Int): Modifier = composed {
+    val reduce = reduceMotion()
+    val holding = reorder.dragging >= 0
+    // Once let go, the rows stand in their new places at once (the list has changed under them).
+    val shift by androidx.compose.animation.core.animateFloatAsState(
+        reorder.shift(index).toFloat(),
+        if (reduce || !holding) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 800f),
+        label = "make room",
+    )
+    val lift by androidx.compose.animation.core.animateFloatAsState(
+        if (index == reorder.dragging) 1f else 0f,
+        if (reduce) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 600f),
+        label = "lift",
+    )
+    val settle = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(reorder.drops, index) {
+        val fresh = android.os.SystemClock.uptimeMillis() - reorder.droppedAt < 300
+        if (reduce || !fresh || index != reorder.droppedTo) {
+            settle.snapTo(0f)
+            return@LaunchedEffect
+        }
+        settle.snapTo(reorder.droppedOffset)
+        settle.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 600f))
+    }
     onSizeChanged { if (index == 0 || reorder.rowHeight <= 1f) reorder.rowHeight = it.height.toFloat() }
         .graphicsLayer {
-            if (index == reorder.dragging) {
-                translationY = reorder.offset
-                shadowElevation = 12.dp.toPx()
-                scaleX = 1.02f
-                scaleY = 1.02f
-            } else {
-                translationY = reorder.shift(index) * reorder.rowHeight
-            }
+            translationY = if (index == reorder.dragging) reorder.offset else shift * reorder.rowHeight + settle.value
+            shadowElevation = 12.dp.toPx() * lift
+            scaleX = 1f + 0.02f * lift
+            scaleY = 1f + 0.02f * lift
         }
+}
 
 /**
  * The handle a row is dragged by. With a remote or keys it takes the focus, and up and down move
@@ -108,6 +158,43 @@ fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.
     // The rows' keys follow their songs (songKeys), so the focus stays on the row moved.
     val up = index > 0
     val down = index < reorder.count - 1
+    // Held near the list's top or foot, the list scrolls (faster the nearer the edge), so a song
+    // can go anywhere in a long list. The row held is kept while its own place scrolls away.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val pinnable = androidx.compose.ui.layout.LocalPinnableContainer.current
+    val held = reorder.dragging == index
+    androidx.compose.runtime.LaunchedEffect(held) {
+        if (!held) return@LaunchedEffect
+        val pin = pinnable?.pin()
+        try {
+            val state = reorder.list ?: kotlinx.coroutines.awaitCancellation()
+            val key = reorder.keys.getOrNull(index)
+            val start = state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key } ?: kotlinx.coroutines.awaitCancellation()
+            val middle = start.offset + start.size / 2f
+            val edge = with(density) { 56.dp.toPx() }
+            val fastest = with(density) { 16.dp.toPx() }
+            var scrolled = 0f
+            while (true) {
+                androidx.compose.runtime.withFrameNanos {}
+                val info = state.layoutInfo
+                val finger = middle + reorder.offset - scrolled
+                val top = info.viewportStartOffset + info.beforeContentPadding + edge
+                val foot = info.viewportEndOffset - info.afterContentPadding - edge
+                val speed = when {
+                    finger < top -> -((top - finger) / edge).coerceAtMost(1f)
+                    finger > foot -> ((finger - foot) / edge).coerceAtMost(1f)
+                    else -> 0f
+                }
+                if (speed != 0f) {
+                    val used = state.scrollBy(speed * fastest)
+                    scrolled += used
+                    reorder.offset += used
+                }
+            }
+        } finally {
+            pin?.release()
+        }
+    }
     Box(
         Modifier
             .size(48.dp)
@@ -133,14 +220,7 @@ fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.
             .pointerInput(index) {
                 detectDragGestures(
                     onDragStart = { haptics(true); reorder.dragging = index; reorder.offset = 0f },
-                    onDragEnd = {
-                        val from = reorder.dragging
-                        val to = reorder.target
-                        reorder.droppedAt = android.os.SystemClock.uptimeMillis()
-                        reorder.dragging = -1
-                        reorder.offset = 0f
-                        if (from >= 0 && to >= 0 && from != to) reorder.move(from, to)
-                    },
+                    onDragEnd = { reorder.drop() },
                     onDragCancel = { reorder.dragging = -1; reorder.offset = 0f },
                 ) { change, drag ->
                     change.consume()

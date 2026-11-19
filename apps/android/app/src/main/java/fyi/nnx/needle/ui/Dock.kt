@@ -107,11 +107,18 @@ private fun DockTabs(tab: Tab, choose: (Tab) -> Unit) {
             ) {
                 // The open tab's icon filled, the others outlined, as on the side bar.
                 Icon(if (chosen) t.icon else t.outline, contentDescription = null, tint = ink, modifier = Modifier.size(24.dp))
+                // At the largest text sizes the name gets smaller rather than cut by the tab.
                 Text(
                     t.label,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelSmall.copy(lineHeight = androidx.compose.ui.unit.TextUnit(1.3f, androidx.compose.ui.unit.TextUnitType.Em)),
                     fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Medium,
                     color = ink,
+                    maxLines = 1,
+                    softWrap = false,
+                    autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(
+                        minFontSize = androidx.compose.ui.unit.TextUnit(7f, androidx.compose.ui.unit.TextUnitType.Sp),
+                        maxFontSize = MaterialTheme.typography.labelSmall.fontSize,
+                    ),
                 )
             }
         }

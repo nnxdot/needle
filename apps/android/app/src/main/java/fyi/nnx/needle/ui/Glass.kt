@@ -1,5 +1,10 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateColorAsState
@@ -15,7 +20,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
@@ -184,26 +192,30 @@ private fun coverBrush(cover: Color, dark: Boolean, strength: Float = 1f): Brush
  * Frosted glass (the dock, a tablet's player and side bar): the page behind it blurred and tinted
  * with the page's raised colour, with `cover`'s colour from the left when given, the edge light,
  * and a soft shadow. Where it cannot blur (see [blurAllowed]), the raised colour (or `solid`),
- * solid.
+ * solid. The player passes its own `fill` and `solid`: a faint white over its blurred cover.
  */
 @Composable
-fun Modifier.glass(shape: Shape, cover: Color? = null, large: Boolean = false, shadow: Dp = 18.dp, solid: Color? = null): Modifier {
+fun Modifier.glass(shape: Shape, cover: Color? = null, large: Boolean = false, shadow: Dp = 18.dp, solid: Color? = null, fill: Color? = null): Modifier {
     val scheme = MaterialTheme.colorScheme
     val dark = darkPage()
     val haze = LocalHaze.current
     val blur = haze != null && blurAllowed(large)
-    val fill = scheme.surfaceContainer.copy(alpha = if (dark) 0.62f else 0.72f)
+    // `fill`: the tint over the blur, for glass on a picture rather than a page (the player's).
+    val tint = fill ?: scheme.surfaceContainer.copy(alpha = if (dark) 0.62f else 0.72f)
+    // A see-through `solid` (the player's, where it cannot blur) would show its own shadow
+    // through it as a dark smudge: it has none.
+    val depth = if (!blur && solid != null && solid.alpha < 1f) 0.dp else shadow
     val back = scheme.background
-    val style = remember(fill, back, cover, dark) {
+    val style = remember(tint, back, cover, dark) {
         HazeBlurStyle {
             blurRadius(28.dp)
             noiseFactor(0.06f)
             backgroundColor(back)
-            colorEffects(listOfNotNull(HazeColorEffect.tint(fill), cover?.let { HazeColorEffect.tint(coverBrush(it, dark)) }))
+            colorEffects(listOfNotNull(HazeColorEffect.tint(tint), cover?.let { HazeColorEffect.tint(coverBrush(it, dark)) }))
         }
     }
     return this
-        .then(if (shadow > 0.dp) Modifier.shadow(shadow, shape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f)) else Modifier)
+        .then(if (depth > 0.dp) Modifier.shadow(depth, shape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f)) else Modifier)
         .clip(shape)
         .then(
             if (blur) {
@@ -393,6 +405,12 @@ private fun windowFill(base: Color, blurred: Boolean, shown: Boolean = true): Co
  * down its sides. Elsewhere, the sheet's usual solid fill with the edge light. A song's, an
  * album's, or a playlist's sheet passes its cover (`art`): its colour comes in faintly from the
  * left, as the dock's does (DESIGN.md › Glass).
+ *
+ * It never has a second top: Material's sheet, grown to the screen's top, drew its fill up under
+ * the status bar and put its handle (where the glass starts) below it. Here the sheet's content
+ * is held short of that: a sheet taller than the screen stops a little under the status bar and
+ * scrolls inside, so above its round top there is only the dimmed page. `maxWidth`: how wide it
+ * may be (Material's 640 dp unless a sheet asks for more).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -400,6 +418,7 @@ fun GlassSheet(
     onDismissRequest: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(),
     art: String? = null,
+    maxWidth: androidx.compose.ui.unit.Dp = BottomSheetDefaults.SheetMaxWidth,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var blurred by remember { mutableStateOf(false) }
@@ -409,24 +428,40 @@ fun GlassSheet(
     // Past the foot of the tallest sheet: the screen's height.
     val reach = with(LocalDensity.current) { androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDp() }
     val dark = darkPage()
+    // The tallest the content may be: the screen less the status bar (and a cut-out), a small
+    // gap, the handle's row, and the foot's bars, which the sheet keeps clear inside it.
+    val density = LocalDensity.current
+    val topBars = with(density) { androidx.compose.foundation.layout.WindowInsets.safeDrawing.getTop(density).toDp() }
+    val footBars = with(density) { androidx.compose.foundation.layout.WindowInsets.safeDrawing.getBottom(density).toDp() }
+    var handle by remember { mutableStateOf(48.dp) }
+    val tallest = (reach - topBars - 8.dp - handle - footBars).coerceAtLeast(120.dp)
     // Reduce motion: the sheet comes and goes at once, with no slide; its shade still fades.
     StillSheetMotion(reduceMotion()) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
+        sheetMaxWidth = maxWidth,
         shape = shape,
         containerColor = windowFill(MaterialTheme.colorScheme.surfaceContainerLow, blurred, shown),
+        // No room kept for the status bar inside the sheet: it never reaches it (see `tallest`).
+        contentWindowInsets = { androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom) },
         // The glass's tint and edge light are drawn from the handle's row, which moves with the
         // sheet: the sheet's own outer box is not where the sheet shows as it slides.
         dragHandle = {
-            Box(Modifier.fillMaxWidth().sheetGlass(shape, dark, cover, reach), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { with(density) { it.height.toDp() }.let { h -> if (h != handle) handle = h } }
+                    .sheetGlass(shape, dark, cover, reach),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
                 BottomSheetDefaults.DragHandle()
             }
         },
     ) {
         val on = windowBlur()
         SideEffect { blurred = on }
-        content()
+        Column(Modifier.fillMaxWidth().heightIn(max = tallest)) { content() }
     }
     }
 }
@@ -518,4 +553,51 @@ fun GlassMenu(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         content = content,
     )
+}
+
+/**
+ * The sign that shows when a page is pulled down to read the library again: a small disc of
+ * glass with a thin ring in the accent. The ring fills as the page is pulled, and turns while
+ * the library is read. Needle's own, in place of Material's indicator.
+ */
+@Composable
+fun androidx.compose.foundation.layout.BoxScope.PullGlass(
+    state: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    refreshing: Boolean,
+) {
+    val pulled = state.distanceFraction.coerceIn(0f, 1f)
+    val shown = androidx.compose.animation.core.animateFloatAsState(if (refreshing) 1f else pulled, label = "pull").value
+    if (shown <= 0.01f) return
+    val turn = if (refreshing) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "pull-turn").animateFloat(
+            0f, 360f,
+            androidx.compose.animation.core.infiniteRepeatable(
+                androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.LinearEasing),
+            ),
+            label = "pull-angle",
+        ).value
+    } else 0f
+    val accent = MaterialTheme.colorScheme.primary
+    val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .align(androidx.compose.ui.Alignment.TopCenter)
+            .graphicsLayer {
+                // It comes down from above the page's top, growing and fading in with the pull.
+                translationY = -44.dp.toPx() + 60.dp.toPx() * shown
+                alpha = shown
+                scaleX = 0.7f + 0.3f * shown
+                scaleY = 0.7f + 0.3f * shown
+            }
+            .size(40.dp)
+            .glass(androidx.compose.foundation.shape.CircleShape, shadow = 8.dp),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(2.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            drawArc(track, 0f, 360f, false, style = stroke)
+            if (refreshing) drawArc(accent, turn - 90f, 100f, false, style = stroke)
+            else drawArc(accent, -90f, 360f * pulled, false, style = stroke)
+        }
+    }
 }

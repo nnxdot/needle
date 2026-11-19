@@ -30,6 +30,7 @@ class NeedleTile : TileService() {
                     state.playing -> core.toggle()
                     state.current != null && TileAction.read(app) != "sleep" -> core.toggle()
                     else -> {
+                        fyi.nnx.needle.ui.startedFrom.value = null
                         when (TileAction.read(app)) {
                             "shuffle" -> core.play(core.searchSongsPage("shuffle limit 200", 0u, 200u).map { it.id }, 0u)
                             "sleep" -> {

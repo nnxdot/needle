@@ -148,6 +148,15 @@ fun ColorScheme.with(theme: ThemeInfo): ColorScheme {
 /** True while the full player is on screen, so the status bar icons are white on it. */
 val playerShowing = androidx.compose.runtime.mutableStateOf(false)
 
+/**
+ * Whether the page under the clock is light now, so the clock and the icons are dark. Kept here
+ * for the activity: Android sets the bars' icons again at each change of the screen (a turn, a
+ * fold, the text size, the phone's own light or dark mode), and after the start picture goes.
+ * It must use Needle's page then, not the phone's mode (see `systemBars` in MainActivity): a
+ * phone in light mode with Needle's Night theme had a dark clock on a dark bar.
+ */
+val lightBars = androidx.compose.runtime.mutableStateOf(false)
+
 /** The look chosen in Settings › Appearance. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -200,6 +209,7 @@ fun NeedleTheme(content: @Composable () -> Unit) {
     // The player is always dark, whatever the theme.
     val lightPage = colors.background.luminance() > 0.5f && !playerShowing.value
     if (!view.isInEditMode) androidx.compose.runtime.SideEffect {
+        lightBars.value = lightPage
         val window = (view.context as? android.app.Activity)?.window ?: return@SideEffect
         androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
             isAppearanceLightStatusBars = lightPage

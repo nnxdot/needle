@@ -79,9 +79,17 @@ fun TvHome(open: (Route) -> Unit) {
     var chosen by remember { mutableStateOf<Pair<String, Album>?>(null) }
     val shown = chosen ?: shelves.firstOrNull()?.let { it.title to it.albums.first() }
     val reduce = reduceMotion()
+    // The picture behind follows the focus once it rests (150 ms): an arrow held along a shelf
+    // does not start a fade at every step. Its name and songs follow at once.
+    val art = shown?.second?.artwork
+    var backdrop by remember { mutableStateOf(art) }
+    androidx.compose.runtime.LaunchedEffect(art) {
+        if (backdrop != null) kotlinx.coroutines.delay(150)
+        backdrop = art
+    }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // The album, wide, behind everything.
-        Crossfade(shown?.second?.artwork, animationSpec = if (reduce) snap() else tween(450), label = "tv home backdrop") { art ->
+        Crossfade(backdrop, animationSpec = if (reduce) snap() else tween(220), label = "tv home backdrop") { art ->
             if (art != null) Cover(art, Modifier.fillMaxSize(), RectangleShape)
         }
         val bg = MaterialTheme.colorScheme.background

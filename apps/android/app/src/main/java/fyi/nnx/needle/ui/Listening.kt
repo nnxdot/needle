@@ -116,11 +116,7 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         item { LargeTitle(title) }
         if (path == null) {
-            val list = roots.orEmpty()
-            items(list.size) { i ->
-                val root = list[i]
-                FolderRow(root.substringAfterLast('/').ifBlank { root }, root, null, Place(i, list.size)) { open(Route.Folder(root)) }
-            }
+            folderRoots(roots, open)
         } else {
             val list = subfolders.orEmpty()
             items(list.size, key = { list[it].path }) { i ->
@@ -135,14 +131,28 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
             }
         }
         // Read, and nothing in it: say so rather than show a blank page.
-        val empty = if (path == null) roots?.isEmpty() == true else subfolders?.isEmpty() == true && songs?.isEmpty() == true
-        if (empty) item {
-            Text(
-                if (path == null) "No music folders yet. Add one in Settings, under Library." else "No songs in this folder.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(Edge),
-            )
+        if (path != null && subfolders?.isEmpty() == true && songs?.isEmpty() == true) item {
+            Text("No songs in this folder.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(Edge))
         }
+    }
+}
+
+/**
+ * The music folders themselves, as rows: the Folders page's first level, and the Library's
+ * Folders. Read, and none: says so rather than show a blank page.
+ */
+fun androidx.compose.foundation.lazy.LazyListScope.folderRoots(roots: List<String>?, open: (Route) -> Unit) {
+    val list = roots.orEmpty()
+    items(list.size) { i ->
+        val root = list[i]
+        FolderRow(root.substringAfterLast('/').ifBlank { root }, root, null, Place(i, list.size)) { open(Route.Folder(root)) }
+    }
+    if (roots?.isEmpty() == true) item {
+        Text(
+            "No music folders yet. Add one in Settings, under Library.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(Edge),
+        )
     }
 }
 

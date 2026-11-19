@@ -1,80 +1,121 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.layout.layout
+
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Sort
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Radio
+import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.BubbleChart
-import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Style
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Album
 import fyi.nnx.needle.core.Song
+import kotlinx.coroutines.launch
 
-private enum class Filter(val label: String) { Playlists("Playlists"), Albums("Albums"), Artists("Artists"), Songs("Songs") }
+/** The words of the Library's bar, in its order; All is the overview. */
+private enum class Filter(val label: String) {
+    All("All"), Playlists("Playlists"), Albums("Albums"), Artists("Artists"), Songs("Songs"), Genres("Genres"), Folders("Folders"),
+}
+
 private enum class Sort(val label: String) {
     Recent("Recently added"), Title("Title"), Artist("Artist");
 
@@ -83,14 +124,14 @@ private enum class Sort(val label: String) {
 }
 
 /**
- * The library as one page, as Spotify and Apple Music do it: filter pills at the top, and the
- * music itself below, sorted as chosen. With no pill chosen: favorites and history, then what
- * came in lately.
+ * The library as one page: one bar of words at the top, a soft light under the chosen one (as
+ * the dock's tabs), and the music itself below, sorted as chosen. All: a shelf of covers
+ * (Favorites, History, Radio, the playlists), what came in lately, and the library's other pages.
  */
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LibraryScreen(open: (Route) -> Unit) {
-    var filter by rememberSaveable { mutableStateOf<Filter?>(null) }
+    var filter by rememberSaveable { mutableStateOf(Filter.All) }
     var sort by rememberSaveable { mutableStateOf(Sort.Recent) }
     val scan by NeedleApp.instance.scan.collectAsState()
     // Under the title, what the library holds: the flexible top bar's subtitle.
@@ -102,31 +143,27 @@ fun LibraryScreen(open: (Route) -> Unit) {
     Page("Library", subtitle = sizes?.joinToString(" · "), actions = {
         if (!hasSideBar()) IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
     }) { padding, scroll ->
-        // Pulled down, it reads the music folders again; Material 3 Expressive's shape-changing
-        // loading indicator shows while it does.
+        // Pulled down, it reads the music folders again; Needle's own glass sign (PullGlass)
+        // shows while it does.
         val pull = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = scan.running,
             onRefresh = { core.rescan() },
             state = pull,
-            indicator = {
-                androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.LoadingIndicator(
-                    state = pull,
-                    isRefreshing = scan.running,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                )
-            },
+            indicator = { PullGlass(pull, scan.running) },
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             Column(Modifier.fillMaxSize()) {
-                Pills(filter, { filter = it }, sort, { sort = it }, open)
+                FilterBar(filter) { filter = it }
                 AnimatedContent(filter, transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) }, label = "filter") { f ->
                     when (f) {
-                        null -> Overview(open, scroll)
-                        Filter.Albums -> Albums(sort, open, scroll)
+                        Filter.All -> Overview(open, scroll) { sort = Sort.Recent; filter = Filter.Albums }
+                        Filter.Albums -> Albums(sort, { sort = it }, open, scroll)
                         Filter.Artists -> Artists(open, scroll)
-                        Filter.Songs -> Songs(sort.forSongs(true), open, scroll)
+                        Filter.Songs -> Songs(sort.forSongs(true), { sort = it }, open, scroll)
                         Filter.Playlists -> Playlists(open, scroll)
+                        Filter.Genres -> Genres(open, scroll)
+                        Filter.Folders -> Folders(open, scroll)
                     }
                 }
             }
@@ -134,105 +171,259 @@ fun LibraryScreen(open: (Route) -> Unit) {
     }
 }
 
+// ---------- The bar
+
+/** Where a word of the bar sits in its row, for the light under the chosen one. */
+private data class Spot(val left: Float, val width: Float)
+
+/**
+ * The bar of words: one quiet pill, the words in it scrolling sideways where they do not fit
+ * (their cut edges fade). The chosen word is in the accent on a soft light that slides from word
+ * to word, as the dock's tab light does; with Reduce motion it moves at once. The bar looks 40 dp
+ * high, and each word keeps 48 dp to touch. To TalkBack the words are tabs; a remote moves along
+ * them with left and right.
+ */
 @Composable
-private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy: (Sort) -> Unit, open: (Route) -> Unit) {
-    var more by remember { mutableStateOf(false) }
-    var sorting by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        // Tonal pills, no outlines: the page's own tone a step up, the chosen one in amber.
-        val pill = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            labelColor = MaterialTheme.colorScheme.onSurface,
-            iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+private fun FilterBar(filter: Filter, choose: (Filter) -> Unit) = WordBar(Filter.entries, filter, { it.label }, choose = choose)
+
+/**
+ * The Library's bar of words, for any set of choices (the Search page's kinds too), so "chosen"
+ * looks the same wherever it shows.
+ */
+@Composable
+internal fun <T : Any> WordBar(
+    options: List<T>,
+    filter: T,
+    label: (T) -> String,
+    /** A number after the word (Search's counts); a word with 0 is dimmed and cannot be chosen. */
+    count: (T) -> Int? = { null },
+    choose: (T) -> Unit,
+) {
+    val reduce = reduceMotion()
+    val scroll = rememberScrollState()
+    val spots = remember { mutableStateMapOf<T, Spot>() }
+    val left = remember { Animatable(0f) }
+    val width = remember { Animatable(0f) }
+    var placed by remember { mutableStateOf(false) }
+    val target = spots[filter]
+    LaunchedEffect(target, reduce) {
+        val to = target ?: return@LaunchedEffect
+        // The first time it is placed it is simply there; after that it slides.
+        if (!placed || reduce) {
+            left.snapTo(to.left)
+            width.snapTo(to.width)
+            placed = true
+        } else {
+            val slide = spring<Float>(dampingRatio = 0.85f, stiffness = 500f)
+            launch { left.animateTo(to.left, slide) }
+            width.animateTo(to.width, slide)
+        }
+    }
+    val light = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f)
+    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(48.dp), contentAlignment = Alignment.Center) {
+        // The bar to see: the page's raised tone with a faint edge, 40 dp of the 48 dp place.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), CircleShape),
         )
-        LazyRow(
-            Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            // Pills keep a 48 dp place to touch; the ✕ beside them is centred on them, not set
-            // at the top of that place.
+        Row(
+            Modifier
+                .fillMaxSize()
+                .fadeSides(scroll)
+                .horizontalScroll(scroll)
+                .selectableGroup()
+                .padding(horizontal = 4.dp)
+                // Read only where it is drawn: the slide does not compose the words again.
+                .drawBehind {
+                    if (!placed) return@drawBehind
+                    val h = 32.dp.toPx()
+                    drawRoundRect(
+                        light,
+                        topLeft = Offset(left.value, (size.height - h) / 2),
+                        size = Size(width.value, h),
+                        cornerRadius = CornerRadius(h / 2),
+                    )
+                },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (filter != null) {
-                item(key = "clear") {
-                    // Clears the filter, as Spotify's ✕ does: a pill's size to see, a finger's to touch.
-                    Box(
-                        Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "Show all") { choose(null) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Show all", modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-            }
-            // Once one is chosen, only it shows, beside the ✕. Each pill keeps its key, so the
-            // chosen one is the same pill afterwards and a remote's focus stays on it.
-            val shown = if (filter == null) Filter.entries else listOf(filter)
-            items(shown.size, key = { shown[it].name }) { i ->
-                val f = shown[i]
-                FilterChip(
-                    selected = filter == f,
-                    onClick = { choose(if (filter == f) null else f) },
-                    label = { Text(f.label) },
-                    shape = RoundedCornerShape(50),
-                    colors = pill,
-                    border = null,
-                )
-            }
-            if (filter == null) item(key = "more") {
-                Box {
-                    FilterChip(
-                        selected = false,
-                        onClick = { more = true },
-                        label = { Text("More") },
-                        // It opens a menu, so it says so, as Material's menu chips do.
-                        trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) },
-                        shape = RoundedCornerShape(50),
-                        colors = pill,
-                        border = null,
-                    )
-                    GlassMenu(expanded = more, onDismissRequest = { more = false }) {
-                        DropdownMenuItem(text = { Text("Genres") }, leadingIcon = { Icon(Icons.Rounded.Style, null) }, onClick = { more = false; open(Route.Genres) })
-                        DropdownMenuItem(text = { Text("Folders") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { more = false; open(Route.Folder(null)) })
-                        DropdownMenuItem(text = { Text("Record crate") }, leadingIcon = { Icon(Icons.Rounded.Album, null) }, onClick = { more = false; open(Route.Crate) })
-                        DropdownMenuItem(text = { Text("Genre map") }, leadingIcon = { Icon(Icons.Rounded.BubbleChart, null) }, onClick = { more = false; open(Route.MoodMap) })
-                        DropdownMenuItem(text = { Text("Your library in numbers") }, leadingIcon = { Icon(Icons.Rounded.BarChart, null) }, onClick = { more = false; open(Route.Numbers) })
-                        DropdownMenuItem(text = { Text("Your year") }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) }, onClick = { more = false; open(Route.Wrapped(null)) })
-                    }
-                }
+            options.forEach { f ->
+                FilterWord(
+                    label(f),
+                    chosen = f == filter,
+                    count = count(f),
+                    modifier = Modifier.onPlaced { c ->
+                        val spot = Spot(c.positionInParent().x, c.size.width.toFloat())
+                        if (spots[f] != spot) spots[f] = spot
+                    },
+                ) { choose(f) }
             }
         }
-        if (filter == Filter.Artists) ArtistSortButton()
-        if (filter == Filter.Albums || filter == Filter.Songs) {
-            // Songs carry no date they were added, so they sort by name or artist only.
-            val orders = if (filter == Filter.Songs) Sort.entries - Sort.Recent else Sort.entries
-            val current = sort.forSongs(filter == Filter.Songs)
-            Box {
-                IconButton(onClick = { sorting = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${current.label}") }
-                GlassMenu(expanded = sorting, onDismissRequest = { sorting = false }) {
-                    orders.forEach { s ->
-                        DropdownMenuItem(
-                            text = { Text(s.label) },
-                            trailingIcon = { if (s == current) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
-                            onClick = { sorting = false; sortBy(s) },
-                        )
-                    }
-                    if (filter == Filter.Albums) {
-                        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        val asList by LibraryView.albumsAsList.collectAsState()
-                        ViewChoices(asList, { sorting = false }, LibraryView::setAlbums)
-                    }
+    }
+}
+
+/** One word of the bar: 48 dp to touch, its ripple and focus ring on the light's 32 dp pill. */
+@Composable
+private fun FilterWord(label: String, chosen: Boolean, modifier: Modifier, count: Int? = null, onClick: () -> Unit) {
+    val enabled = count != 0
+    val interaction = remember { MutableInteractionSource() }
+    val bring = remember { BringIntoViewRequester() }
+    // The chosen word is brought into view when it is cut off (chosen from See all, or come back to).
+    LaunchedEffect(chosen) { if (chosen) bring.bringIntoView() }
+    Box(
+        modifier
+            .bringIntoViewRequester(bring)
+            .height(48.dp)
+            .semantics { selected = chosen }
+            // Dimmed, not hidden: no word moves when a count falls to 0.
+            .graphicsLayer { alpha = if (enabled) 1f else 0.38f }
+            .clickable(enabled = enabled, interactionSource = interaction, indication = null, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .height(32.dp)
+                .clip(CircleShape)
+                .indication(interaction, LocalIndication.current)
+                .padding(horizontal = 13.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                val color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Medium,
+                    color = color,
+                    maxLines = 1,
+                )
+                if (count != null) {
+                    Text(
+                        number(count.toLong()),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = color.copy(alpha = 0.62f),
+                        maxLines = 1,
+                    )
                 }
             }
         }
     }
 }
+
+/** The bar's ends fade where words run on past them, so a word cut in half looks soft. */
+private fun Modifier.fadeSides(scroll: ScrollState): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val fade = 24.dp.toPx()
+        // Words cut at the start, and at the end; the start is at the right in a right-to-left language.
+        val start = scroll.value > 0
+        val end = scroll.value < scroll.maxValue
+        val rtl = layoutDirection == LayoutDirection.Rtl
+        if (if (rtl) end else start) {
+            drawRect(Brush.horizontalGradient(0f to Color.Transparent, 1f to Color.Black, endX = fade), size = Size(fade, size.height), blendMode = BlendMode.DstIn)
+        }
+        if (if (rtl) start else end) {
+            val x = size.width - fade
+            drawRect(
+                Brush.horizontalGradient(0f to Color.Black, 1f to Color.Transparent, startX = x, endX = size.width),
+                topLeft = Offset(x, 0f),
+                size = Size(fade, size.height),
+                blendMode = BlendMode.DstIn,
+            )
+        }
+    }
+
+// ---------- The line under the bar
+
+/** Under the bar once a kind is chosen: how many in grey at the left; its order and button at the right. */
+@Composable
+private fun KindLine(count: String?, controls: @Composable RowScope.() -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            count.orEmpty(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        controls()
+    }
+}
+
+/** The order in words with a small chevron; a tap opens its choices (DESIGN.md: small choices are dropdown menus). */
+@Composable
+private fun OrderButton(label: String, items: @Composable (close: () -> Unit) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier
+                .heightIn(min = 48.dp)
+                .clip(CircleShape)
+                .clickable(role = Role.Button, onClickLabel = "Change the order") { open = true }
+                .semantics { contentDescription = "Order: $label" }
+                .padding(start = 10.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+        }
+        GlassMenu(expanded = open, onDismissRequest = { open = false }) { items { open = false } }
+    }
+}
+
+/** One order in the menu, the one in use checked. */
+@Composable
+private fun OrderItem(label: String, chosen: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        trailingIcon = { if (chosen) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
+        onClick = onClick,
+    )
+}
+
+/** A round quiet button at the line's right: 36 dp to see, 48 dp to touch. */
+@Composable
+private fun RoundButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .size(48.dp)
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .indication(interaction, LocalIndication.current),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** Grid or list in one tap: the icon shows what a tap gives. */
+@Composable
+private fun ViewToggle(asList: Boolean, choose: (Boolean) -> Unit) {
+    if (asList) {
+        RoundButton(Icons.Rounded.GridView, "Show as a grid") { choose(false) }
+    } else {
+        RoundButton(Icons.AutoMirrored.Rounded.ViewList, "Show as a list") { choose(true) }
+    }
+}
+
+// ---------- Albums in a grid
 
 private fun sorted(albums: List<Album>, sort: Sort) = when (sort) {
     Sort.Recent -> albums.sortedByDescending { it.addedAt }
@@ -246,124 +437,360 @@ private fun sortedSongs(songs: List<Song>, sort: Sort) = when (sort) {
     Sort.Artist -> songs.sortedBy { it.artist.lowercase() }
 }
 
-private fun LazyGridScope.span(content: @Composable () -> Unit) =
-    item(span = { GridItemSpan(maxLineSpan) }) { content() }
+private fun LazyGridScope.span(key: Any, content: @Composable () -> Unit) =
+    item(key = key, span = { GridItemSpan(maxLineSpan) }) { content() }
 
-/** Two covers across, with the page's margins. */
+/** The album grid's columns: three across a phone, as many 160 dp ones as fit beside the side bar. */
+@Composable
+private fun albumColumns(): Int? = if (hasSideBar()) null else 3
+
+/**
+ * Albums with the page's margins: three across on a phone (their words a size smaller), as many
+ * as fit on a tablet. `entrance`: the tiles come in one after another as the page opens.
+ */
 @Composable
 private fun AlbumGrid(
     albums: List<Album>?,
     open: (Route) -> Unit,
-    scroll: Modifier,
+    modifier: Modifier,
     loading: Boolean,
-    state: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
+    state: LazyGridState = rememberLazyGridState(),
+    entrance: Boolean = false,
     header: LazyGridScope.() -> Unit = {},
+    footer: LazyGridScope.() -> Unit = {},
 ) {
+    val fixed = albumColumns()
+    val list = albums.orEmpty()
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(160.dp),
+        columns = if (fixed != null) GridCells.Fixed(fixed) else GridCells.Adaptive(160.dp),
         state = state,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp + LocalBottomInset.current),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 32.dp + LocalBottomInset.current),
+        horizontalArrangement = Arrangement.spacedBy(if (fixed != null) 10.dp else 14.dp),
         verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
-        modifier = Modifier.fillMaxSize().then(scroll),
+        modifier = Modifier.fillMaxSize().then(modifier),
     ) {
         header()
         if (loading) items(6) { AlbumPlaceholder() }
-        items(albums.orEmpty(), key = { it.key }) { album -> AlbumTile(album, open = open) { open(Route.AlbumPage(album)) } }
+        items(list.size, key = { list[it].key }) { i ->
+            val album = list[i]
+            AlbumTile(album, if (entrance) Modifier.entrance(i + 4) else Modifier, open, small = fixed != null) { open(Route.AlbumPage(album)) }
+        }
+        footer()
     }
 }
 
+// ---------- All
+
 @Composable
-private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
+private fun Overview(open: (Route) -> Unit, scroll: Modifier, seeAll: () -> Unit) {
     val albumsLoad = rememberLoaded { albums() }
     val albums by albumsLoad
-    val favoritesLoad = rememberLoaded { favorites().size }
-    val favorites by favoritesLoad
-    AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll, albumsLoad.loading, header = {
-        // Plain rows, as the Mac's sidebar places: no tiles.
-        span {
-            Column(Modifier.padding(horizontal = 0.dp)) {
-                LibraryLink(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }) { open(Route.Favorites) }
-                LibraryLink(Icons.Rounded.History, "History", "What you played") { open(Route.History) }
-                // The iPhone's Radio tab: stations and quick mixes (a tablet's side bar has it too).
-                LibraryLink(Icons.Rounded.Radio, "Radio", "Your station and quick mixes", last = true) { open(Route.Radio) }
-            }
-        }
-        span { Text("Recently added", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp)) }
-    })
+    // Four rows on a phone; two are enough on a wide screen (columns as GridCells.Adaptive counts them).
+    val fixed = albumColumns()
+    val page = LocalPageWidth.current
+    val take = if (fixed != null) fixed * 4 else ((page - 32.dp + 14.dp) / (160.dp + 14.dp)).toInt().coerceAtLeast(2) * 2
+    val shown = remember(albums, take) { albums?.let { sorted(it, Sort.Recent).take(take) } }
+    val loading = albumsLoad.loading
+    AlbumGrid(
+        shown,
+        open,
+        scroll,
+        loading,
+        entrance = true,
+        header = {
+            edgeToEdge(16.dp, key = "library/shelf") { LibraryShelf(open) }
+            // An empty library has no "Recently added" with nothing under it.
+            if (loading || !shown.isNullOrEmpty()) span("library/recent") { RecentTitle(seeAll) }
+        },
+        footer = {
+            span("library/explore") { ExploreLibrary(open, shown) }
+        },
+    )
 }
 
-/** A place in the library: its icon, its name and a grey line, and a chevron, over a soft line. */
+/**
+ * "Recently added", with a grey See all at its right: the Albums, newest first. As the other
+ * section titles: 20 dp above its words and 8 dp below them, whatever the grid's own gap between
+ * rows (the grid puts that gap on both sides of it).
+ */
 @Composable
-private fun LibraryLink(icon: ImageVector, title: String, detail: String?, last: Boolean = false, onClick: () -> Unit) {
+private fun RecentTitle(seeAll: () -> Unit) {
+    val gap = LocalRows.current.grid
     Row(
         Modifier
             .fillMaxWidth()
-            .then(if (last) Modifier else Modifier.softLine(start = 52.dp))
-            .clip(RowShape)
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .layout { measurable, constraints ->
+                val row = measurable.measure(constraints)
+                val g = gap.roundToPx()
+                val top = 20.dp.roundToPx() - g
+                val bottom = 8.dp.roundToPx() - g
+                layout(row.width, (top + row.height + bottom).coerceAtLeast(0)) { row.place(0, top) }
+            },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Text(
+            "Recently added",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f).semantics { heading() },
+        )
+        // Grey, not the accent: the accent marks only what plays and the one main button. Its
+        // 48 dp to touch reach over the room above and below, not into the title's own height.
+        TextButton(
+            onClick = seeAll,
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+            modifier = Modifier.layout { measurable, constraints ->
+                val button = measurable.measure(constraints.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+                layout(button.width, 0) { button.place(0, -button.height / 2) }
+            },
+        ) {
+            Text("See all")
         }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-            if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 /**
- * A pinned place: its icon in the one icon shape, a name, and a line, on a tone of its own
- * (Material's secondary or tertiary container), the icon's shape in the tone's strong colour.
+ * What the shelf shows of Favorites, History, and Radio, read off the main thread: Favorites'
+ * covers (up to four different albums), the cover of the song played last, and Radio's cover,
+ * one neither of the others shows. A place with nothing of its own shows its sign on a quiet
+ * tile ([PlaceTile]); Radio, when every cover it could take is shown already, on the accent.
+ */
+private class Places(
+    val favorites: Int,
+    val loved: List<String>,
+    val played: String?,
+    val station: String?,
+    /** Radio has covers to choose from, all shown by Favorites or History already. */
+    val stationTaken: Boolean,
+)
+
+/**
+ * Up to four covers of different albums among the songs, spread over the list (the core gives
+ * favourites in title order, not in the order they were hearted).
+ */
+private fun spreadCovers(songs: List<fyi.nnx.needle.core.Song>): List<String> {
+    val albums = songs
+        .filter { it.artwork != null }
+        .distinctBy { it.album.lowercase() to it.artist.lowercase() }
+        .mapNotNull { it.artwork }
+        .distinct()
+    if (albums.size <= 4) return albums
+    return (0 until 4).map { albums[it * albums.size / 4] }
+}
+
+/** A shelf card's width: three cards and a clear slice of the fourth on a phone. */
+@Composable
+private fun shelfCardWidth(): Dp {
+    if (isWide()) return 132.dp
+    val fit = (LocalPageWidth.current - 16.dp - 36.dp) / 3.4f
+    return maxOf(92.dp, minOf(132.dp, fit))
+}
+
+/**
+ * The shelf at the top of All: Favorites, History, and Radio as covers (each with a small round
+ * sign, so they read as places, not albums), then the playlists, in the library's order.
  */
 @Composable
-internal fun Pinned(
-    icon: ImageVector,
-    title: String,
-    detail: String?,
-    modifier: Modifier,
-    container: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.secondaryContainer,
-    accent: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.secondary,
-    onClick: () -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val text = androidx.compose.material3.contentColorFor(container)
-    Row(
-        modifier
-            .pressScale(interaction)
-            .clip(RoundedCornerShape(24.dp))
-            .background(container)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ShapedIcon(icon, 44, container = accent, content = androidx.compose.material3.contentColorFor(accent))
-        Column {
-            // Smaller rather than broken mid-word on a narrow phone.
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = text,
-                maxLines = 1,
-                softWrap = false,
-                autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = MaterialTheme.typography.titleSmall.fontSize),
-            )
-            // Two lines on a narrow phone, so the words are not cut short.
-            Text(detail ?: " ", style = MaterialTheme.typography.bodySmall, color = text.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+private fun LibraryShelf(open: (Route) -> Unit) {
+    val placesLoad = rememberLoaded {
+        val hearted = favorites()
+        val loved = spreadCovers(hearted)
+        // A mosaic needs four; with fewer, Favorites shows its first cover alone.
+        val lovedShown = if (loved.size >= 4) loved else loved.take(1)
+        // What played, newest first; a song gone from the library has none.
+        val played = runCatching { history(0u, 60u) }.getOrDefault(emptyList()).mapNotNull { it.song }
+        val last = played.firstOrNull()?.artwork
+        // Radio's cover: the next one neither Favorites nor History shows.
+        val taken = (lovedShown + listOfNotNull(last)).toSet()
+        val choices = (hearted.mapNotNull { it.artwork } + played.mapNotNull { it.artwork }).distinct()
+        val station = choices.firstOrNull { it !in taken }
+        Places(hearted.size, lovedShown, last, station, stationTaken = station == null && choices.isNotEmpty())
+    }
+    val places by placesLoad
+    val playlistsLoad = rememberLoaded { playlists().take(12) }
+    val playlists by playlistsLoad
+    val list = playlists.orEmpty()
+    val width = shelfCardWidth()
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Until the places are read, nothing is drawn in their covers (no tile that then changes).
+        val loved = places?.loved.orEmpty()
+        val favoritesTile = places != null && loved.isEmpty()
+        item(key = "favorites") {
+            ShelfCard(width, "Favorites", places?.let { count(it.favorites, "song") }, Icons.Rounded.Favorite.takeUnless { favoritesTile }, 0, onClick = { open(Route.Favorites) }) {
+                when {
+                    places == null -> Box(it.clip(CoverShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    favoritesTile -> PlaceTile(Icons.Rounded.Favorite, accent = false, it)
+                    else -> Mosaic(loved, null, it, CoverShape)
+                }
+            }
+        }
+        val historyTile = places != null && places?.played == null
+        item(key = "history") {
+            ShelfCard(width, "History", "What you played", Icons.Rounded.History.takeUnless { historyTile }, 1, onClick = { open(Route.History) }) {
+                when {
+                    places == null -> Box(it.clip(CoverShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    historyTile -> PlaceTile(Icons.Rounded.History, accent = false, it)
+                    else -> Cover(places?.played, it, CoverShape)
+                }
+            }
+        }
+        val radioTile = places != null && places?.station == null
+        item(key = "radio") {
+            ShelfCard(width, "Radio", "Your station", Icons.Rounded.Radio.takeUnless { radioTile }, 2, darkFoot = !radioTile && places != null, onClick = { open(Route.Radio) }) {
+                when {
+                    places == null -> Box(it.clip(CoverShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    radioTile -> PlaceTile(Icons.Rounded.Radio, accent = places?.stationTaken == true, it)
+                    else -> Cover(places?.station, it, CoverShape)
+                }
+            }
+        }
+        items(list.size, key = { "playlist/" + list[it].id }) { i ->
+            val playlist = list[i]
+            ShelfCard(
+                width,
+                playlist.name,
+                null,
+                null,
+                3 + i,
+                line = { PlaylistLine(playlist, MaterialTheme.typography.bodySmall) },
+                onClick = { open(Route.Playlist(playlist.id, playlist.name)) },
+            ) {
+                PlaylistCover(playlist, it, CoverShape)
+            }
         }
     }
 }
 
+/** A card on the shelf: a square cover with a soft shadow, the name, and one grey line. */
+@Composable
+private fun ShelfCard(
+    width: Dp,
+    title: String,
+    detail: String?,
+    badge: ImageVector?,
+    index: Int,
+    darkFoot: Boolean = false,
+    line: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+    cover: @Composable (Modifier) -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        Modifier
+            .width(width)
+            .entrance(index)
+            .pressScale(interaction)
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .shadow(6.dp, CoverShape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f)),
+        ) {
+            cover(Modifier.fillMaxSize())
+            // Radio's cover darkens at its foot, as the station on the Radio page.
+            if (darkFoot) {
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f))))
+            }
+            if (badge != null) PlaceBadge(badge, Modifier.align(Alignment.BottomStart).padding(6.dp))
+        }
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        when {
+            line != null -> line()
+            detail != null -> Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * A place with no cover of its own (no favourites yet, nothing played): its sign, centred, on the
+ * page's raised tone; or on a soft accent tone ([accent]), for Radio when every cover it could
+ * show is on the shelf already. No letter: the card's name is under it.
+ */
+@Composable
+private fun PlaceTile(icon: ImageVector, accent: Boolean, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val fill = if (accent) scheme.primary.copy(alpha = 0.16f).compositeOver(scheme.surfaceContainer) else scheme.surfaceContainer
+    Box(modifier.clip(CoverShape).background(fill), contentAlignment = Alignment.Center) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (accent) scheme.primary else scheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxSize(0.32f),
+        )
+    }
+}
+
+/** The small round sign on a place's cover: white on dark, so it reads on any cover. */
+@Composable
+private fun PlaceBadge(icon: ImageVector, modifier: Modifier) {
+    Box(
+        modifier
+            .size(26.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.52f))
+            .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+    }
+}
+
+private class ExploreTile(val title: String, val detail: String, val icon: ImageVector, val route: Route)
+
+/**
+ * The foot of All: the library's other pages, as plain tiles like the Radio page's quick mixes,
+ * each sign in the colour of a cover from what came in lately. Two across a phone, four wide.
+ */
+@Composable
+private fun ExploreLibrary(open: (Route) -> Unit, albums: List<Album>?) {
+    val factsLoad = rememberLoaded { genres().size to wrappedYears().firstOrNull() }
+    val facts by factsLoad
+    val picks = remember(albums) { albums.orEmpty().distinctBy { it.artwork ?: (it.title + it.artist) }.take(4) }
+    val tiles = listOf(
+        ExploreTile("Record crate", "Flip the covers", Icons.Rounded.Album, Route.Crate),
+        ExploreTile("Genre map", facts?.let { count(it.first, "genre") } ?: "Your genres", Icons.Rounded.BubbleChart, Route.MoodMap),
+        ExploreTile("In numbers", "Your library, counted", Icons.Rounded.BarChart, Route.Numbers),
+        ExploreTile("Your year", facts?.second?.toString() ?: "What you played", Icons.Rounded.AutoAwesome, Route.Wrapped(null)),
+    )
+    val columns = if (isWide()) 4 else 2
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            "Explore your library",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.semantics { heading() },
+        )
+        tiles.chunked(columns).forEachIndexed { r, row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEachIndexed { c, tile ->
+                    val pick = picks.getOrNull(r * columns + c)
+                    PlainTile(tile.title, tile.detail, tile.icon, pick?.artwork, pick?.let { it.title + it.artist }, Modifier.weight(1f)) { open(tile.route) }
+                }
+            }
+        }
+    }
+}
+
+// ---------- The kinds
+
 /** An artist: the photo (or a cover of theirs) in the artists' arch, the name under it. */
 @Composable
-internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, open: (Route) -> Unit) {
+internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, open: (Route) -> Unit, lit: String? = null) {
     val photoLoad = rememberLoaded(artist.name, cache = false) { artistPhoto(artist.name) }
     val photo by photoLoad
     val interaction = remember { MutableInteractionSource() }
@@ -373,7 +800,7 @@ internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, 
     ) {
         Cover(photo ?: artist.artwork, Modifier.fillMaxWidth().aspectRatio(1f), artistShape(), seed = artist.name)
         Text(
-            artist.name.ifBlank { "Unknown artist" },
+            litText(artist.name.ifBlank { "Unknown artist" }, lit, MaterialTheme.colorScheme.primary),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
@@ -391,7 +818,7 @@ private fun letterOf(sort: Sort, title: String, artist: String): String? = when 
 }
 
 @Composable
-private fun Albums(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
+private fun Albums(sort: Sort, sortBy: (Sort) -> Unit, open: (Route) -> Unit, scroll: Modifier) {
     val albumsLoad = rememberLoaded { albums() }
     val albums by albumsLoad
     val asList by LibraryView.albumsAsList.collectAsState()
@@ -399,48 +826,71 @@ private fun Albums(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
     val list = remember(albums, sort) { albums?.let { sorted(it, sort) } }
     val all = list.orEmpty()
     val letter = { i: Int -> all.getOrNull(i)?.let { letterOf(sort, it.title, it.artist) } }
-    Box(Modifier.fillMaxSize()) {
-        if (asList) {
-            val state = androidx.compose.foundation.lazy.rememberLazyListState()
-            androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
-                if (albumsLoad.loading) items(8) { SongPlaceholder() }
-                items(all.size, key = { all[it].key }) { i -> AlbumRow(all[i], Place(i, all.size), open) }
+    Column(Modifier.fillMaxSize().then(scroll)) {
+        KindLine(albums?.let { count(it.size, "album") }) {
+            OrderButton(sort.label) { close ->
+                Sort.entries.forEach { s -> OrderItem(s.label, s == sort) { close(); sortBy(s) } }
             }
-            QuickScroll(state, all.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current), letter)
-        } else {
-            val state = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
-            AlbumGrid(list, open, scroll, albumsLoad.loading, state)
-            QuickScroll(state, all.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current), letter)
+            ViewToggle(asList, LibraryView::setAlbums)
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (asList) {
+                val state = rememberLazyListState()
+                LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
+                    if (albumsLoad.loading) items(8) { SongPlaceholder() }
+                    items(all.size, key = { all[it].key }) { i -> AlbumRow(all[i], Place(i, all.size), open) }
+                }
+                QuickScroll(state, all.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current), letter)
+            } else {
+                val state = rememberLazyGridState()
+                AlbumGrid(list, open, Modifier, albumsLoad.loading, state)
+                QuickScroll(state, all.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current), letter)
+            }
         }
     }
 }
 
 @Composable
 private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
-    ArtistGrid(open, scroll)
+    val more by NeedleApp.instance.more.collectAsState()
+    val asList by LibraryView.artistsAsList.collectAsState()
+    ArtistGrid(open, scroll, top = 4.dp, above = { n ->
+        KindLine(n?.let { count(it, "artist") }) {
+            OrderButton(artistOrderLabel(more.artistOrder)) { close -> ArtistMenuItems(close) }
+            ViewToggle(asList, LibraryView::setArtists)
+        }
+    })
 }
 
 @Composable
-private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
+private fun Songs(sort: Sort, sortBy: (Sort) -> Unit, open: (Route) -> Unit, scroll: Modifier) {
     val songsLoad = rememberLoaded { songs() }
     val songs by songsLoad
     val playing = playingSongId()
     // Sorted once per list and order, not at every redraw.
     val list = remember(songs, sort) { songs?.let { sortedSongs(it, sort) }.orEmpty() }
-    val state = androidx.compose.foundation.lazy.rememberLazyListState()
-    Box(Modifier.fillMaxSize()) {
-    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
-        if (songsLoad.loading) items(8) { SongPlaceholder() }
-        items(list.size, key = { list[it].id }) { i ->
-            val song = list[i]
-            SongRow(song, playing == song.id, open, place = list.place(i)) {
-                playSongs(list.map { it.id }, i)
+    val state = rememberLazyListState()
+    Column(Modifier.fillMaxSize().then(scroll)) {
+        KindLine(songs?.let { count(it.size, "song") }) {
+            // Songs carry no date they were added, so they sort by name or artist only.
+            OrderButton(sort.label) { close ->
+                (Sort.entries - Sort.Recent).forEach { s -> OrderItem(s.label, s == sort) { close(); sortBy(s) } }
             }
         }
-    }
-    QuickScroll(state, list.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current)) { i ->
-        list.getOrNull(i)?.let { letterOf(sort, it.title, it.artist) }
-    }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
+                if (songsLoad.loading) items(8) { SongPlaceholder() }
+                items(list.size, key = { list[it].id }) { i ->
+                    val song = list[i]
+                    SongRow(song, playing == song.id, open, place = list.place(i)) {
+                        playSongs(list.map { it.id }, i)
+                    }
+                }
+            }
+            QuickScroll(state, list.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current)) { i ->
+                list.getOrNull(i)?.let { letterOf(sort, it.title, it.artist) }
+            }
+        }
     }
 }
 
@@ -448,35 +898,62 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
 private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
     val playlistsLoad = rememberLoaded { playlists() }
     val playlists by playlistsLoad
-    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
-        // A new playlist: Material's tonal button, above the group of playlists.
-        item {
-            androidx.compose.material3.FilledTonalButton(
-                onClick = { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) },
-                modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 14.dp).heightIn(min = 48.dp),
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
-                Text("New playlist")
-            }
+    // One list, read once: a reload that fails leaves it, not a null, to the rows.
+    val list = playlists.orEmpty()
+    val count = list.size
+    Column(Modifier.fillMaxSize().then(scroll)) {
+        // The core gives playlists no order to choose: the count, and + for a new one.
+        KindLine(playlists?.let { count(it.size, "playlist") }) {
+            RoundButton(Icons.Rounded.Add, "New playlist") { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }
         }
-        // One list, read once: a reload that fails leaves it, not a null, to the rows.
-        val list = playlists.orEmpty()
-        val count = list.size
-        items(count, key = { list[it].id }) { i ->
-            val playlist = list[i]
-            Row(
-                Modifier.fillMaxWidth().segment(Place(i, count), groupColor(), lineStart = 82.dp).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
-                    .heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                PlaylistCover(playlist, Modifier.size(56.dp), SmallCoverShape)
-                Column(Modifier.weight(1f)) {
-                    Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    PlaylistLine(playlist)
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
+            if (playlists != null && list.isEmpty()) item {
+                Text(
+                    "No playlists yet. Tap + to make one.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            items(count, key = { list[it].id }) { i ->
+                val playlist = list[i]
+                Row(
+                    Modifier.fillMaxWidth().segment(Place(i, count), groupColor(), lineStart = 82.dp).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
+                        .heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    PlaylistCover(playlist, Modifier.size(56.dp), SmallCoverShape)
+                    Column(Modifier.weight(1f)) {
+                        Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        PlaylistLine(playlist)
+                    }
                 }
             }
+        }
+    }
+}
+
+/** The genres in place under the bar, as on the Genres page; a tap opens the genre's page. */
+@Composable
+private fun Genres(open: (Route) -> Unit, scroll: Modifier) {
+    val genresLoad = rememberLoaded { genres() }
+    val genres by genresLoad
+    Column(Modifier.fillMaxSize().then(scroll)) {
+        KindLine(genres?.let { count(it.size, "genre") })
+        GenreGrid(genres.orEmpty(), open, Modifier.weight(1f).fillMaxWidth(), top = 4.dp)
+    }
+}
+
+/** The music folders in place under the bar, as at the top of the Folders page; a tap opens one. */
+@Composable
+private fun Folders(open: (Route) -> Unit, scroll: Modifier) {
+    val rootsLoad = rememberLoaded { folders() }
+    val roots by rootsLoad
+    Column(Modifier.fillMaxSize().then(scroll)) {
+        KindLine(roots?.let { count(it.size, "folder") })
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
+            folderRoots(roots, open)
         }
     }
 }
