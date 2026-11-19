@@ -564,8 +564,9 @@ private struct SearchField: ViewModifier {
                 // page and the side panel, half on each background.
                 .searchable(text: $store.search, placement: .sidebar, prompt: "Search")
                 .searchFocused(searchFocused)
-                // Return in the field keeps the words in Search's Recent list.
-                .onSubmit(of: .search) { SearchMemory.remember("words", store.search) }
+                // Return in the field keeps the words in Search's Recent list (see
+                // `SearchMemory.watchReturn`: `onSubmit(of: .search)` never fires here).
+                .onAppear { SearchMemory.watchReturn() }
                 .searchSuggestions {
                     ForEach(suggestions, id: \.label) { s in
                         HStack {

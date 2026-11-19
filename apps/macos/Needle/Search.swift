@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// What a search finds, as the core gives it (`find_json`; the phones' record is `SearchFound`).
@@ -69,6 +70,26 @@ enum SearchMemory {
     static func song(_ track: Track) { remember("song", track.id) }
     static func album(_ album: AlbumSummary) { remember("album", album.key) }
     static func artist(_ name: String) { remember("artist", name) }
+
+    /// Return in the sidebar's search field keeps the words. `onSubmit(of: .search)` never
+    /// fires for that field (a search field with suggestions, in the sidebar: tried on macOS 27,
+    /// 2026-11-18), so this watches the keys instead. Once per app.
+    static func watchReturn() {
+        guard returnWatch == nil else { return }
+        returnWatch = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 36 || event.keyCode == 76 else { return event }
+            MainActor.assumeIsolated {
+                guard let editor = event.window?.firstResponder as? NSTextView, editor.delegate is NSSearchField else { return }
+                // After the key is handled, so a suggestion chosen with Return is what is kept.
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { remember("words", Store.shared.search) }
+                }
+            }
+            return event
+        }
+    }
+
+    private static var returnWatch: Any?
 }
 
 /// `text` with the letters that match `words` (without case) in the accent and bold.

@@ -119,14 +119,17 @@ enum QuickStart: Identifiable {
         }
     }
 
-    /// The song playing comes from this (by the reason it plays for).
+    /// The song playing comes from this (by the reason it plays for; the core puts "Shuffled · "
+    /// before the reason of a shuffled play).
     func holds(_ playback: MacPlayback?) -> Bool {
         guard let p = playback, p.hasSong else { return false }
+        let shuffled = "Shuffled · "
+        let reason = p.reason.hasPrefix(shuffled) ? String(p.reason.dropFirst(shuffled.count)) : p.reason
         switch self {
-        case .favorites: return p.reason == "From your favorites" || p.reason == "From favorites"
-        case .station: return p.reason.hasPrefix("Radio")
-        case .album(let album): return p.album == album.album && p.reason == "From the album \(album.album)"
-        case .playlist(let playlist): return p.reason == "From your playlist \(playlist.name)"
+        case .favorites: return reason == "From your favorites" || reason == "From favorites"
+        case .station: return reason.hasPrefix("Radio")
+        case .album(let album): return p.album == album.album && reason == "From the album \(album.album)"
+        case .playlist(let playlist): return reason == "From your playlist \(playlist.name)"
         }
     }
 
