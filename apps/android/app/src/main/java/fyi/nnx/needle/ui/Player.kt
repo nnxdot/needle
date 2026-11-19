@@ -77,6 +77,10 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Radio
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -1048,6 +1052,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                         sleepText = sleeping?.let { "${kotlin.math.ceil(it.remaining / 60).toInt().coerceAtLeast(0)} min left" } ?: "Off",
                         loopText = loopText,
                         speaker = speakerInUse(song, networkOutput),
+                        // The pill of tools is on every layout but a wide one side by side; on a
+                        // wide one Up next is the pane, which has no Add songs.
+                        tools = layout != PlayerLayout.Wide || tallArea,
+                        addsInUpNext = layout != PlayerLayout.Wide,
                         onSleep = openSleep,
                         onLoop = onLoop,
                         onAddSongs = { searching = true },
@@ -1545,10 +1553,16 @@ private fun speakerInUse(song: Song, network: Boolean): String {
 }
 
 /**
- * More (the pill's last icon, and the menu at the top): a glass sheet of plain rows. The look
- * (Cover, Record, Lyrics, Visualizer) as one row of choices, the sleep timer, the A-B loop, add
- * songs, full screen, Play on, the ways to the album and the artist, and the rest of the song's
- * menu.
+ * More (the pill's last icon, and the menu at the top), a glass sheet in one short page:
+ * - the song: its cover, its name, and its stars under it;
+ * - four pills, two by two: Playlist, Radio, the album's name, the artist's name;
+ * - the player: the look (Cover, Record, Lyrics, Visualizer) as one row of choices, the A-B loop,
+ *   Speed and pitch, Full screen; and where the layout has no pill of tools (`tools` off), the
+ *   Sleep timer and Play on too; where Up next has no Add songs (`addsInUpNext` off), Add songs;
+ * - under a thin line, the rare ones: Edit tags (or for a server's song, Keep on this phone and
+ *   Save to my music), Time the lyrics, and the commands of plugins.
+ * A song playing on the computer: its cover and name only, then the player's rows.
+ * Play next, Add to queue, and Select are not here: they stay in the menu of a song in a list.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -1560,6 +1574,8 @@ private fun PlayerMoreSheet(
     sleepText: String,
     loopText: String,
     speaker: String,
+    tools: Boolean,
+    addsInUpNext: Boolean,
     onSleep: () -> Unit,
     onLoop: () -> Unit,
     onAddSongs: () -> Unit,
@@ -1578,22 +1594,110 @@ private fun PlayerMoreSheet(
         if (!then) work()
         scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); if (then) work() }
     }
+    val mine = !song.onComputer()
+    // The speed, when the player is not the computer's: read once, off the main thread.
+    val speed by androidx.compose.runtime.produceState<String?>(null, song.id) {
+        if (mine) value = withContext(Dispatchers.IO) { runCatching { core.speedAndPitch() }.getOrNull() }?.takeIf { it.available }?.let { speedText(it.speed) }
+    }
     GlassSheet(onDismissRequest = onDismiss, sheetState = state, art = song.artwork) {
         // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
-        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Look", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = 2.dp))
-            Segments(BigLooks.map { lookName(it) }, BigLooks.indexOf(bigLook), 40.dp, Modifier.padding(vertical = 4.dp)) { onLook(BigLooks[it]) }
-            MoreRow({ Icon(Icons.Rounded.Bedtime, contentDescription = null) }, "Sleep timer", sleepText) { act(then = true, work = onSleep) }
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+            // The song: its cover, and at its right its name with the stars under it.
+            Row(
+                Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Cover(
+                    song.artwork,
+                    Modifier.size(56.dp).shadow(10.dp, RoundedCornerShape(10.dp), ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f)),
+                    RoundedCornerShape(10.dp),
+                    seed = song.album + song.artist,
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        song.title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, lineHeight = 24.sp),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    // The stars' first touch room starts under the name's first letter.
+                    if (mine) SongStars(song, Modifier.offset(x = (-12).dp), size = 24.dp, arrangement = Arrangement.Start)
+                }
+            }
+            if (mine) {
+                // Four pills, two by two: what is done with the song, and where it goes.
+                Column(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MorePill(Icons.AutoMirrored.Rounded.PlaylistAdd, "Playlist", "Add to a playlist", Modifier.weight(1f)) {
+                            act(then = true) { Ui.sheet.value = Sheet.AddToPlaylist(listOf(song.id)) }
+                        }
+                        MorePill(Icons.Rounded.Radio, "Radio", "Start radio", Modifier.weight(1f)) { act { startRadioFrom(song) } }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val album = song.album.ifBlank { "Unknown album" }
+                        val artist = song.artist.ifBlank { "Unknown artist" }
+                        MorePill(Icons.Rounded.Album, album, "Go to the album, $album", Modifier.weight(1f)) { act { open(Route.AlbumOf(song.album, song.id)) } }
+                        MorePill(Icons.Rounded.Person, artist, "Go to the artist, $artist", Modifier.weight(1f)) { act { open(Route.Artist(song.artist)) } }
+                    }
+                }
+            }
+            // The player.
+            Text("Look", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = 16.dp))
+            Segments(BigLooks.map { lookName(it) }, BigLooks.indexOf(bigLook), 40.dp, Modifier.padding(top = 6.dp, bottom = 4.dp)) { onLook(BigLooks[it]) }
             MoreRow({ Text("A-B", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }, "A-B loop", loopText) { act(work = onLoop) }
-            MoreRow({ Icon(Icons.Rounded.Add, contentDescription = null) }, "Add songs") { act(then = true, work = onAddSongs) }
+            if (mine) MoreRow({ Icon(Icons.Rounded.Speed, contentDescription = null) }, "Speed and pitch", speed) { act(then = true) { Ui.sheet.value = Sheet.SpeedPitch } }
             MoreRow({ Icon(Icons.Rounded.Fullscreen, contentDescription = null) }, "Full screen") { act(work = onFull) }
-            MoreRow({ Icon(Icons.Rounded.Cast, contentDescription = null) }, "Play on", speaker) { act(then = true, work = onPlayOn) }
-            if (!song.onComputer()) {
-                MoreRow({ Icon(Icons.Rounded.Album, contentDescription = null) }, "Go to the album") { act { open(Route.AlbumOf(song.album, song.id)) } }
-                MoreRow({ Icon(Icons.Rounded.Person, contentDescription = null) }, "Go to the artist") { act { open(Route.Artist(song.artist)) } }
-                SongMenuRows(song, open, null, player = true) { then, work -> act(then, work) }
+            // Nothing is lost: where the pill of tools or Up next's own Add songs is not on the
+            // screen, its rows stay here.
+            if (!tools) {
+                MoreRow({ Icon(Icons.Rounded.Bedtime, contentDescription = null) }, "Sleep timer", sleepText) { act(then = true, work = onSleep) }
+                MoreRow({ Icon(Icons.Rounded.Cast, contentDescription = null) }, "Play on", speaker) { act(then = true, work = onPlayOn) }
+            }
+            if (!addsInUpNext) MoreRow({ Icon(Icons.Rounded.Add, contentDescription = null) }, "Add songs") { act(then = true, work = onAddSongs) }
+            if (mine) {
+                // The rare ones, under a thin line.
+                Box(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp).height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.13f)))
+                SongFileRows(song, { then, work -> act(then, work) }) { icon, label, click -> MoreRow({ Icon(icon, contentDescription = null) }, label, onClick = click) }
+                MoreRow({ Icon(Icons.Rounded.Lyrics, contentDescription = null) }, "Time the lyrics") { act { open(Route.Timing(song.id)) } }
+                songCommands().forEach { (plugin, command) ->
+                    MoreRow({ Icon(Icons.Rounded.Extension, contentDescription = null) }, command.title) { act(then = true) { core.runPluginCommand(plugin, command.id, listOf(song.id)) } }
+                }
             }
         }
+    }
+}
+
+/** The speed for More's row: "1.0×", "1.25×". */
+private fun speedText(speed: Float): String {
+    val tenths = kotlin.math.round(speed * 10f)
+    return if (kotlin.math.abs(speed * 10f - tenths) < 0.01f) "%.1f×".format(java.util.Locale.ROOT, speed) else "%.2f×".format(java.util.Locale.ROOT, speed)
+}
+
+/**
+ * One of More's four pills: a full pill on a faint flat fill (the words' colour at 10 %, no
+ * glass), an icon and one line of words that ends with …. `job`: what a screen reader says.
+ */
+@Composable
+private fun MorePill(icon: ImageVector, label: String, job: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val words = MaterialTheme.colorScheme.onSurface
+    Row(
+        modifier
+            .height(46.dp)
+            .pressScale(press, ButtonPress, corner = 23.dp)
+            .clip(CircleShape)
+            .background(words.copy(alpha = 0.1f))
+            .clickable(interactionSource = press, indication = androidx.compose.material3.ripple(), role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .clearAndSetSemantics { contentDescription = job }
+            .padding(start = 14.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = words.copy(alpha = 0.86f), modifier = Modifier.size(20.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.5.sp), color = words, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

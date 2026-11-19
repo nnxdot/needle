@@ -90,9 +90,16 @@ The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open fol
   in the accent, Shuffle and Repeat in the accent with a small dot while on; the tools.
 - **The tools:** one glass pill in the dock's shape, five icons, no names: Lyrics, Up next, Play
   on, Sleep timer, More. One that is on or open is in the accent.
-- **More** (a glass sheet of plain rows): the look (Cover, Record, Lyrics, Visualizer) as one
-  row of choices, the sleep timer, the A-B loop, Add songs, Full screen, Play on, the album and
-  the artist, then the rest of the song's menu. **Up next** on a phone is a glass sheet too: its
+- **More** (a glass sheet, one short page that fits a phone with no scroll): the song (its cover,
+  its name, its stars under it); four pills two by two on a faint flat fill (Playlist, Radio, the
+  album's name, the artist's name; a screen reader says the whole job); the look (Cover, Record,
+  Lyrics, Visualizer) as one row of choices, the A-B loop, Speed and pitch (the speed at the
+  right), Full screen; under a thin line the rare ones, each only where it applies: Edit tags (or
+  Keep on this phone and Save to my music), Time the lyrics, the plugins' commands. Sleep timer
+  and Play on are in the pill of tools, and Add songs in Up next; where the layout has no pill
+  (a wide one side by side) or Up next is the pane (a wide one), those rows stay in More, after
+  Full screen. Play next, Add to queue, and Select stay in the menu of a song in a list only. A
+  song playing on the computer: its cover and name, then the player's rows. **Up next** on a phone is a glass sheet too: its
   name, how many songs and how long, Shuffle (a pill in the accent), Add songs, then the songs.
 - **The looks:** Lyrics: the words in the cover's place, the song small at the top. Record: a
   black record standing still, the cover its turning label. Visualizer: bars in the accent. The
