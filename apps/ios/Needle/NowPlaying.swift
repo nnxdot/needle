@@ -162,8 +162,9 @@ struct NowPlayingView: View {
             if args.contains("-show-lyrics") { pane = .lyrics; side = "lyrics" }
             if args.contains("-pane-closed") { side = "" }
             if args.contains("-pane-queue") { side = "queue" }
-            // A sheet a moment after the player is up (one presented with it never shows).
-            try? await Task.sleep(for: .seconds(1.5))
+            // A sheet once the player is up (one presented while it still opens never shows;
+            // a busy iPad takes longer).
+            try? await Task.sleep(for: .seconds(4))
             if args.contains("-show-queue") { if wide { side = "queue" } else { showQueue = true } }
             if args.contains("-show-more") { showMore = true }
         }

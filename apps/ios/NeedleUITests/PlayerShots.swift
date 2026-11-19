@@ -76,6 +76,12 @@ final class PlayerShots: XCTestCase {
         take("iphone-reset", player, wait: 1)
     }
 
+    /// More on an iPad on its side, alone.
+    func testPadMore() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        take("ipad-landscape-more", ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent", "-pane-queue", "-show-more"], wait: 14)
+    }
+
     func testPad() {
         XCUIDevice.shared.orientation = .portrait
         let player = ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent"]
