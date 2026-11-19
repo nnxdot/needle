@@ -49,6 +49,15 @@
             ],
             "versions": [
                 {
+                    "version": "2.0.7",
+                    "buildVersion": "1",
+                    "date": "2026-11-19",
+                    "localizedDescription": "Needle 2.0.7: a new player, a new Search, and a Home that starts fast.\n\n- A new player: the cover fills the top of the screen and fades into its own colour, or sits as a plain card. Under it are the song, the line being sung, and one glass pill with Lyrics, Up Next, Play On, the sleep timer, and More.\n- On an iPad the player follows the shape of the window, and the pane with Lyrics and Up Next opens and closes.\n- A shorter More menu, and six looks for the Play button in Settings.\n- A new Search: what you looked for last, genres or decades to browse, and the best match on top.\n- Home starts fast: Favorites, your station, the albums you play most, and your playlists, one tap away.\n- A calmer feel: the cover follows your finger, the seek bar no longer jumps, and the lyrics wait while you scroll them.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-2.0.7-ios.ipa",
+                    "size": 19391869,
+                    "minOSVersion": "26.0"
+                },
+                {
                     "version": "2.0.6",
                     "buildVersion": "1",
                     "date": "2026-11-10",

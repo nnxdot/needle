@@ -81,6 +81,14 @@ const known = {
   "Needle-2.0.6-android-arm64-release.apk": 47156191,
   "Needle-2.0.6-android-x86_64-release.apk": 48438218,
   "Needle-2.0.6-android-armv7-release.apk": 44215277,
+  "Needle-Setup-2.0.7.exe": 56265271,
+  "Needle-2.0.7-windows-x64.zip": 76511607,
+  "needle_2.0.7_amd64.deb": 56489868,
+  "needle-2.0.7-1.x86_64.rpm": 78188200,
+  "Needle-2.0.7-macos.dmg": 60907773,
+  "Needle-2.0.7-android-arm64-release.apk": 47332319,
+  "Needle-2.0.7-android-x86_64-release.apk": 48647114,
+  "Needle-2.0.7-android-armv7-release.apk": 44395501,
 };
 
 const readIfThere = (name) => (existsSync(join(root, "public", name)) ? read(name) : null);
