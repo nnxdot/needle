@@ -1081,7 +1081,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     Group("Player") {
         val more by NeedleApp.instance.more.collectAsState()
         val chosen = chosenButtons(more.playerButtons)
-        ExpandRow(Icons.Rounded.Tune, "Player buttons", "Which buttons the player shows", value = count(chosen.size, "button")) {
+        ExpandRow(Icons.Rounded.Tune, "Player buttons", "Which buttons the player shows", value = count(chosen.count { it in MainRowPlayerButtons }, "button")) {
             PlayerButtonsEditor(chosen) { list -> NeedleApp.instance.updateMore { it.copy(playerButtons = list) } }
         }
         Divider()

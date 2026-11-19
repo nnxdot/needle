@@ -498,7 +498,13 @@ private val PlayerGlassFill = Color.White.copy(alpha = 0.09f)
 private val PlayerGlassSolid = Color.White.copy(alpha = 0.13f)
 
 /** The buttons of the main row; the rest of the chosen ones (heart, lyrics, Up next, Play on) have their own places. */
-private val MainRowButtons = setOf("shuffle", "previous", "play", "next", "repeat")
+private val MainRowButtons = MainRowPlayerButtons.toSet()
+
+/**
+ * The least room the song's column needs beside the cover on a wide screen: the five main
+ * buttons with the widest Play (the Wide and Trio styles), and a little air.
+ */
+private val BesideRoom = 344.dp
 
 @Composable
 fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit = onClose) {
@@ -722,14 +728,18 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
         val leftInset = with(density) { sides.getLeft(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toDp() }
         val rightInset = with(density) { sides.getRight(density, androidx.compose.ui.unit.LayoutDirection.Ltr).toDp() }
         val areaWidth = if (paneShown) (wideWidth - rightInset - 20.dp - paneWidth - 20.dp).coerceAtLeast(0.dp) else wideWidth
-        // Taller than wide (an unfolded phone beside its pane): the phone's layout in the area.
-        // Wider: the cover at the left and the song beside it.
-        val tallArea = areaWidth < maxHeight * 0.9f
+        // Taller than wide, or almost square (an unfolded phone or a tablet on its side beside
+        // its pane): the phone's layout in the area. Clearly wider (1.1 of its height, as on the
+        // iPad): the cover at the left and the song beside it. Under 600 dp no cover leaves the
+        // song's column the room its buttons need (BesideRoom).
+        val tallArea = areaWidth < maxHeight * 1.1f || areaWidth < 600.dp
         // The immersive cover itself (not another look) on a wide screen, behind the player.
         val pictureOn = wideImmersive && panel == Panel.Cover && bigLook == "cover"
         // Side by side, it fills the left from top to foot: as wide as the player is tall (a
         // square), but between 40 and 58 % of the area (cut at its sides or top to fill).
+        // Never so wide that the song's column has less than BesideRoom (a TV beside its pane).
         val pictureWidth = maxHeight.coerceIn(areaWidth * 0.4f, areaWidth * 0.58f)
+            .coerceAtMost((areaWidth - 76.dp - BesideRoom).coerceAtLeast(180.dp))
         // The phone's layout in the area: the cover across its top, down to the song's name: the
         // status bar, the round buttons' row (WideTop), and the room above the name, measured in
         // its own column (so a pull down, which moves the whole player, changes nothing).
@@ -880,7 +890,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                             .then(if (measure) Modifier.onGloballyPositioned { roomFoot = it.positionInParent().y + it.size.height } else Modifier)
                             .padding(top = 6.dp, bottom = 14.dp),
                     ) { stage(Alignment.TopCenter) }
-                    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth()) {
+                    // Where the song and its controls are taller than the room (the largest
+                    // text in a small window), they scroll: the pill of tools is never cut off.
+                    val partsScroll = rememberScrollState()
+                    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(partsScroll, enabled = partsScroll.maxValue > 0)) {
                         androidx.compose.animation.AnimatedVisibility(!showsHead, enter = comes, exit = goes) { title(TitleSize.Phone) }
                         androidx.compose.animation.AnimatedVisibility(showsLine, enter = comes, exit = goes) { line(false, Modifier.padding(top = 10.dp)) }
                         Spacer(Modifier.height(6.dp))
@@ -1003,7 +1016,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                                     // and shrinks with the pane. The immersive cover lies behind (see
                                     // Behind.Left): here only its room, which skips when swiped.
                                     val cardSide by animateDpAsState(
-                                        minOf(wideHeight * 0.62f, areaWidth * 0.46f),
+                                        minOf(wideHeight * 0.62f, areaWidth * 0.46f, (areaWidth - 124.dp - BesideRoom).coerceAtLeast(120.dp)),
                                         if (still) snap() else spring(dampingRatio = 1f, stiffness = 400f),
                                         label = "card side",
                                     )

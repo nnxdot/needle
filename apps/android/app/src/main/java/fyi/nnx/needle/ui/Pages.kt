@@ -1588,9 +1588,10 @@ fun SearchScreen(open: (Route) -> Unit) {
                     }
                 } else {
                     shown?.let { a ->
-                        searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, recent, looksLikeRule(a.query, hints.isNotEmpty()), duo, playing, open)
+                        searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, recent, looksLikeRule(a.query, hints.isNotEmpty()), duo, playing, open, serverHas = server != null)
                     }
-                    if ((kind == SearchKind.All || kind == SearchKind.Songs) && found?.nothing() != true) server?.let { (number, list) ->
+                    // Also when the library itself has nothing: the server's songs are the answer then.
+                    if (kind == SearchKind.All || kind == SearchKind.Songs) server?.let { (number, list) ->
                         edgeToEdge(16.dp, key = "server-title") { ShelfTitle("On your server", null) }
                         items(list.size, key = { "server-$it-" + list[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
                             SongRow(list[i], playing == list[i].id, null, Modifier.bleed(16.dp), place = list.place(i)) {

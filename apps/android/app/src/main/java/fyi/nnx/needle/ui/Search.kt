@@ -422,6 +422,8 @@ internal fun LazyGridScope.searchResults(
     duo: Boolean,
     playing: String?,
     open: (Route) -> Unit,
+    /** A music server found songs: they show under these results, so this is not "Nothing". */
+    serverHas: Boolean = false,
 ) {
     answer.error?.let { error ->
         whole("error") {
@@ -432,6 +434,7 @@ internal fun LazyGridScope.searchResults(
     }
     val found = answer.found ?: return
     if (found.nothing()) {
+        if (serverHas) return
         whole("nothing") { NothingFor(answer.query) }
         rulesSection(rules, onRule)
         recentSection(recent, onRule, open)
