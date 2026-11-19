@@ -845,7 +845,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
             }
             val buttons: @Composable (Dp) -> Unit = { play ->
                 val names = chosenButtons(choices.playerButtons).filter { it in MainRowButtons }
-                MainButtons(names, playing, position, song.duration, haptics, repeat, play)
+                MainButtons(names, playing, position, song.duration, haptics, repeat, play, glassTint)
                 if (song.onComputer() || look.volumeSlider) VolumeRow(song.onComputer())
             }
             // On a wide screen, Lyrics and Up next show in the pane.
@@ -1266,9 +1266,24 @@ private fun LyricLine(lines: List<fyi.nnx.needle.core.LyricLine>, start: Boolean
 }
 
 /**
- * The main buttons, in the user's order (Settings › Appearance › Player buttons): one look for
- * all, plain icons with no circles; Play alone is filled, a circle in the accent (`play` across).
- * Shuffle and Repeat, while on, are in the accent with a small dot under them.
+ * The styles of the player's main buttons (Settings › Appearance › Player › Buttons). Only Play
+ * changes: Accent (a circle in the accent, the first), Glass (a round button of the player's
+ * glass), Wide (a wide pill in the accent), Ring (a thin ring in the accent), Soft square (a
+ * square with soft corners in the accent), Trio (Play and its two neighbours in one glass pill).
+ */
+internal val ButtonStyles = listOf("accent", "glass", "wide", "ring", "square", "trio")
+
+/**
+ * The style chosen. The older "expressive", "round", and "minimal" (and anything else) are
+ * Accent, the look the player has had since its new design.
+ */
+internal fun buttonStyle(saved: String): String = saved.takeIf { it in ButtonStyles } ?: "accent"
+
+/**
+ * The main buttons, in the user's order (Settings › Appearance › Player buttons): plain icons
+ * with no circles, Shuffle and Repeat in the accent with a small dot under them while on; Play
+ * in the chosen style ([ButtonStyles]), its sizes scaled from this layout's Play (`play`, 76 on a
+ * phone). `cover`: the glass's colour, for Glass and Trio.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -1280,6 +1295,7 @@ private fun MainButtons(
     haptics: (Boolean) -> Unit,
     repeat: RepeatMode,
     play: Dp,
+    cover: Color,
 ) {
     val app by NeedleApp.instance.app.collectAsState()
     val jump = app.sideButtons == "jump"
@@ -1289,62 +1305,164 @@ private fun MainButtons(
     val toggle = { haptics(false); Controls.toggle() }
     val playPress = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val cell = if (compact) 48.dp else 54.dp
+    val style = buttonStyle(app.controlStyle)
+    // Wide: the others a little closer, so the row fits beside the wide Play.
+    val smallCell = if (style == "wide") 48.dp else cell
+    val skipCell = if (style == "wide") maxOf(48.dp, cell - 4.dp) else cell
+    val item: @Composable (String) -> Unit = { name ->
+        when (name) {
+            "previous" -> PlainButton(if (jump) Icons.Rounded.Replay10 else Icons.Rounded.SkipPrevious, if (jump) "Back 10 seconds" else "Previous", skipCell, if (compact) 32.dp else 38.dp, onClick = back)
+            "next" -> PlainButton(if (jump) Icons.Rounded.Forward10 else Icons.Rounded.SkipNext, if (jump) "Ahead 10 seconds" else "Next", skipCell, if (compact) 32.dp else 38.dp, onClick = ahead)
+            "play" -> PlayButton(style, play, cover, playing, playPress) { toggle() }
+            "shuffle" -> {
+                // Shuffle stays on: a toggle, lit while on; otherwise it shuffles what is up next once.
+                val stays = NeedleApp.instance.more.collectAsState().value.shuffleStays && !onComputer()
+                val playbackState = NeedleApp.instance.playback.collectAsState()
+                val on by remember { derivedStateOf { playbackState.value?.shuffle == true } }
+                if (stays) {
+                    PlainButton(Icons.Rounded.Shuffle, "Shuffle", smallCell, 24.dp, on = on, state = if (on) "On" else "Off", small = true) {
+                        Controls.shuffle(); showMessage(if (on) "Shuffle is off" else "Shuffle is on")
+                    }
+                } else {
+                    PlainButton(Icons.Rounded.Shuffle, "Shuffle what is up next", smallCell, 24.dp, small = true) { Controls.shuffle(); showMessage("Shuffled what is up next") }
+                }
+            }
+            "repeat" -> PlainButton(
+                if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                "Repeat",
+                smallCell,
+                24.dp,
+                on = repeat != RepeatMode.OFF,
+                state = when (repeat) {
+                    RepeatMode.OFF -> "Off"
+                    RepeatMode.ALL -> "All songs"
+                    RepeatMode.ONE -> "This song"
+                },
+                small = true,
+            ) {
+                Controls.setRepeat(
+                    when (repeat) {
+                        RepeatMode.OFF -> RepeatMode.ALL
+                        RepeatMode.ALL -> RepeatMode.ONE
+                        RepeatMode.ONE -> RepeatMode.OFF
+                    },
+                )
+            }
+        }
+    }
+    // Trio: Play and the button at each side of it, in the user's order, whatever they are.
+    val at = names.indexOf("play")
+    val trio = if (style == "trio" && at >= 0) names.subList(maxOf(0, at - 1), minOf(names.size, at + 2)) else emptyList()
     Row(
         Modifier.fillMaxWidth().padding(top = if (compact) 2.dp else 8.dp, bottom = if (compact) 2.dp else 6.dp),
         horizontalArrangement = if (names.size >= 4) Arrangement.SpaceBetween else Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        names.forEach { name ->
-            when (name) {
-                "previous" -> PlainButton(if (jump) Icons.Rounded.Replay10 else Icons.Rounded.SkipPrevious, if (jump) "Back 10 seconds" else "Previous", cell, if (compact) 32.dp else 38.dp, onClick = back)
-                "next" -> PlainButton(if (jump) Icons.Rounded.Forward10 else Icons.Rounded.SkipNext, if (jump) "Ahead 10 seconds" else "Next", cell, if (compact) 32.dp else 38.dp, onClick = ahead)
-                "play" -> androidx.compose.material3.FilledIconButton(
-                    onClick = toggle,
-                    shape = CircleShape,
-                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    interactionSource = playPress,
-                    modifier = Modifier
-                        .size(play)
-                        .pressScale(playPress, ButtonPress)
-                        .shadow(10.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.28f), spotColor = Color.Black.copy(alpha = 0.28f))
-                        .playPauseSemantics(playing) { toggle() },
-                ) { PlayPauseIcon(playing, play * 0.47f) }
-                "shuffle" -> {
-                    // Shuffle stays on: a toggle, lit while on; otherwise it shuffles what is up next once.
-                    val stays = NeedleApp.instance.more.collectAsState().value.shuffleStays && !onComputer()
-                    val playbackState = NeedleApp.instance.playback.collectAsState()
-                    val on by remember { derivedStateOf { playbackState.value?.shuffle == true } }
-                    if (stays) {
-                        PlainButton(Icons.Rounded.Shuffle, "Shuffle", cell, 24.dp, on = on, state = if (on) "On" else "Off", small = true) {
-                            Controls.shuffle(); showMessage(if (on) "Shuffle is off" else "Shuffle is on")
-                        }
-                    } else {
-                        PlainButton(Icons.Rounded.Shuffle, "Shuffle what is up next", cell, 24.dp, small = true) { Controls.shuffle(); showMessage("Shuffled what is up next") }
-                    }
-                }
-                "repeat" -> PlainButton(
-                    if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                    "Repeat",
-                    cell,
-                    24.dp,
-                    on = repeat != RepeatMode.OFF,
-                    state = when (repeat) {
-                        RepeatMode.OFF -> "Off"
-                        RepeatMode.ALL -> "All songs"
-                        RepeatMode.ONE -> "This song"
-                    },
-                    small = true,
-                ) {
-                    Controls.setRepeat(
-                        when (repeat) {
-                            RepeatMode.OFF -> RepeatMode.ALL
-                            RepeatMode.ALL -> RepeatMode.ONE
-                            RepeatMode.ONE -> RepeatMode.OFF
-                        },
-                    )
-                }
+        if (trio.isEmpty()) {
+            names.forEach { item(it) }
+        } else {
+            val first = names.indexOf(trio.first())
+            names.take(first).forEach { item(it) }
+            TrioPill(play, cover) {
+                trio.forEach { name -> if (name == "play") TrioPlay(play, playing, playPress) { toggle() } else item(name) }
+            }
+            names.drop(first + trio.size).forEach { item(it) }
+        }
+    }
+}
+
+/**
+ * Play in its style (see [ButtonStyles]; Trio's is [TrioPlay]), `play` its size on this layout
+ * (76 on a phone). It presses as the player's other buttons do, its focus ring follows its
+ * shape, and TalkBack hears Play or Pause.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun PlayButton(style: String, play: Dp, cover: Color, playing: Boolean, press: androidx.compose.foundation.interaction.MutableInteractionSource, toggle: () -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    val onAccent = MaterialTheme.colorScheme.onPrimary
+    val shade = Color.Black.copy(alpha = 0.28f)
+    when (style) {
+        // A round button of the player's glass, as the two at its top; a white icon.
+        "glass" -> Box(
+            Modifier
+                .size(play)
+                .pressScale(press, ButtonPress, corner = play / 2)
+                .glass(CircleShape, cover = cover, shadow = 12.dp, solid = PlayerGlassSolid, fill = PlayerGlassFill)
+                .clickable(interactionSource = press, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = toggle)
+                .playPauseSemantics(playing) { toggle() },
+            contentAlignment = Alignment.Center,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides Color.White) { PlayPauseIcon(playing, play * 0.47f) }
+        }
+        // A wide pill (116 x 68 on a phone), a soft square (corner 26), or a thin ring (2.5).
+        "wide", "square", "ring" -> {
+            val k = play / 76.dp
+            val width = if (style == "wide") play * (116f / 76f) else play
+            val height = if (style == "wide") play * (68f / 76f) else play
+            val corner = if (style == "square") 26.dp * k else height / 2
+            val shape = RoundedCornerShape(corner)
+            val filled = style != "ring"
+            Box(
+                Modifier
+                    .size(width, height)
+                    .pressScale(press, ButtonPress, corner = corner)
+                    .then(if (filled) Modifier.shadow(10.dp, shape, ambientColor = shade, spotColor = shade) else Modifier)
+                    .clip(shape)
+                    .then(if (filled) Modifier.background(accent) else Modifier.border(2.5.dp * k, accent, shape))
+                    .clickable(interactionSource = press, indication = androidx.compose.material3.ripple(), role = androidx.compose.ui.semantics.Role.Button, onClick = toggle)
+                    .playPauseSemantics(playing) { toggle() },
+                contentAlignment = Alignment.Center,
+            ) {
+                CompositionLocalProvider(LocalContentColor provides if (filled) onAccent else accent) { PlayPauseIcon(playing, play * 0.47f) }
             }
         }
+        // Accent: a circle filled with the accent, its icon dark.
+        else -> androidx.compose.material3.FilledIconButton(
+            onClick = toggle,
+            shape = CircleShape,
+            colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = accent, contentColor = onAccent),
+            interactionSource = press,
+            modifier = Modifier
+                .size(play)
+                .pressScale(press, ButtonPress)
+                .shadow(10.dp, CircleShape, ambientColor = shade, spotColor = shade)
+                .playPauseSemantics(playing) { toggle() },
+        ) { PlayPauseIcon(playing, play * 0.47f) }
+    }
+}
+
+/** Trio's one pill of the player's glass (68 high on a phone, the dock's shape), round Play and its neighbours. */
+@Composable
+private fun TrioPill(play: Dp, cover: Color, content: @Composable RowScope.() -> Unit) {
+    val k = play / 76.dp
+    Row(
+        Modifier
+            .height((68.dp * k).coerceAtLeast(52.dp))
+            .glass(CircleShape, cover = cover, shadow = 14.dp, solid = PlayerGlassSolid, fill = PlayerGlassFill)
+            .padding(horizontal = 8.dp * k),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp * k),
+        content = content,
+    )
+}
+
+/** Trio's Play: a small pill in the accent (68 x 54 on a phone) with no shadow, in the glass pill. */
+@Composable
+private fun TrioPlay(play: Dp, playing: Boolean, press: androidx.compose.foundation.interaction.MutableInteractionSource, toggle: () -> Unit) {
+    val k = play / 76.dp
+    val height = (54.dp * k).coerceAtLeast(44.dp)
+    Box(
+        Modifier
+            .size(68.dp * k, height)
+            .pressScale(press, ButtonPress, corner = height / 2)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(interactionSource = press, indication = androidx.compose.material3.ripple(), role = androidx.compose.ui.semantics.Role.Button, onClick = toggle)
+            .playPauseSemantics(playing) { toggle() },
+        contentAlignment = Alignment.Center,
+    ) {
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onPrimary) { PlayPauseIcon(playing, 30.dp * k) }
     }
 }
 

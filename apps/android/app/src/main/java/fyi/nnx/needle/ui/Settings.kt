@@ -1091,21 +1091,28 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             // The Needle look has no scalloped shapes: an older "shape" choice shows as Square.
         ), if (app.coverShape == "shape") "square" else app.coverShape) { id -> update { it.copy(coverShape = id) } }
         Divider()
+        // Six styles of Play (the other buttons stay plain icons): a grey skip at each side, Play
+        // in the accent. An older Round, Minimal, or Expressive shows (and plays) as Accent.
         SketchRow(Icons.Rounded.PlayCircle, "Buttons", "Play, pause, and skip", listOf(
-            Sketch("round", "Round") { accent, grey ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    SketchBar(11, 11, grey, 6); SketchBar(18, 18, accent, 9); SketchBar(11, 11, grey, 6)
+            Sketch("accent", "Accent") { accent, grey -> ButtonsSketch(grey) { Box(Modifier.size(18.dp).clip(CircleShape).background(accent)) } },
+            Sketch("glass", "Glass") { accent, grey ->
+                ButtonsSketch(grey) {
+                    Box(Modifier.size(18.dp).clip(CircleShape).background(accent.copy(alpha = 0.22f)).border(1.dp, accent.copy(alpha = 0.7f), CircleShape))
                 }
             },
-            Sketch("minimal", "Minimal") { accent, grey ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious, null, Modifier.size(14.dp), tint = grey)
-                    Icon(Icons.Rounded.PlayArrow, null, Modifier.size(22.dp), tint = accent)
-                    Icon(Icons.Rounded.SkipNext, null, Modifier.size(14.dp), tint = grey)
+            Sketch("wide", "Wide") { accent, grey -> ButtonsSketch(grey, gap = 2) { Box(Modifier.size(width = 28.dp, height = 16.dp).clip(CircleShape).background(accent)) } },
+            Sketch("ring", "Ring") { accent, grey -> ButtonsSketch(grey) { Box(Modifier.size(18.dp).border(2.dp, accent, CircleShape)) } },
+            Sketch("square", "Soft square") { accent, grey -> ButtonsSketch(grey) { Box(Modifier.size(18.dp).clip(RoundedCornerShape(6.dp)).background(accent)) } },
+            Sketch("trio", "Trio") { accent, grey ->
+                Row(
+                    Modifier.border(1.dp, grey, CircleShape).padding(horizontal = 5.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    SketchBar(8, 8, grey, 4); Box(Modifier.size(width = 18.dp, height = 13.dp).clip(CircleShape).background(accent)); SketchBar(8, 8, grey, 4)
                 }
             },
-            // The Needle look's buttons are round: the older Expressive shows as Round.
-        ), if (app.controlStyle == "minimal") "minimal" else "round") { id -> update { it.copy(controlStyle = id) } }
+        ), buttonStyle(app.controlStyle)) { id -> update { it.copy(controlStyle = id) } }
         Divider()
         SketchRow(Icons.Rounded.SkipNext, "Beside play", "Skip a song, or jump 10 seconds", listOf(
             Sketch("skip", "Skip songs") { accent, grey ->
@@ -1350,6 +1357,16 @@ private fun keepFont(context: android.content.Context, uri: android.net.Uri?, te
 
 /** A made-up song's shape, for the Shape seek bar's sketch. */
 private val SketchShape = listOf(0.3f, 0.5f, 0.4f, 0.7f, 0.9f, 0.6f, 0.8f, 1f, 0.7f, 0.5f, 0.8f, 0.6f, 0.4f, 0.3f)
+
+/** A sketch of the main buttons: a grey skip at each side of [play] (the part that changes). */
+@Composable
+private fun ButtonsSketch(grey: Color, gap: Int = 4, play: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
+        SketchBar(10, 10, grey, 5)
+        play()
+        SketchBar(10, 10, grey, 5)
+    }
+}
 
 /** A tiny player for a sketch: grey lines of words, and [cover] (the part that changes). */
 @Composable

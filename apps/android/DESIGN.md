@@ -88,8 +88,18 @@ The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open fol
   right; the lyric line (bold, centred, as the mini player's; a tap opens
   the lyrics; none for a song without timed lyrics, and the parts close up); the seek bar in the
   chosen style, what has played in the accent, the times under it and the format between them;
-  the main buttons in the chosen order, plain icons with no circles, Play alone a filled circle
-  in the accent, Shuffle and Repeat in the accent with a small dot while on; the tools.
+  the main buttons in the chosen order, plain icons with no circles, Shuffle and Repeat in the
+  accent with a small dot while on, Play in the style chosen in Settings › Appearance › Player ›
+  Buttons; the tools.
+- **Play's six styles** (`ButtonStyles` in Player.kt; the sizes are a phone's and scale with each
+  layout's Play): Accent (the first: a circle of 76 filled with the accent, its icon dark);
+  Glass (a round button of 76 of the player's glass, as the round buttons at its top, a white
+  icon); Wide (a pill of 116 x 68 in the accent; the others a little closer); Ring (a circle of
+  76 with a thin ring of 2.5 in the accent, its icon in the accent); Soft square (76, corner 26,
+  in the accent); Trio (Play and the button at each side of it, in the user's order, in one
+  glass pill 68 high; Play in it a small pill of 68 x 54 in the accent, no shadow). An older
+  Round, Minimal, or Expressive is Accent. The press, the Play/Pause change, the focus ring
+  (in the button's shape), and TalkBack's names are the same in each.
 - **The tools:** one glass pill in the dock's shape, five icons, no names: Lyrics, Up next, Play
   on, Sleep timer, More. One that is on or open is in the accent.
 - **More** (a glass sheet, one short page that fits a phone with no scroll): the song (its cover,
