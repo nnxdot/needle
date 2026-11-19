@@ -222,6 +222,15 @@ fun NeedleRoot() {
         // Tapping the open tab again goes back to its first page.
         if (t == tab) stacks[t] = listOf(t.root) else tab = t
     }
+    // The side bar went (a foldable closed to its cover screen, a window made narrow): a page
+    // the side bar had put alone in a tab (Favorites, History, a playlist) gets the tab's first
+    // page under it. So it has a way back, and the tab under the dock is whole again.
+    LaunchedEffect(wide) {
+        if (!wide) Tab.entries.forEach { t ->
+            val pages = stacks[t] ?: return@forEach
+            if (pages.firstOrNull() != t.root) stacks[t] = listOf(t.root) + pages
+        }
+    }
 
     LaunchedEffect(playerOpen) { if (playerOpen) playerThrown = false }
     LaunchedEffect(Unit) { Ui.showPlayer.collect { if (hasSong) playerOpen = true } }
