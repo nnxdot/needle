@@ -1,3 +1,14 @@
+# 2.0.7 [windows, linux]
+A new Search, a Home that starts fast, and a calmer feel all over.
+- **A new Search.** Before you type, Search shows what you looked for last, your genres to browse, and the rules you can type. As you type, the best match is on top on a card in its cover's colour, each kind shows how many it found, and the letters you typed are lit.
+- **Browse by decade.** Search's Browse has a switch: Genres or Decades. A decade opens its songs.
+- **Start fast on Home.** In place of the Playing now card: Favorites, your station, the albums you play most, your playlists, and the albums you played last. One click plays.
+- **A calmer feel.** A click answers on mouse-down. Keys show their result at once, with no slide. The lyrics stop following the song while you scroll them. Tooltips, messages, the side panel, and full screen controls move cleanly.
+- A big library is one song list now, not pages of 1,000.
+- Grey loading rows show only when a page takes long.
+- Long names can be read in full.
+- Reduce motion follows your system's setting, and keeps short fades.
+
 # 2.0.6 [windows, linux]
 Glass all over, your Navidrome playlists, and a Radio page.
 - **Glass all over.** The sidebar floats on glass, the page is a sheet with round corners, and the playing cover's colours glow behind it all, fading from one cover to the next. The player, the side panel, the small floating player, menus, dialogs, dropdown lists, and tooltips are glass with a light along their top edge.
@@ -77,6 +88,18 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.
+
+# 2.0.7 [macos]
+A new Search, a Home that starts fast, and a calmer feel all over.
+- **A new Search.** Before you type, Search shows what you looked for last, your genres to browse, and the rules you can type. As you type, the best match is on top on a card in its cover's colour, each kind shows how many it found, and the letters you typed are lit.
+- **Browse by decade.** Search's Browse has a switch: Genres or Decades. A decade opens its songs.
+- **Start fast on Home.** In place of the Playing now card: Favorites, your station, the albums you play most, your playlists, and the albums you played last. One click plays.
+- **A calmer feel.** Keys change pages, the palette, the side panel, and the big player at once. Rows show a soft highlight under the pointer. The lyrics stop following the song while you scroll them. A new song's cover and background fade in.
+- Places that take dropped songs light up while you drag over them.
+- The record crate pulls like a rubber band at its ends, and keeps your flick's speed.
+- Full screen controls come back fast, and the pointer hides with them.
+- Grey loading bars show only when a page takes long.
+- A long title no longer stretches the menu bar menu or cuts the Missing file badge.
 
 # 2.0.6 [macos]
 Your Navidrome playlists, a Radio page, and glass in the cover's colour.
