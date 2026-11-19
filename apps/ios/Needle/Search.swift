@@ -301,6 +301,7 @@ struct SearchView: View {
     private func header<Trailing: View>(_ title: String, inset: Bool = true, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title).font(.needleTitle(size: 22)).accessibilityAddTraits(.isHeader)
+                .lineLimit(1).layoutPriority(1)
             Spacer(minLength: 8)
             trailing()
         }
@@ -691,7 +692,14 @@ struct SearchView: View {
                     }
                     if !byDecade && genres.count > shown.count {
                         NavigationLink(value: Route.genres) {
-                            Text("All \(genres.count.formatted()) ›").font(.needle(.subheadline)).foregroundStyle(.secondary)
+                            // Always one line: without the count when the line is short (large
+                            // text, a narrow window).
+                            ViewThatFits(in: .horizontal) {
+                                Text("All \(genres.count.formatted()) ›")
+                                Text("All ›")
+                            }
+                            .font(.needle(.subheadline)).foregroundStyle(.secondary)
+                            .lineLimit(1)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("All \(count(genres.count, "genre"))")
