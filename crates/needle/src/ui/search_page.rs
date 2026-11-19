@@ -1,5 +1,5 @@
 //! Search: what a search finds across the whole library (`Library::find`). Before typing:
-//! the recent searches, genres to browse, and rules. While typing: chips (All, Songs, Albums,
+//! the recent searches, rules, and genres or decades to browse. While typing: chips (All, Songs, Albums,
 //! Artists, Lyrics) with their counts, then on All the best match on a card tinted with its
 //! cover's colour, songs, albums, artists, and the lines of lyrics that hold the words.
 //! Typing on a page that is not a list opens it; on a list page, typing filters the list.
@@ -10,6 +10,7 @@ use super::{
     theme::display_font,
     widgets::{
         SidewaysOnly as _, artwork, count, cover, display, faint, glyph, icon, meta, seed_color,
+        segmented,
     },
 };
 use gpui::{prelude::*, *};
@@ -21,7 +22,10 @@ use needle_core::{
     model::{Track, format_duration},
 };
 use rand::seq::SliceRandom;
-use std::ops::Range;
+use std::{
+    ops::Range,
+    time::{Duration, Instant},
+};
 
 /// The chip Search shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -42,12 +46,33 @@ const CHIPS: [(SearchTab, &str); 5] = [
     (SearchTab::Lyrics, "Lyrics"),
 ];
 
-/// A genre to browse: its name, how many songs it has, and one of its covers.
+/// A genre or a decade to browse: its name ("Jazz", "2020s"), how many songs it has, one of its
+/// covers, and the rule that finds its songs.
 #[derive(Clone, Debug)]
-pub struct GenreTile {
+pub struct BrowseTile {
     pub name: String,
     pub songs: usize,
     pub artwork: Option<String>,
+    pub rule: String,
+}
+
+/// What Browse can show: the genres with the most songs, and the decades, the newest first.
+#[derive(Clone, Debug, Default)]
+pub struct BrowseTiles {
+    pub genres: Vec<BrowseTile>,
+    pub decades: Vec<BrowseTile>,
+}
+
+/// Where the library keeps Browse's choice: "decades", or "genres" (the first time).
+const BROWSE_BY: &str = "desktop.search_browse_by";
+
+/// Browse shows decades: the choice kept in the library.
+pub(super) fn saved_browse_decades(library: &Library) -> bool {
+    library
+        .get_json::<String>(BROWSE_BY)
+        .ok()
+        .flatten()
+        .is_some_and(|by| by == "decades")
 }
 
 /// How many of each All asks for and shows.
@@ -57,10 +82,12 @@ const LYRICS: usize = 3;
 /// How many a chip page asks for: lyrics, and songs, albums, or artists.
 const LYRICS_ALL: usize = 50;
 const ON_A_CHIP: usize = 200;
-/// How many recent searches are read (a wide page shows 4 in one line), and genres.
+/// How many recent searches are read (a wide page shows 4 in one line), and genres or decades.
 const RECENT: usize = 8;
 const RECENT_WIDE: usize = 4;
 const GENRES: usize = 8;
+/// How long the tiles fade in after the switch changes, in ms.
+const BROWSE_FADE: u64 = 180;
 /// Content narrower than this is one column.
 const WIDE: f32 = 640.;
 /// The top result card's width (wide), and its cover, wide and narrow.
@@ -149,27 +176,67 @@ fn lit(text: &str, words: &[String], accent: Hsla) -> StyledText {
         .with_highlights(lit_ranges(text, words).into_iter().map(|r| (r, style)))
 }
 
+/// A cover from the songs `rule` finds.
+fn cover_of(library: &Library, rule: &str) -> Option<String> {
+    library
+        .search(rule)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| !t.missing)
+        .find_map(|t| t.artwork)
+}
+
+/// The genres with the most songs, and the decades, newest first, each with one of its covers.
+fn browse_tiles(library: &Library) -> BrowseTiles {
+    BrowseTiles {
+        genres: genre_tiles(library),
+        decades: decade_tiles(library),
+    }
+}
+
 /// The genres with the most songs, each with one of its covers.
-fn genre_tiles(library: &Library) -> Vec<GenreTile> {
+fn genre_tiles(library: &Library) -> Vec<BrowseTile> {
     let mut genres = library.genres().unwrap_or_default();
     genres.sort_by_key(|(_, songs)| std::cmp::Reverse(*songs));
     genres.truncate(GENRES);
     genres
         .into_iter()
         .map(|(name, songs)| {
-            let artwork = library
-                .search(&format!("genre = {} limit 40", quote(&name)))
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|t| !t.missing)
-                .find_map(|t| t.artwork);
-            GenreTile {
+            let rule = format!("genre = {}", quote(&name));
+            BrowseTile {
+                artwork: cover_of(library, &format!("{rule} limit 40")),
                 name,
                 songs,
-                artwork,
+                rule,
             }
         })
         .collect()
+}
+
+/// The decades that have songs, the newest first, each with a cover of its most played songs.
+fn decade_tiles(library: &Library) -> Vec<BrowseTile> {
+    let mut decades = library.decades().unwrap_or_default();
+    decades.truncate(GENRES);
+    decades
+        .into_iter()
+        .map(|(year, songs)| {
+            let rule = decade_rule(year);
+            BrowseTile {
+                name: format!("{year}s"),
+                songs,
+                artwork: cover_of(
+                    library,
+                    &format!("{rule} order by play_count desc limit 30"),
+                ),
+                rule,
+            }
+        })
+        .collect()
+}
+
+/// The rule that finds a decade's songs, by its first year.
+fn decade_rule(year: i64) -> String {
+    format!("year >= {year} and year < {}", year + 10)
 }
 
 impl AppView {
@@ -186,7 +253,7 @@ impl AppView {
             cx.notify();
             return;
         }
-        if self.search_genres.is_none() {
+        if self.search_browse.is_none() {
             self.load_search_home();
         }
         let tab = self.search_tab;
@@ -245,30 +312,49 @@ impl AppView {
         }
     }
 
-    /// Reads the recent searches, and the genres the first time.
+    /// Reads the recent searches, and the genres and decades the first time.
     pub(super) fn load_search_home(&mut self) {
-        let genres = self.search_genres.is_none();
-        if genres {
-            self.search_genres = Some(Default::default());
+        let browse = self.search_browse.is_none();
+        if browse {
+            self.search_browse = Some(Default::default());
         }
         let (library, sender) = (self.library.clone(), self.sender.clone());
         std::thread::spawn(move || {
             let recent = library.recent_searches(RECENT).unwrap_or_default();
-            let genres = genres.then(|| genre_tiles(&library));
-            let _ = sender.send(Event::SearchHome(recent, genres));
+            let browse = browse.then(|| browse_tiles(&library));
+            let _ = sender.send(Event::SearchHome(recent, browse));
         });
     }
 
-    pub(super) fn search_home(&mut self, recent: Vec<Recent>, genres: Option<Vec<GenreTile>>) {
+    pub(super) fn search_home(&mut self, recent: Vec<Recent>, browse: Option<BrowseTiles>) {
         for item in &recent {
             if let Recent::Artist(a) = item {
                 self.request_artist_image(&a.name.clone(), false);
             }
         }
         self.search_recent = recent;
-        if let Some(genres) = genres {
-            self.search_genres = Some(std::rc::Rc::new(genres));
+        if let Some(browse) = browse {
+            // A decade's tile takes its cover's colour: measured once, in the background.
+            for path in browse.decades.iter().filter_map(|d| d.artwork.as_deref()) {
+                let _ = self.look(path);
+            }
+            self.search_browse = Some(std::rc::Rc::new(browse));
         }
+    }
+
+    /// The switch on Browse's title line: genres or decades, kept in the library.
+    fn browse_by(&mut self, decades: bool, cx: &mut Context<Self>) {
+        if self.browse_decades == decades {
+            return;
+        }
+        self.browse_decades = decades;
+        self.browse_switched = (self.browse_switched.0 + 1, Some(Instant::now()));
+        let library = self.library.clone();
+        std::thread::spawn(move || {
+            let by = if decades { "decades" } else { "genres" };
+            let _ = library.set_json(BROWSE_BY, &by);
+        });
+        cx.notify();
     }
 
     /// Keeps something looked for (see `Library::remember_search`).
@@ -667,53 +753,98 @@ impl AppView {
         self.remember_search(kind, &key);
     }
 
-    /// Browse: the genres with the most songs, as colour tiles with a cover in the corner. Two
-    /// lines of four on a wide page, three lines of two on a narrow one. There is no page of
-    /// all genres, so no "All".
+    /// Browse: the genres with the most songs, or the decades, newest first, as colour tiles
+    /// with a cover in the corner. Two lines of four on a wide page, three lines of two on a
+    /// narrow one. There is no page of all genres, so no "All". The switch at the title's end
+    /// shows when there are both; a library with years but no genres shows its decades.
     fn browse_section(&self, content: f32, cx: &mut Context<Self>) -> Option<Div> {
-        let genres = self.search_genres.clone()?;
-        if genres.is_empty() {
+        let browse = self.search_browse.clone()?;
+        let both = !browse.genres.is_empty() && !browse.decades.is_empty();
+        let decades = if both {
+            self.browse_decades
+        } else {
+            browse.genres.is_empty()
+        };
+        let tiles = if decades {
+            &browse.decades
+        } else {
+            &browse.genres
+        };
+        if tiles.is_empty() {
             return None;
         }
         let (columns, lines) = if content >= WIDE { (4, 2) } else { (2, 3) };
-        let genres = &genres[..genres.len().min(columns * lines)];
+        let tiles = &tiles[..tiles.len().min(columns * lines)];
         let gap = 12.;
         let w = (content - gap * (columns as f32 - 1.)) / columns as f32;
+        let mut head = self.part_head("Browse", None, cx);
+        if both {
+            let weak = cx.weak_entity();
+            head = head.child(div().flex_shrink_0().child(segmented(
+                "search-browse-by",
+                &["Genres", "Decades"],
+                usize::from(decades),
+                cx,
+                move |i, _, cx| {
+                    let _ = weak.update(cx, |this, cx| this.browse_by(i == 1, cx));
+                },
+            )));
+        }
         // Rows of their own: a wrapped row in a column takes too much height (GPUI).
-        let head = self.part_head("Browse", None, cx);
-        let rows: Vec<Div> = genres
+        let rows: Vec<Div> = tiles
             .chunks(columns)
             .enumerate()
             .map(|(r, row)| {
                 div().flex().gap(px(gap)).children(
                     row.iter()
                         .enumerate()
-                        .map(|(c, g)| self.genre_tile(r * columns + c, g, w, cx)),
+                        .map(|(c, t)| self.browse_tile(r * columns + c, t, decades, w, cx)),
                 )
             })
             .collect();
-        Some(
-            div()
-                .px_8()
-                .flex()
-                .flex_col()
-                .child(head)
-                .child(div().flex().flex_col().gap(px(gap)).children(rows)),
-        )
+        let grid = div().flex().flex_col().gap(px(gap)).children(rows);
+        // Just after the switch changed, the new tiles fade in where the old ones were.
+        let (switched, at) = self.browse_switched;
+        let grid = if at.is_some_and(|at| at.elapsed() < Duration::from_millis(BROWSE_FADE * 2)) {
+            motion::fade(
+                grid,
+                ("search-browse", switched),
+                BROWSE_FADE,
+                cx,
+                |el, t, _| el.opacity(0.25 + 0.75 * t),
+            )
+        } else {
+            grid.into_any_element()
+        };
+        Some(div().px_8().flex().flex_col().child(head).child(grid))
     }
 
-    fn genre_tile(
+    /// A genre's or a decade's tile. A genre's colour comes from its name; a decade's from its
+    /// cover, once measured.
+    fn browse_tile(
         &self,
         i: usize,
-        genre: &GenreTile,
+        tile: &BrowseTile,
+        decade: bool,
         w: f32,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let base = seed_color(&genre.name.to_lowercase());
+        let base = decade
+            .then(|| tile.artwork.as_deref().and_then(|a| self.cached_look(a)))
+            .flatten()
+            .map(|look| look.vivid)
+            .unwrap_or_else(|| seed_color(&tile.name.to_lowercase()));
         let (light, deep) = (hsla(base.h, 0.42, 0.44, 1.), hsla(base.h, 0.5, 0.22, 1.));
-        let rule = format!("genre = {}", quote(&genre.name));
+        let rule = tile.rule.clone();
         div()
-            .id(("search-genre", i))
+            .id((
+                if decade {
+                    "search-decade"
+                } else {
+                    "search-genre"
+                },
+                i,
+            ))
             .relative()
             .overflow_hidden()
             .w(px(w))
@@ -735,13 +866,13 @@ impl AppView {
                     .font_weight(FontWeight::BOLD)
                     .text_color(white())
                     .truncate()
-                    .child(genre.name.clone()),
+                    .child(tile.name.clone()),
             )
             .child(
                 div()
                     .text_size(px(11.5))
                     .text_color(white().opacity(0.7))
-                    .child(plural(genre.songs, "song", "songs")),
+                    .child(plural(tile.songs, "song", "songs")),
             )
             .child(
                 div()
@@ -750,10 +881,10 @@ impl AppView {
                     .bottom(px(-12.))
                     .rounded(px(6.))
                     .shadow_lg()
-                    .child(cover(genre.artwork.as_deref(), &genre.name, 52., cx)),
+                    .child(cover(tile.artwork.as_deref(), &tile.name, 52., cx)),
             )
             .on_click(cx.listener(move |this, _, window, cx| {
-                // The genre's songs: the Songs page with the genre's rule.
+                // The genre's or decade's songs: the Songs page with its rule.
                 this.search
                     .update(cx, |s, cx| s.set_value(rule.clone(), window, cx));
                 this.search_on(Page::Songs, cx);
@@ -1595,7 +1726,8 @@ impl AppView {
 
 #[cfg(test)]
 mod tests {
-    use super::{lit_ranges, lit_words};
+    use super::{BROWSE_BY, decade_tiles, lit_ranges, lit_words, saved_browse_decades};
+    use needle_core::{database::Library, model::Track};
 
     fn words(text: &str) -> Vec<String> {
         lit_words(text)
@@ -1619,5 +1751,45 @@ mod tests {
         assert_eq!(lit_ranges("aaaa", &words("aa")), vec![0..4]);
         assert_eq!(lit_ranges("Café Über", &words("über")), vec![6..11]);
         assert!(lit_ranges("Moon", &words("rating >= 4")).is_empty());
+    }
+
+    #[test]
+    fn browse_keeps_its_choice_and_counts_decades() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        // The first time: genres.
+        assert!(!saved_browse_decades(&library));
+        library.set_json(BROWSE_BY, &"decades").unwrap();
+        assert!(saved_browse_decades(&library));
+        library.set_json(BROWSE_BY, &"genres").unwrap();
+        assert!(!saved_browse_decades(&library));
+
+        for (id, year) in [("a", 2021), ("b", 2024), ("c", 1998), ("d", 0)] {
+            let path = dir.path().join(format!("{id}.flac"));
+            std::fs::write(&path, b"").unwrap();
+            library
+                .upsert(&Track {
+                    id: id.into(),
+                    path: path.to_string_lossy().into_owned(),
+                    title: id.into(),
+                    year,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let decades = decade_tiles(&library);
+        let shown: Vec<_> = decades
+            .iter()
+            .map(|d| (d.name.as_str(), d.songs, d.rule.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("2020s", 2, "year >= 2020 and year < 2030"),
+                ("1990s", 1, "year >= 1990 and year < 2000"),
+            ]
+        );
+        // The rule finds the decade's songs.
+        assert_eq!(library.search(&decades[0].rule).unwrap().len(), 2);
     }
 }

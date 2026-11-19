@@ -467,10 +467,10 @@ enum Event {
         search_page::SearchTab,
         Result<Box<needle_core::find::Found>, String>,
     ),
-    /// Search before typing: the recent searches, and the genres to browse (once).
+    /// Search before typing: the recent searches, and the genres and decades to browse (once).
     SearchHome(
         Vec<needle_core::find::Recent>,
-        Option<Vec<search_page::GenreTile>>,
+        Option<search_page::BrowseTiles>,
     ),
     /// A song's shape for the waveform seek bar: its id and 120 heights, 0 to 1.
     Waveform(String, Vec<f32>),
@@ -543,9 +543,14 @@ pub struct AppView {
     found_shown: u64,
     found_error: Option<String>,
     find_generation: u64,
-    /// Search before typing: what was looked for before, and the genres (`None` until read).
+    /// Search before typing: what was looked for before, and the genres and decades to browse
+    /// (`None` until read).
     search_recent: Vec<needle_core::find::Recent>,
-    search_genres: Option<std::rc::Rc<Vec<search_page::GenreTile>>>,
+    search_browse: Option<std::rc::Rc<search_page::BrowseTiles>>,
+    /// Browse shows decades in place of genres (kept in the library, see
+    /// `search_page::saved_browse_decades`), and when the switch last changed (for its fade).
+    browse_decades: bool,
+    browse_switched: (usize, Option<Instant>),
     /// The playing song's shape, for the waveform seek bar: its id and heights.
     waveform: Option<(String, Vec<f32>)>,
     /// Lyrics translated by a plugin, shown under each line while Translate is on.
@@ -1330,7 +1335,9 @@ impl AppView {
             found_error: None,
             find_generation: 0,
             search_recent: vec![],
-            search_genres: None,
+            search_browse: None,
+            browse_decades: search_page::saved_browse_decades(&library),
+            browse_switched: (0, None),
             waveform: None,
             translate_lyrics: false,
             translation: None,
@@ -1931,7 +1938,7 @@ impl AppView {
                 Event::OnThisDay(days) => self.on_this_day = days,
                 Event::HomeYear(year) => self.home_year = year,
                 Event::Found(generation, tab, found) => self.found(generation, tab, found),
-                Event::SearchHome(recent, genres) => self.search_home(recent, genres),
+                Event::SearchHome(recent, browse) => self.search_home(recent, browse),
                 Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),

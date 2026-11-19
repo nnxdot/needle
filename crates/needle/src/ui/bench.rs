@@ -390,6 +390,13 @@ impl AppView {
                         v.genre_by_plays = by == "plays";
                         open(v, Page::MoodMap, window, cx);
                     }
+                    // "search-decades:": the Search page before typing, Browse on its decades
+                    // (for this run only; the kept choice stays as it is).
+                    Some(("search-decades", _)) => {
+                        v.browse_decades = true;
+                        open(v, Page::Search, window, cx);
+                        cx.notify();
+                    }
                     // "search:harbor": the Search page, with that typed ("search:" before
                     // typing); "search-songs:harbor" on its Songs chip.
                     Some((how @ ("search" | "search-songs"), text)) => {
