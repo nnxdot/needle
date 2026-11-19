@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Search, with its field where the system puts it (the tab bar on an iPhone). Before typing:
-/// Recent, Browse (the genres), and Rules. While typing: chips for All, Songs, Albums, Artists,
+/// Recent, Rules (one line), and Browse (the genres with the most songs). While typing: chips for All, Songs, Albums, Artists,
 /// and Lyrics with their counts, pinned at the top; under All, the top result on a card in its
 /// cover's colour, then Songs, Albums, Artists, the lines of lyrics that hold the words, and
 /// songs from your server. The letters that match are lit.
@@ -50,11 +50,8 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if words.isEmpty {
                     recentPart
-                    if !genres.isEmpty {
-                        SectionTitle(title: "Browse").padding(.bottom, 10)
-                        GenreTiles(genres: genres)
-                    }
                     rules
+                    browse
                 } else if let error {
                     Text(error).font(.needle(.subheadline)).foregroundStyle(.red).padding()
                     rules
@@ -654,6 +651,27 @@ struct SearchView: View {
         .padding(.horizontal, 30)
         .padding(.top, 40)
         .accessibilityElement(children: .combine)
+    }
+
+    /// Browse: only the genres with the most songs, 6 on a phone (three lines of two), two lines
+    /// (8 at most) in a wide window; "All N ›" opens the Genres page when there are more.
+    @ViewBuilder
+    private var browse: some View {
+        if !genres.isEmpty {
+            // In a wide window as many across as the Genres page fits (tiles of 200 or more).
+            let across = wide ? min(4, max(2, Int((row + 16) / 216))) : 2
+            let shown = Array(genres.sorted { $0.songs > $1.songs }.prefix(wide ? 2 * across : 6))
+            header("Browse") {
+                if genres.count > shown.count {
+                    NavigationLink(value: Route.genres) {
+                        Text("All \(genres.count.formatted()) ›").font(.needle(.subheadline)).foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("All \(count(genres.count, "genre"))")
+                }
+            }
+            GenreTiles(genres: shown, across: across).padding(.top, 10)
+        }
     }
 
     /// Rules: a tap puts the rule in the search field. A wide window also shows the rule.
