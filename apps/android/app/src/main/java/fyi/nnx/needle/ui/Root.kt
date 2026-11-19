@@ -72,6 +72,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.hazeSource
@@ -334,11 +335,14 @@ fun NeedleRoot() {
     }
     // Settings › Appearance › Colours from the music: every page in the song's colours.
     CoverTheme(if (app.ambientColors) playingArt else null) {
+    // Where a page's flying cover may be drawn: the pages, not the side bar or the dock (Motion.kt).
+    val coverClip = remember { CoverClip() }
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this, LocalHinge provides hinge) {
             Box(
                 Modifier
                     .fillMaxSize()
+                    .onGloballyPositioned { coverClip.layout = it }
                     .onSizeChanged { window = with(density) { androidx.compose.ui.unit.DpSize(it.width.toDp(), it.height.toDp()) } }
                     .onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }
                     // A remote's up or down held goes faster the longer it is held (a long
@@ -376,7 +380,7 @@ fun NeedleRoot() {
                     }
                 }
                 // Pages lay out by the room they have (see Adaptive.kt).
-                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).onGloballyPositioned { coverClip.pages = it }.focusRequester(pageFocus).onFocusChanged {
                     if (inPage && !it.hasFocus && android.os.SystemClock.uptimeMillis() - lastKey > 250) toPage++
                     inPage = it.hasFocus
                 }.focusRestorer().focusGroup()) {
@@ -430,6 +434,7 @@ fun NeedleRoot() {
                             LocalCanGoBack provides (pages.size > 1),
                             // Covers fly only between pages of one tab, never across tabs.
                             LocalSharedScope provides pageTab.name,
+                            LocalCoverClip provides coverClip,
                         ) {
                             val route = pages.last()
                             pageStates.SaveableStateProvider(pageKey(pageTab, pages.lastIndex, route)) {
@@ -490,7 +495,9 @@ fun NeedleRoot() {
                             }
                             .navigationBarsPadding()
                             .padding(horizontal = if (wide) 20.dp else 10.dp)
-                            .padding(bottom = FootGap),
+                            .padding(bottom = FootGap)
+                            // The bars themselves: a page's flying cover passes under them.
+                            .onGloballyPositioned { coverClip.foot = it },
                     ) {
                         if (!typing) LoadErrorBar(Modifier.padding(bottom = 8.dp))
                         if (!typing) SelectionBar()

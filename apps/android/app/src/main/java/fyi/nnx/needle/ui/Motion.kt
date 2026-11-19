@@ -17,6 +17,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -245,14 +246,64 @@ fun Modifier.sharedCover(key: String): Modifier = composed {
     val moving = animated.transition.currentState != animated.transition.targetState
     if (!moving) return@composed this
     val scope = LocalSharedScope.current
+    val clip = LocalCoverClip.current
     with(shared) {
-        this@composed.sharedElement(
-            rememberSharedContentState("$scope/$key"),
-            animated,
-            boundsTransform = { _, _ -> spring(dampingRatio = 0.85f, stiffness = 380f) },
-        )
+        if (clip != null) {
+            // A page's cover lands with its page (300 ms, as the slide in Root.kt): a spring went
+            // on settling to a hundredth of a pixel after the page, the tile it aims for moving
+            // with the page restarting it, so the cover sat in the top layer about a second
+            // after a back swipe. Drawn in the pages' room only, under the side bar and the dock.
+            this@composed.sharedElement(
+                rememberSharedContentState("$scope/$key"),
+                animated,
+                boundsTransform = { _, _ -> tween(300) },
+                clipInOverlayDuringTransition = clip,
+            )
+        } else {
+            // The player's cover, from the mini player in the dock: over everything, as it goes.
+            this@composed.sharedElement(
+                rememberSharedContentState("$scope/$key"),
+                animated,
+                boundsTransform = { _, _ -> spring(dampingRatio = 0.85f, stiffness = 380f, visibilityThreshold = androidx.compose.ui.geometry.Rect.VisibilityThreshold) },
+            )
+        }
     }
 }
+
+/**
+ * Where a page's flying cover may be drawn (it flies in Compose's top layer, over everything):
+ * the pages' room, less the bars at its foot (the dock, the mini player, the bar of chosen
+ * songs), so the side bar and the dock stay over it, as over a cover at rest. Root.kt tells it
+ * where those are; it reads them as it draws, so nothing is composed again for it.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+class CoverClip : SharedTransitionScope.OverlayClip {
+    /** The layout the covers fly in (its origin is the top layer's). */
+    var layout: androidx.compose.ui.layout.LayoutCoordinates? = null
+    var pages: androidx.compose.ui.layout.LayoutCoordinates? = null
+    var foot: androidx.compose.ui.layout.LayoutCoordinates? = null
+
+    override fun getClipPath(
+        sharedContentState: SharedTransitionScope.SharedContentState,
+        bounds: androidx.compose.ui.geometry.Rect,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        density: androidx.compose.ui.unit.Density,
+    ): androidx.compose.ui.graphics.Path? {
+        val layout = layout?.takeIf { it.isAttached } ?: return null
+        val pages = pages?.takeIf { it.isAttached } ?: return null
+        val room = androidx.compose.ui.graphics.Path().apply { addRect(layout.localBoundingBoxOf(pages)) }
+        val bars = foot?.takeIf { it.isAttached }?.let { layout.localBoundingBoxOf(it) }
+        if (bars == null || bars.isEmpty) return room
+        val corner = with(density) { 26.dp.toPx() }
+        val under = androidx.compose.ui.graphics.Path().apply {
+            addRoundRect(androidx.compose.ui.geometry.RoundRect(bars, androidx.compose.ui.geometry.CornerRadius(corner)))
+        }
+        return androidx.compose.ui.graphics.Path.combine(androidx.compose.ui.graphics.PathOperation.Difference, room, under)
+    }
+}
+
+/** Given inside the pages (Root.kt): their covers fly clipped to it, and with their page. */
+val LocalCoverClip: ProvidableCompositionLocal<CoverClip?> = compositionLocalOf { null }
 
 /**
  * The tile tapped last (its own id): only its cover flies to the page it opens, and back. An
