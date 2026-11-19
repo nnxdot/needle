@@ -92,7 +92,7 @@ func litText(_ text: String, _ words: [String]) -> AttributedString {
 }
 
 /// The Search page: what typing in search finds on a page that is not a list. Before typing:
-/// Recent, Browse (genres), and Rules. While typing: chips (All, Songs, Albums, Artists,
+/// Recent, Rules, and Browse (genres). While typing: chips (All, Songs, Albums, Artists,
 /// Lyrics, each with its count) that stay at the top, and under All the top result, Songs,
 /// Albums, Artists, and the lines of lyrics that hold the words.
 struct SearchPage: View {
@@ -186,8 +186,8 @@ struct SearchPage: View {
     private func content(_ query: String) -> some View {
         if query.isEmpty {
             if !recent.isEmpty { recentSection }
-            if !genres.isEmpty { browse }
             rules
+            if !genres.isEmpty { browse }
         } else if let error {
             Text(error).foregroundStyle(store.colors.danger)
             rules
@@ -574,44 +574,51 @@ struct SearchPage: View {
         }
     }
 
-    /// The genres with the most songs, as colour tiles; a click opens the genre's songs.
+    /// The genres with the most songs, as colour tiles, two lines of them; a click opens the
+    /// genre's songs. The Mac has no page of all genres, so no "All".
     private var browse: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: narrow ? 2 : 4)
+        let across = narrow ? 2 : 4
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: across)
         return VStack(alignment: .leading, spacing: 10) {
             Text("Browse").font(.needle(.title3).weight(.semibold))
             LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                ForEach(genres, id: \.name) { genre in
+                ForEach(genres.prefix(across * 2), id: \.name) { genre in
                     GenreTile(name: genre.name, artwork: genre.artwork, songs: Int(genre.songs))
                 }
             }
         }
     }
 
-    /// The core's rules as chips, with the rule itself in mono when there is room; a click puts
-    /// the rule in the search field.
+    /// The core's rules as chips on one line, with the rule itself in mono when there is room; the
+    /// line scrolls sideways when it does not fit. A click puts the rule in the search field.
     private var rules: some View {
         let examples = store.core.ruleExamples()
         let pairs = stride(from: 0, to: examples.count - 1, by: 2).map { (examples[$0], examples[$0 + 1]) }
         return VStack(alignment: .leading, spacing: 10) {
             Text("Rules").font(.needle(.title3).weight(.semibold))
-            FlowLayout {
-                ForEach(pairs, id: \.1) { name, rule in
-                    Button { store.search = rule } label: {
-                        HStack(spacing: 8) {
-                            Text(name).font(.needle(.callout).weight(.medium))
-                            if !narrow {
-                                Text(rule).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(store.colors.ink2)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(pairs, id: \.1) { name, rule in
+                        Button { store.search = rule } label: {
+                            HStack(spacing: 8) {
+                                Text(name).font(.needle(.callout).weight(.medium))
+                                if !narrow {
+                                    Text(rule).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(store.colors.ink2)
+                                }
                             }
+                            .padding(.horizontal, 13).padding(.vertical, 6)
+                            .overlay(Capsule().strokeBorder(store.colors.line))
+                            .contentShape(Capsule())
                         }
-                        .padding(.horizontal, 13).padding(.vertical, 6)
-                        .overlay(Capsule().strokeBorder(store.colors.line))
-                        .contentShape(Capsule())
+                        .buttonStyle(.plain)
+                        .help(rule)
+                        .accessibilityLabel("\(name): \(rule)")
                     }
-                    .buttonStyle(.plain)
-                    .help(rule)
-                    .accessibilityLabel("\(name): \(rule)")
                 }
+                .padding(.vertical, 1)
             }
+            // The chips scroll out to the page's edges, not to its margin.
+            .scrollClipDisabled()
         }
     }
 

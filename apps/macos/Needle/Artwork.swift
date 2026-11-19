@@ -485,6 +485,8 @@ struct ExtendsUnderGlass: ViewModifier {
 struct PlaylistArt: View {
     let playlist: Playlist
     var side: CGFloat
+    /// As `Cover`'s: nil is the usual soft corner, 0 is square.
+    var corner: CGFloat? = nil
 
     var body: some View {
         Group {
@@ -505,7 +507,7 @@ struct PlaylistArt: View {
             }
         }
         .frame(width: side, height: side)
-        .clipShape(RoundedRectangle(cornerRadius: Cover.radius(side * 0.08), style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Cover.radius(corner ?? side * 0.08), style: .continuous))
     }
 }
 

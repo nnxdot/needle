@@ -24,7 +24,7 @@ struct RadioPage: View {
                 Text("Stations that start with a song and flow on from it, and mixes of your whole library.")
                     .font(.needle(.callout)).foregroundStyle(store.colors.ink2)
             }
-            StationHero(seed: seeds?.first, loaded: seeds != nil) { yourStation() }
+            StationHero(seed: seeds?.first, loaded: seeds != nil) { RadioPage.startYourStation(from: seeds?.first) }
             mixes
             stations
         }
@@ -111,10 +111,11 @@ struct RadioPage: View {
     }
 
     /// Your station: from the song it shows (played most lately), else another played most,
-    /// or any song when nothing has played yet.
-    private func yourStation() {
+    /// or any song when nothing has played yet. Home's "Your station" tile starts it the same way.
+    static func startYourStation(from seed: Ranked?) {
+        let store = Store.shared
         store.notify("Tuning in…")
-        let shown = seeds?.first.flatMap { s in s.songId.map { ($0, s.title) } }
+        let shown = seed.flatMap { s in s.songId.map { ($0, s.title) } }
         Task {
             let started = await store.ask { core -> (String, UInt32) in
                 let top = try core.stats(days: 30).topSongs.compactMap { s in s.songId.map { ($0, s.title) } }
