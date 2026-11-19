@@ -557,6 +557,29 @@ mod tests {
     }
 
     #[test]
+    fn decades_are_counted_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let music = dir.path().join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        for (id, year) in [("a", 2021), ("b", 2024), ("c", 1998), ("d", 0)] {
+            let mut t = song(&music, id, id, "Artist", "Album", 0);
+            t.year = year;
+            library.upsert(&t).unwrap();
+        }
+        // The song with no year is in no decade.
+        assert_eq!(library.decades().unwrap(), [(2020, 2), (1990, 1)]);
+        // The rule the apps open a decade with finds the same songs.
+        assert_eq!(
+            library
+                .search("year >= 2020 and year < 2030")
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
     fn keeps_recent_searches_newest_first() {
         let dir = tempfile::tempdir().unwrap();
         let library = Library::open(dir.path().join("data")).unwrap();
