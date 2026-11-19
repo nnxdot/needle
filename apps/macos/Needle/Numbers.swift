@@ -65,7 +65,7 @@ struct NumbersPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Your library in numbers").font(store.display(28))
+                    Text("Your library in numbers").font(store.display(28)).tracking(store.displayTracking(28))
                     Text(numbers.map { "\(count($0.songs, "song")) · \(hours($0.duration))" } ?? "Counting…")
                         .font(.needle(.callout)).foregroundStyle(colors.ink2)
                 }

@@ -177,7 +177,9 @@ struct TopScreen: View {
                         Text("Needle").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(colors.ink2)
                     }
                 }
-                .padding(.horizontal, hover && has ? 40 : 8)
+                // Room for the times kept while a song plays, so the title never moves or cuts
+                // shorter under the pointer: only the times fade in.
+                .padding(.horizontal, has ? 40 : 8)
                 if hover, let p, has {
                     PlayTimes(held: held, duration: p.duration, apart: true)
                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
@@ -202,6 +204,7 @@ struct TopScreen: View {
         }
         .clipShape(shape)
         .contentShape(shape)
+        // Only an opacity fade (the times), so it stays with Reduce motion too.
         .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
         .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
     }
@@ -420,8 +423,7 @@ struct MoreButton: View {
 
     /// Opens a side panel, or closes it when it is the one open.
     private func panel(_ panel: Store.Panel) {
-        if store.settings.showInspector && store.panel == panel { store.set(["show_inspector": false]) }
-        else { store.panel = panel; store.set(["show_inspector": true]) }
+        store.togglePanel(panel, animated: true)
     }
 }
 
@@ -510,6 +512,10 @@ struct Transport: View {
     var icons: CGFloat?
     /// Clicks on Shuffle, for its bounce.
     @State private var shuffles = 0
+    /// Clicks on Repeat, for its bounce: ⌘R changes it with no bounce.
+    @State private var repeats = 0
+    /// The last click on Play (see `playMorph`).
+    @State private var playClicked = Date.distantPast
 
     var body: some View {
         let colors = store.colors
@@ -525,20 +531,20 @@ struct Transport: View {
             Button { store.previous() } label: { Image(systemName: "backward.fill") }
                 .help("Previous · ⌘←")
                 .accessibilityLabel("Previous")
-            Button { store.toggle() } label: {
+            Button { playClicked = .now; store.toggle() } label: {
                 if bare {
                     Image(systemName: playing ? "pause.fill" : "play.fill")
                         .font(.system(size: play * 0.7))
                         .frame(width: play, height: play)
                         .contentShape(Rectangle())
-                        .contentTransition(.symbolEffect(.replace))
+                        .contentTransition(playMorph(clicked: playClicked))
                 } else {
                     Image(systemName: playing ? "pause.fill" : "play.fill")
                         .font(.system(size: play * 0.42, weight: .bold))
                         .frame(width: play, height: play)
                         .foregroundStyle(light ? .black : colors.canvas)
                         .background(light ? .white : colors.ink, in: Circle())
-                        .contentTransition(.symbolEffect(.replace))
+                        .contentTransition(playMorph(clicked: playClicked))
                 }
             }
             .help(playing ? "Pause · Space" : "Play · Space")
@@ -547,10 +553,10 @@ struct Transport: View {
                 .help("Next · ⌘→")
                 .accessibilityLabel("Next")
             if !compact {
-                Button { store.cycleRepeat() } label: {
+                Button { repeats += 1; store.cycleRepeat() } label: {
                     Image(systemName: repeatMode == "one" ? "repeat.1" : "repeat")
                         .foregroundStyle(repeatMode == "off" ? (light ? .white.opacity(0.8) : colors.ink2) : colors.accent)
-                        .bounce(on: repeatMode)
+                        .bounce(on: repeats)
                 }
                 .help(repeatMode == "off" ? "Repeat is off" : repeatMode == "all" ? "Repeating the queue" : "Repeating this track")
                 .accessibilityLabel("Repeat")
@@ -851,7 +857,7 @@ struct PanelButton: View {
     var body: some View {
         let open = store.settings.showInspector && store.panel == panel
         Button {
-            if open { store.set(["show_inspector": false]) } else { store.panel = panel; store.set(["show_inspector": true]) }
+            store.togglePanel(panel, animated: true)
         } label: {
             Image(systemName: icon).foregroundStyle(open ? store.colors.accent : store.colors.ink2)
         }
@@ -867,7 +873,7 @@ struct QueueButton: View {
 
     var body: some View {
         PanelButton(panel: .queue, icon: "list.bullet", help: "Queue · ⌘J")
-            .dropDestination(for: String.self) { ids, _ in
+            .dropTarget(Circle(), outset: 6) { ids in
                 store.enqueue(ids)
                 return true
             }

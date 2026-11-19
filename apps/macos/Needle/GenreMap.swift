@@ -150,7 +150,7 @@ struct GenreMapPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Genre map").font(store.display(28))
+                    Text("Genre map").font(store.display(28)).tracking(store.displayTracking(28))
                     if let error = view == "map" ? mapError : artError {
                         Label("Could not read your library: \(error)", systemImage: "exclamationmark.triangle")
                             .font(.needle(.callout)).foregroundStyle(colors.danger)

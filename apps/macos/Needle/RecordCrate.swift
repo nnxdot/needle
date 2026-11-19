@@ -56,9 +56,10 @@ struct RecordCrate: View {
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 4)
-                .onChanged { drag = $0.translation.height }
+                .onChanged { drag = banded($0.translation.height) }
                 .onEnded { value in
-                    flip(to: Int((Double(index) + Double(value.predictedEndTranslation.height / step)).rounded()))
+                    let target = Int((Double(index) + Double(value.predictedEndTranslation.height / step)).rounded())
+                    flip(to: target, speed: value.velocity.height)
                 }
         )
         .accessibilityElement()
@@ -109,11 +110,30 @@ struct RecordCrate: View {
         .animation(nil, value: index)
     }
 
+    /// The pull, followed 1:1 between the first and the last record, and past them pulled less
+    /// and less (a rubber band), never stopped at a wall.
+    private func banded(_ pull: CGFloat) -> CGFloat {
+        let least = -CGFloat(index) * step, most = CGFloat(max(0, albums.count - 1 - index)) * step
+        let past = pull < least ? pull - least : pull > most ? pull - most : 0
+        guard past != 0 else { return pull }
+        let give = abs(past) * step * 0.55 / (step + 0.55 * abs(past))
+        return (past < 0 ? least : most) + (past < 0 ? -give : give)
+    }
+
     private func flip(by n: Int) { flip(to: index + n) }
 
-    private func flip(to target: Int) {
+    /// To the record `target`. After a drag, `speed` (points a second, down is forward) starts
+    /// the spring at the pointer's own speed; the spring has no bounce.
+    private func flip(to target: Int, speed: CGFloat? = nil) {
         let next = min(max(0, target), albums.count - 1)
-        withAnimation(store.motion ? .spring(response: 0.45, dampingFraction: 0.82) : nil) {
+        var animation: Animation? = store.motion ? .spring(response: 0.45, dampingFraction: 0.82) : nil
+        if store.motion, let speed {
+            // How far the crate still has to go, in points: the spring's speed is in those.
+            let remaining = (Double(next) - progress) * Double(step)
+            let start = abs(remaining) > 1 ? Double(speed) / remaining : 0
+            animation = .interpolatingSpring(stiffness: 170, damping: 26, initialVelocity: start)
+        }
+        withAnimation(animation) {
             index = next
             drag = 0
         }
