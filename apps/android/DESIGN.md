@@ -47,6 +47,9 @@ plays and the one main button.
   - The dock and the floating player: blurred glass over the page.
   - The side pane (lyrics, Up next): dark glass in the cover's colour over the page, so its
     white words read in any theme. Where it cannot blur, the player's solid backdrop.
+  - The player's glass (its round buttons, the pill of tools, a wide screen's pane, the speaker
+    pill): the same glass over the player's own backdrop, which it blurs, with a faint white fill
+    and the cover's colour from the left. Where it cannot blur, a faint white and no shadow.
   - The side bar: a pane of glass on the window, inset 6 dp, 20 dp corners. Nothing but the
     window is under it, so its fill is solid.
   - Sheets and dialogs (`GlassSheet`, `GlassAlertDialog`) are their own windows, which the
@@ -66,6 +69,40 @@ plays and the one main button.
   - The alarm's time: Material's time picker in a glass dialog (with a remote, the boxes to type
     the time in).
 - Nothing else is filled: no tiles, no filled groups.
+
+## The player
+
+The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open foldable.
+
+- **Behind all:** the cover far out of focus under a veil of its own colour, a little darker
+  toward the edges (`PlayerBackdrop`). Where it cannot blur, the cover's colour, flat.
+- **Immersive cover on (phone):** the cover sharp at the top, edge to edge, going out of focus
+  into the backdrop below with no hard edge (`ImmersiveCover`). **Off:** the cover a plain card,
+  12 dp corners, a soft shadow, no glass round it.
+- **At the top:** two round glass buttons, close at the left and More at the right; nothing else
+  on the picture. The Visualizer look adds Full screen beside More.
+- **Under the cover, in order:** the title (bold, 30 sp) with the artist under it and the heart
+  in the accent at its right; the lyric line (bold, centred, as the mini player's; a tap opens
+  the lyrics; none for a song without timed lyrics, and the parts close up); the seek bar in the
+  chosen style, what has played in the accent, the times under it and the format between them;
+  the main buttons in the chosen order, plain icons with no circles, Play alone a filled circle
+  in the accent, Shuffle and Repeat in the accent with a small dot while on; the tools.
+- **The tools:** one glass pill in the dock's shape, five icons, no names: Lyrics, Up next, Play
+  on, Sleep timer, More. One that is on or open is in the accent.
+- **More** (a glass sheet of plain rows): the look (Cover, Record, Lyrics, Visualizer) as one
+  row of choices, the sleep timer, the A-B loop, Add songs, Full screen, Play on, the album and
+  the artist, then the rest of the song's menu. **Up next** on a phone is a glass sheet too: its
+  name, how many songs and how long, Shuffle (a pill in the accent), Add songs, then the songs.
+- **The looks:** Lyrics: the words in the cover's place, the song small at the top. Record: a
+  black record standing still, the cover its turning label. Visualizer: bars in the accent. The
+  seek bar, the buttons, and the pill stay where they are.
+- **Wide (a tablet, an open foldable, a TV):** immersive: the cover at the left as a card, the
+  title large beside it with the lyric line, the seek bar, and the buttons, and at the right one
+  glass pane with two tabs, Up next and Lyrics. Card: the cover in the middle, the song centred
+  under it, round glass buttons at the top right (Lyrics and Up next open the same pane, then
+  More), and a glass pill at the foot on the right with the speaker in use.
+- A phone on its side, a short window, and a foldable standing as a laptop keep the same parts,
+  smaller (the cover at the left, or above the crease).
 
 ## Structure
 
@@ -123,9 +160,9 @@ plays and the one main button.
 - **Shelves:** a row of covers that scrolls sideways, 16 dp from the page's edge; on a phone the
   Library's shelf shows three cards and a slice of the fourth.
 - **Search** (`Search.kt`): the field and the Library's bar of words (All, Songs, Albums, Artists, Lyrics, each but All with its count; a kind with 0 dimmed) stay at the top. Before typing: Recent (with Clear and a × on each), Browse, Rules. All shows the top result in a card (its cover blurred behind a veil, a glass edge, Play and Shuffle or Play next), Songs (5), Albums, Artists, In the lyrics, each with "All N ›"; the typed letters lit in amber. Nothing found: "Nothing for …", Rules, Recent.
-- **The big player's looks:** the Look button at its top steps through Cover, Record (the round
-  cover turning, grooves, the arm resting), Lyrics (only the words, large and centred), and
-  Visualizer; kept in `LibraryChoices.big_look`.
+- **The big player's looks:** chosen in the player's More: Cover, Record (a black record, the
+  cover its turning label), Lyrics (only the words, large and centred), and Visualizer (bars);
+  kept in `LibraryChoices.big_look`. See The player.
 - **Settings:** rows under short headings on the page itself, a soft line between rows
   (SETTINGS-STYLE.md).
 
@@ -242,8 +279,9 @@ plays and the one main button.
   that fails puts them back.
 - A menu's action (Play next, Go to album, …) is done the moment it is tapped, while the sheet
   slides away; only what opens another sheet waits for it to go.
-- The player's view (Cover, Lyrics, Up next) fades into the next; what comes and goes with it
-  (the small song over the lyrics, the name under the cover) opens or closes its room.
+- The player's view (Cover, Lyrics) fades into the next; what comes and goes with it (the small
+  song over the lyrics, the name under the cover, the lyric line) opens or closes its room. A
+  wide screen's pane opens by widening, and the cover makes room.
 - Lyrics scrolled by hand stay where the reader put them for 3 seconds after the finger lets go,
   then follow the song again.
 - Drags that close or skip (the player pulled down; the mini player, the player's cover, and the
