@@ -50,6 +50,13 @@ struct NowPlayingView: View {
     @AppStorage(NowPlayingView.sidePaneKey) private var side = "queue"
     /// The status bar's height, for the immersive cover that runs under it.
     @State private var safeTop: CGFloat = 0
+    /// The home line's room at the foot.
+    @State private var safeBottom: CGFloat = 0
+    /// The room above the song's name in the phone's layout, measured in its own column (a pull
+    /// down moves the whole player and a swipe moves the cover sideways: neither changes it).
+    @State private var roomAbove: CGFloat = 0
+    /// More's own panel in a wide window: how far a pull down has moved it.
+    @State private var morePull: CGFloat = 0
 
     enum Pane { case cover, lyrics }
 
@@ -90,8 +97,10 @@ struct NowPlayingView: View {
                 let full = geo.size
                 let paneWidth: CGFloat = paneOpen ? min(380, max(300, full.width * 0.34)) : 0
                 let area = CGSize(width: full.width - (paneOpen ? paneWidth + 12 : 0), height: full.height)
-                // As on Android after the fold test: the area's own shape picks the layout.
-                let beside = area.height > 0 && area.width >= area.height * 0.9
+                // The area's own shape picks the layout: side by side only when it is clearly
+                // wider than tall (an iPad on its side beside the pane is almost square, and gets
+                // the phone's layout there, as a fold does).
+                let beside = area.height > 0 && area.width >= area.height * 1.1
                 HStack(spacing: 0) {
                     Group {
                         if beside {
@@ -118,6 +127,8 @@ struct NowPlayingView: View {
             // How far below the screen's top the player's parts start (the immersive cover
             // runs up under the status bar from there).
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { safeTop = $0 }
+            // The room under the player's parts (the home line): the cover runs on under it.
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { safeBottom = $0 }
             // The round buttons and the pane's top under the status bar, where the safe area
             // leaves the bar over the page (an iPad on its side).
             .modifier(ClearsStatusBar())
@@ -134,10 +145,14 @@ struct NowPlayingView: View {
         // Stars changed elsewhere: read again, with no blink.
         .task(id: store.ratingVersion) { await readFavorite() }
         .fullScreenCover(isPresented: $showVisualizer) { VisualizerScreen() }
-        .sheet(isPresented: $showMore, onDismiss: runAfterSheet) {
-            MoreSheet(song: song, loop: loop, pillShown: pillShown, setLoop: setLoop, stopLoop: stopLoop,
-                      setLook: setLook, fullScreen: { showVisualizer = true }, after: { work in afterSheet = work; showMore = false })
+        // On a phone the system's glass sheet; in a wide window More's own panel at the foot.
+        .sheet(isPresented: Binding(get: { showMore && !wide }, set: { showMore = $0 }), onDismiss: runAfterSheet) {
+            moreSheet(song, close: { showMore = false }, after: { work in afterSheet = work; showMore = false })
         }
+        .overlay {
+            if wide && showMore { morePanel(song) }
+        }
+        .animation(Motion.fade(.smooth(duration: 0.3)), value: showMore && wide)
         .sheet(isPresented: $showQueue, onDismiss: runAfterSheet) {
             UpNextSheet(addSongs: { afterSheet = { showAddSongs = true }; showQueue = false })
         }
@@ -180,6 +195,55 @@ struct NowPlayingView: View {
     /// round buttons at the top, and Sleep timer and Play on are in More).
     @State private var pillShown = true
 
+    private func moreSheet(_ song: Song?, close: @escaping () -> Void, after: @escaping (@escaping () -> Void) -> Void, width: CGFloat = 720) -> MoreSheet {
+        MoreSheet(song: song, loop: loop, pillShown: pillShown, setLoop: setLoop, stopLoop: stopLoop,
+                  setLook: setLook, fullScreen: { showVisualizer = true }, close: close, after: after, width: width)
+    }
+
+    /// More in a wide window (MORE.md, "Wide screens"): the phone sheet's glass, at most 720
+    /// wide, as tall as its parts, at the foot of the screen in the middle, with only the dimmed
+    /// player above it. It closes by a pull down, a press outside, or Escape; VoiceOver keeps to
+    /// it while it shows.
+    private func morePanel(_ song: Song?) -> some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.34)
+                .ignoresSafeArea()
+                .contentShape(.rect)
+                .onTapGesture { closeMore() }
+                .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                Capsule().fill(.white.opacity(0.45)).frame(width: 36, height: 4).padding(.top, 10)
+                    .accessibilityHidden(true)
+                moreSheet(song, close: { closeMore() }, after: { work in afterSheet = work; closeMore() }, width: min(720, max(320, playerSize.width - 32)))
+            }
+            .frame(width: min(720, max(320, playerSize.width - 32)))
+            .glassEffect(.regular.tint((store.coverColor ?? .clear).opacity(0.12)), in: .rect(cornerRadius: 34))
+            .background { EscapeKey { closeMore() }.frame(width: 0, height: 0).accessibilityHidden(true) }
+            .padding(.bottom, 10)
+            .offset(y: morePull)
+            .gesture(DragGesture(minimumDistance: 6)
+                .onChanged { g in morePull = g.translation.height >= 0 ? g.translation.height : Motion.rubberBand(g.translation.height, limit: 30) }
+                .onEnded { g in
+                    if g.translation.height > 90 || g.velocity.height > 700 { closeMore() }
+                    else { withAnimation(Motion.thrown(g.velocity.height, over: -morePull, duration: 0.3)) { morePull = 0 } }
+                })
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isModal)
+            .accessibilityAction(.escape) { closeMore() }
+            .transition(Motion.transition(.move(edge: .bottom).combined(with: .opacity)))
+        }
+    }
+
+    /// Closes More's panel, then does what its row asked (another sheet waits until it is gone).
+    private func closeMore() {
+        withMotion(.smooth(duration: 0.3)) { showMore = false }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            morePull = 0
+            runAfterSheet()
+        }
+    }
+
     private func runAfterSheet() {
         let work = afterSheet
         afterSheet = nil
@@ -191,8 +255,9 @@ struct NowPlayingView: View {
     /// Taller than wide: the cover across the top (or a card), then the song and its controls.
     private func phoneLayout(_ song: Song?, seed: String, area: CGSize) -> some View {
         let immersive = store.app.immersiveCover && look == "cover" && !lyricsInPlace
-        // The cover from the very top (under the status bar) to just above the song's name.
-        let coverHeight = min(area.width * 1.22, (area.height + safeTop) * 0.62)
+        // The cover from the very top (under the status bar) down to the song's name, its fade
+        // ending there: the status bar, the round buttons' row, and the room above the name.
+        let coverHeight = roomAbove > 0 ? safeTop + 50 + roomAbove : min(area.width * 1.22, (area.height + safeTop) * 0.62)
         return VStack(spacing: 0) {
             topBar(song, roundTools: false)
             Group {
@@ -203,6 +268,7 @@ struct NowPlayingView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { roomAbove = $0 }
             panel(song, compact: false, centred: true, withPill: true)
                 .frame(maxWidth: 560)
         }
@@ -223,7 +289,8 @@ struct NowPlayingView: View {
     private func besideLayout(_ song: Song?, seed: String, area: CGSize) -> some View {
         let short = area.height < 480
         let immersive = store.app.immersiveCover && look == "cover" && !lyricsInPlace
-        let tall = area.height + safeTop
+        // From the screen's very top to its very foot (under the home line too).
+        let tall = area.height + safeTop + safeBottom
         let coverWidth = min(max(tall, area.width * 0.40), area.width * 0.58)
         let leftWidth = immersive ? coverWidth : min(area.width * 0.5, max(area.width * 0.42, min(tall * 0.62, area.width * 0.46) + 48))
         return ZStack(alignment: .top) {
@@ -1069,7 +1136,6 @@ struct PlayerLyricLine: View {
 struct MoreSheet: View {
     @Environment(Store.self) private var store
     @Environment(\.wide) private var wide
-    @Environment(\.dismiss) private var dismiss
     @Environment(WindowState.self) private var window
     let song: Song?
     let loop: [Double]
@@ -1080,8 +1146,12 @@ struct MoreSheet: View {
     let setLook: (String) -> Void
     /// The visualizer over the whole screen.
     let fullScreen: () -> Void
+    /// Closes this sheet (the system's on a phone, the player's own panel in a wide window).
+    let close: () -> Void
     /// Closes this sheet, then does the work (another sheet waits until this one is gone).
     let after: (@escaping () -> Void) -> Void
+    /// Its width in a wide window (the panel's), for the two columns.
+    var width: CGFloat = 720
     @State private var stars = 0
     @State private var height: CGFloat = 520
     /// One press acts once.
@@ -1091,19 +1161,11 @@ struct MoreSheet: View {
         let own = song.map { !$0.onComputer } ?? false
         Group {
             if wide {
-                HStack(alignment: .top, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        songHead(own: own)
-                        if own { pills; Divider().overlay(.white.opacity(0.13)).padding(.vertical, 8); rare }
-                    }
-                    .frame(maxWidth: .infinity)
-                    VStack(alignment: .leading, spacing: 0) { playerPart }
-                        .frame(maxWidth: .infinity)
+                // As tall as its parts; it scrolls inside only when taller than the screen.
+                ViewThatFits(in: .vertical) {
+                    columns
+                    ScrollView { columns }.scrollBounceBehavior(.basedOnSize)
                 }
-                .padding(.horizontal, 26)
-                .padding(.top, 20)
-                .padding(.bottom, 20)
-                .frame(maxWidth: 720)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -1133,6 +1195,25 @@ struct MoreSheet: View {
             // The song's stars as the player has them; a change here is kept at once.
             if store.playback?.current?.id == id { stars = Int(store.playback?.current?.rating ?? 0) }
         }
+    }
+
+    /// The two columns of a wide window: the song at the left (a little wider: its pills hold
+    /// names), the player at the right, 24 apart, both from the same height.
+    private var columns: some View {
+        let own = song.map { !$0.onComputer } ?? false
+        return HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 0) {
+                songHead(own: own)
+                if own { pills; Divider().overlay(.white.opacity(0.13)).padding(.vertical, 8); rare }
+            }
+            .frame(width: max(0, (width - 52 - 24) * 0.58), alignment: .leading)
+            VStack(alignment: .leading, spacing: 0) { playerPart }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 26)
+        .padding(.top, 14)
+        .padding(.bottom, 20)
     }
 
     /// The cover, the title, and the stars under it.
@@ -1185,7 +1266,7 @@ struct MoreSheet: View {
                     let id = song.id
                     store.run { try $0.startRadio(id: id) }
                     store.playedWhenReady()
-                    dismiss()
+                    close()
                 }
                 pill("square.stack", song.album.isEmpty ? "Album" : song.album, spoken: "Go to the album, \(song.album)") {
                     after { window.opening = .albumOf(song.id) }
@@ -1201,12 +1282,13 @@ struct MoreSheet: View {
 
     private func pill(_ symbol: String, _ title: String, spoken: String, action: @escaping () -> Void) -> some View {
         Button { once(action) } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: symbol).font(.system(size: 17, weight: .medium)).opacity(0.86).frame(width: 22)
+                // The words get all the room the pill has; a name that still does not fit ends in "…".
                 Text(title).font(.needle(.subheadline).weight(.medium)).lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.leading, 14).padding(.trailing, 16)
+            .padding(.leading, 13).padding(.trailing, 14)
             .frame(height: 46)
             .background(.white.opacity(0.1), in: .capsule)
             .contentShape(.capsule)
@@ -1241,14 +1323,14 @@ struct MoreSheet: View {
     private var rare: some View {
         if let song, !song.onComputer {
             if song.fromServer {
-                row("arrow.down.circle", "Keep on this \(Device.name.lowercased())") { store.keepOffline([song], keep: true); dismiss() }
-                row("square.and.arrow.down", "Save to my music") { store.saveToPhone([song]); dismiss() }
+                row("arrow.down.circle", "Keep on this \(Device.name.lowercased())") { store.keepOffline([song], keep: true); close() }
+                row("square.and.arrow.down", "Save to my music") { store.saveToPhone([song]); close() }
             } else {
                 row("tag", "Edit tags") { after { window.sheet = .tags([song.id]) } }
             }
             row("text.badge.checkmark", "Time the lyrics") { after { window.sheet = .timing(song) } }
             ForEach(store.songCommands) { command in
-                row("puzzlepiece.extension", command.command.title) { store.runCommand(command, on: [song]); dismiss() }
+                row("puzzlepiece.extension", command.command.title) { store.runCommand(command, on: [song]); close() }
             }
         }
     }
@@ -1308,7 +1390,7 @@ private struct MoreSizing: ViewModifier {
 
     func body(content: Content) -> some View {
         if wide {
-            content.frame(width: 680).presentationSizing(.fitted)
+            content
         } else {
             content.presentationDetents([.height(min(height + 8, 760))])
         }

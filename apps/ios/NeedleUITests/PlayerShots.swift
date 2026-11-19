@@ -11,10 +11,16 @@ final class PlayerShots: XCTestCase {
     }
 
     private func shot(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let screen = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screen)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        // TEST_RUNNER_SHOTS_DIR=<folder> on the xcodebuild line: each picture is also written
+        // there at once (a busy Mac can take very long to finish the result bundle).
+        if let folder = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
+            try? screen.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent(name + ".png"))
+        }
     }
 
     /// Starts the app with these flags, waits for it (a busy Mac can take minutes), and takes
@@ -76,22 +82,35 @@ final class PlayerShots: XCTestCase {
         take("iphone-reset", player, wait: 1)
     }
 
-    /// More on an iPad on its side, alone.
-    func testPadMore() {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        take("ipad-landscape-more", ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent", "-pane-queue", "-show-more"], wait: 14)
+    /// The iPhone's immersive player alone (after a change to the iPad's layouts).
+    func testPhoneImmersive() {
+        XCUIDevice.shared.orientation = .portrait
+        let on = ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent"]
+        // A first start after a change to the library reads it for a while: the second is kept.
+        take("iphone-player-immersive", on, wait: 8)
+        take("iphone-player-immersive", on, wait: 8)
     }
 
-    func testPad() {
-        XCUIDevice.shared.orientation = .portrait
-        let player = ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent"]
-        take("ipad-portrait-pane-open", player + ["-pane-queue"], wait: 8)
+    /// The iPad on its side with the pane open, immersive, alone (a first start reads the
+    /// library for a while, and its picture comes too early).
+    func testPadPaneOpen() {
         XCUIDevice.shared.orientation = .landscapeLeft
-        take("ipad-landscape-pane-open", player + ["-pane-queue"], wait: 8)
-        take("ipad-landscape-pane-closed", player + ["-pane-closed"], wait: 8)
-        take("ipad-landscape-card", ["-open-player", "-immersive", "0", "-look", "cover", "-pane-queue"], wait: 8)
-        take("ipad-landscape-more", player + ["-pane-queue", "-show-more"], wait: 8)
+        take("ipad-landscape-pane-open", ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent", "-pane-queue"], wait: 10)
+    }
+
+    /// The iPad: standing up and on its side, the pane open and closed, immersive on and off
+    /// (card), and More. The looks are put back at the end (immersive on, the pane on Up next).
+    func testPad() {
+        let on = ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent"]
+        let off = ["-open-player", "-immersive", "0", "-look", "cover", "-buttons", "accent"]
+        XCUIDevice.shared.orientation = .landscapeLeft
+        take("ipad-landscape-pane-open", on + ["-pane-queue"], wait: 8)
+        take("ipad-landscape-more", on + ["-pane-queue", "-show-more"], wait: 14)
+        take("ipad-landscape-card", off + ["-pane-queue"], wait: 8)
+        take("ipad-landscape-pane-closed-card", off + ["-pane-closed"], wait: 8)
+        take("ipad-landscape-pane-closed", on + ["-pane-closed"], wait: 8)
         XCUIDevice.shared.orientation = .portrait
-        take("ipad-portrait-pane-closed", player + ["-pane-closed"], wait: 8)
+        take("ipad-portrait-pane-closed", on + ["-pane-closed"], wait: 8)
+        take("ipad-portrait-pane-open", on + ["-pane-queue"], wait: 8)
     }
 }
