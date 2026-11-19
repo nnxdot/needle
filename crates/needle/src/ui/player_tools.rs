@@ -560,8 +560,8 @@ impl AppView {
                 cx.notify();
             }))
             .child(content);
-        let body = motion::animate(body, ("tool-pane-in", pane.serial), 140, cx, |el, t| {
-            el.opacity(t).mt(px(-6. * (1. - t)))
+        let body = motion::fade(body, ("tool-pane-in", pane.serial), 140, cx, |el, f, m| {
+            el.opacity(f).mt(px(-6. * (1. - m)))
         });
         Some(
             deferred(

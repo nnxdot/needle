@@ -228,8 +228,8 @@ impl AppView {
                 cx.notify();
             }))
             .children(rows);
-        let body = motion::animate(body, ("blend-menu-in", menu.serial), 140, cx, |el, t| {
-            el.opacity(t).mt(px(6. * (1. - t)))
+        let body = motion::fade(body, ("blend-menu-in", menu.serial), 140, cx, |el, f, m| {
+            el.opacity(f).mt(px(6. * (1. - m)))
         });
         Some(
             deferred(

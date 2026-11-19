@@ -14,7 +14,9 @@ const STATIONS: usize = 12;
 /// A station card's cover.
 const CARD: f32 = 164.;
 /// The rule behind Favorites.
-const FAVORITES: &str = "rating >= 4";
+pub(super) const FAVORITES: &str = "rating >= 4";
+/// Why the favorites play, shuffled (Home's quick start lights by it).
+pub(super) const FAVORITES_SHUFFLED: &str = "Favorites, shuffled";
 
 /// What the page shows, read on another thread.
 pub struct RadioData {
@@ -123,7 +125,7 @@ impl AppView {
 
     /// Your station: from the songs played most in the last 30 days, the first that can
     /// start one; any song when nothing has played yet.
-    fn your_station(&mut self) {
+    pub(super) fn your_station(&mut self) {
         self.play_station(|library| {
             let since = chrono::Utc::now().timestamp() - 30 * 86_400;
             let mut seed = library
@@ -152,7 +154,7 @@ impl AppView {
     }
 
     /// Play `rule`'s songs shuffled.
-    fn play_shuffled(&mut self, rule: &'static str, reason: &'static str) {
+    pub(super) fn play_shuffled(&mut self, rule: &'static str, reason: &'static str) {
         let (library, sender) = (self.library.clone(), self.sender.clone());
         std::thread::spawn(move || {
             let event = match library.search_page(rule, 0, super::PLAY_LIMIT) {
@@ -487,7 +489,7 @@ impl AppView {
                     })
                     .on_click(cx.listener(move |this, _, window, cx| match index {
                         0 => this.play_shuffled("", "Shuffle all"),
-                        1 => this.play_shuffled(FAVORITES, "Favorites, shuffled"),
+                        1 => this.play_shuffled(FAVORITES, FAVORITES_SHUFFLED),
                         2 => this.play_new(),
                         3 => this.navigate(Page::History, window, cx),
                         _ => this.navigate(Page::MoodMap, window, cx),

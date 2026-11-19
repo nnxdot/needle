@@ -60,6 +60,11 @@ pub use prompts::*;
 
 pub(crate) const DEFAULT_WINDOW_SIZE: Size<Pixels> = size(px(1536.), px(864.));
 
+thread_local! {
+    /// Patched (Needle): when a tooltip was last drawn (see `Window::tooltip_shown_lately`).
+    static LAST_TOOLTIP_DRAWN: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
 /// Represents the two different phases when dispatching events.
 #[derive(Default, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum DispatchPhase {
@@ -2343,9 +2348,21 @@ impl Window {
                 id: tooltip_request.id,
                 bounds: tooltip_bounds,
             });
+            LAST_TOOLTIP_DRAWN.with(|last| last.set(Some(Instant::now())));
             return Some(element);
         }
         None
+    }
+
+    /// Patched (Needle): whether a tooltip shows now or was drawn less than 400 ms ago. The
+    /// next tooltip then shows at once, so sliding along a row of icons reads each name
+    /// without waiting again.
+    pub(crate) fn tooltip_shown_lately(&self) -> bool {
+        self.tooltip_bounds.is_some()
+            || LAST_TOOLTIP_DRAWN.with(|last| {
+                last.get()
+                    .is_some_and(|at| at.elapsed() < Duration::from_millis(400))
+            })
     }
 
     /// Needle patch: returns the order to paint them in. A deferred draw made while drawing

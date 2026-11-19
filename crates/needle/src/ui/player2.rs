@@ -242,6 +242,7 @@ impl AppView {
                     .flex_shrink_0()
                     .cursor_pointer()
                     .hover(|s| s.opacity(0.85))
+                    .active(|s| s.opacity(0.7))
                     .when_some(current.clone(), |el, track| {
                         el.on_mouse_down(
                             MouseButton::Right,
@@ -250,7 +251,9 @@ impl AppView {
                             }),
                         )
                     })
+                    .relative()
                     .child(artwork(current.as_ref(), 36., cx))
+                    .child(self.big_art_probe())
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new(super::widgets::keys(
                             "Open the big player · Ctrl+P",
@@ -300,6 +303,7 @@ impl AppView {
                                         .text_size(px(12.5))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .truncate()
+                                        .map(|el| super::chrome::full_text(el, track.title.clone()))
                                         .cursor_pointer()
                                         .hover(|s| s.underline())
                                         .child(track.title.clone())
@@ -308,7 +312,7 @@ impl AppView {
                                         })),
                                 )
                                 .child(match sung {
-                                    Some(line) => super::motion::animate(
+                                    Some(line) => super::motion::fade(
                                         div()
                                             .max_w_full()
                                             .text_size(px(11.5))
@@ -319,7 +323,7 @@ impl AppView {
                                         ("now-lyric", serial),
                                         220,
                                         cx,
-                                        |el, t| el.opacity(t),
+                                        |el, f, _| el.opacity(f),
                                     )
                                     .into_any_element(),
                                     None => div()
@@ -328,6 +332,7 @@ impl AppView {
                                         .text_size(px(11.5))
                                         .text_color(p.ink_2)
                                         .truncate()
+                                        .map(|el| super::chrome::full_text(el, second.clone()))
                                         .cursor_pointer()
                                         .hover(|s| s.underline().text_color(p.ink))
                                         .child(second)
@@ -532,8 +537,8 @@ impl AppView {
                 cx.notify();
             }))
             .children(rows);
-        let body = motion::animate(body, ("player-menu-in", serial), 140, cx, |el, t| {
-            el.opacity(t).mb(px(6. * (1. - t)))
+        let body = motion::fade(body, ("player-menu-in", serial), 140, cx, |el, f, m| {
+            el.opacity(f).mb(px(6. * (1. - m)))
         });
         Some(
             deferred(

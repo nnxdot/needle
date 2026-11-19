@@ -11,7 +11,6 @@ use rust_i18n::t;
 use crate::{
     ActiveTheme as _, IconName, Root, Sizable as _, StyledExt, WindowExt as _,
     actions::{Cancel, Confirm},
-    animation::cubic_bezier,
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     scroll::ScrollableElement as _,
@@ -384,8 +383,11 @@ impl RenderOnce for Dialog {
             paddings.bottom = pb.to_pixels(base_size, rem_size);
         }
 
-        let animation = Animation::new(Duration::from_secs_f64(0.25))
-            .with_easing(cubic_bezier(0.32, 0.72, 0., 1.));
+        // Patched (Needle): the dialog rises 12 px into place over 220 ms, as Needle's own
+        // dialogs do; with motion reduced, it only fades in (150 ms) and does not move.
+        let still = crate::animation::reduce_motion();
+        let animation = Animation::new(Duration::from_millis(if still { 150 } else { 220 }))
+            .with_easing(|t: f32| 1. - (1. - t).powi(4));
 
         anchored()
             .position(point(window_paddings.left, window_paddings.top))
@@ -534,7 +536,8 @@ impl RenderOnce for Dialog {
                                 )
                             })
                             .with_animation("slide-down", animation.clone(), move |this, delta| {
-                                let y_offset = px(0.) + delta * px(30.);
+                                let rise = if still { 0. } else { 1. - delta };
+                                let y_offset = px(30.) + px(12.) * rise;
                                 // This is equivalent to `shadow_xl` with an extra opacity.
                                 let shadow = vec![
                                     BoxShadow {

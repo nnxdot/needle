@@ -171,22 +171,17 @@ impl AppView {
                 .text_color(color)
                 .child(text.to_string())
         };
-        // Each part fades in a little after the one before.
+        // Each part fades in a little after the one before (70 ms apart in real time: the
+        // curve is put on each part's own fade, not on the wait before it).
         let mut order = 0usize;
         let mut arrive = |el: Div, cx: &App| {
             order += 1;
-            let delay = 120. + order as f32 * 70.;
-            let length = 420.;
-            let total = delay + length;
-            motion::animate(
+            motion::stagger_fade(
                 el,
                 ("whats-new-in", order),
-                total as u64,
+                120 + order as u64 * 70,
+                420,
                 cx,
-                move |el, t| {
-                    let local = ((t * total - delay) / length).clamp(0., 1.);
-                    el.opacity(local)
-                },
             )
         };
 
@@ -421,8 +416,8 @@ impl AppView {
                     ),
             );
         // The card rises into place.
-        let card = motion::animate(card, "whats-new-card", 340, cx, |el, t| {
-            el.opacity(t).mt(px(20. * (1. - t)))
+        let card = motion::fade(card, "whats-new-card", 340, cx, |el, f, m| {
+            el.opacity(f).mt(px(20. * (1. - m)))
         });
         Some(
             deferred(

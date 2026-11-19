@@ -766,18 +766,16 @@ impl AppView {
                     "reduce-motion",
                     "Reduce motion",
                     if !system_still {
-                        "Turns off fades, slides, and other animations."
+                        "No slides or movement. Short fades stay."
                     } else if cfg!(windows) {
                         "Windows has animations turned off, so Needle keeps still too."
                     } else {
                         "Your system has animations turned off, so Needle keeps still too."
                     },
                     s.reduce_motion || system_still,
-                    |this, on, cx| {
+                    |this, on, _| {
                         this.settings.reduce_motion = on;
-                        cx.set_global(motion::Motion {
-                            enabled: !on && motion::system_allows_animation(),
-                        });
+                        motion::set_reduce(on);
                     },
                     cx,
                 ))
