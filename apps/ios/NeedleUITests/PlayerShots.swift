@@ -91,6 +91,22 @@ final class PlayerShots: XCTestCase {
         take("iphone-player-immersive", on, wait: 8)
     }
 
+    /// The release review's fixes: Play on with the system's AirPlay and Bluetooth row, the
+    /// round turning cover in the card, and the Player buttons editor. The looks are put back
+    /// (immersive on, a square cover).
+    func testReleaseFixes() {
+        XCUIDevice.shared.orientation = .portrait
+        take("iphone-play-on-airplay", ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent", "-sheet", "speakers"], wait: 10)
+        take("iphone-player-card-round", ["-open-player", "-immersive", "0", "-look", "cover", "-cover-shape", "round"], wait: 8)
+        take("iphone-player-buttons-editor", ["-immersive", "1", "-cover-shape", "square", "-open-player-buttons"], wait: 8)
+    }
+
+    /// Play on alone (a first start after an install can be too slow for the sheet).
+    func testPlayOn() {
+        XCUIDevice.shared.orientation = .portrait
+        take("iphone-play-on-airplay", ["-open-player", "-immersive", "1", "-look", "cover", "-buttons", "accent", "-sheet", "speakers"], wait: 10)
+    }
+
     /// The iPad on its side with the pane open, immersive, alone (a first start reads the
     /// library for a while, and its picture comes too early).
     func testPadPaneOpen() {

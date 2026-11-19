@@ -72,7 +72,7 @@ struct AppearanceView: View {
                     HStack {
                         SettingLabel(title: "Player buttons", detail: "Which buttons the player shows, in which order.", icon: "playpause.fill", tint: .orange)
                         Spacer(minLength: 8)
-                        Text("\(PlayerButtons.chosen(store.choices.playerButtons).count) of \(PlayerButtons.all.count)")
+                        Text("\(PlayerButtons.chosen(store.choices.playerButtons).filter { PlayerButtons.shown.contains($0) }.count) of \(PlayerButtons.editable.count)")
                             .foregroundStyle(.secondary).fixedSize()
                     }
                 }

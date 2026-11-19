@@ -525,16 +525,23 @@ struct NowPlayingView: View {
 
     private func cover(_ song: Song?, seed: String) -> some View {
         let playing = store.playback?.playing == true
-        return Artwork(path: song?.artwork, seed: seed, size: 1000)
-            .aspectRatio(1, contentMode: .fit)
-            // The moving cover (Moving covers on) plays in the card too, cropped to it.
-            .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion) }
-            .clipShape(.soft(Corner.player))
+        // Settings › Appearance › The player › The cover: Square, or Record (round, turning
+        // while it plays; still while paused or with Reduce motion), as 2.0.6 had it.
+        let round = store.app.coverShape == "round"
+        return RecordSpin(on: round && playing && !reduceMotion) {
+            Artwork(path: song?.artwork, seed: seed, size: 1000)
+                .aspectRatio(1, contentMode: .fit)
+                // The moving cover (Moving covers on) plays in the card too, cropped to it.
+                .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion) }
+                .clipShape(round ? AnyShape(.circle) : AnyShape(.soft(Corner.player)))
+                .overlay { if round { Circle().fill(.black).frame(width: 26).overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2)) } }
+        }
             // A plain card: a soft deep shadow, no glass round it.
             .shadow(color: .black.opacity(0.4), radius: 27, y: 26)
             .shadow(color: .black.opacity(0.26), radius: 6, y: 4)
-            // Smaller while paused, as Apple Music's; with Reduce motion it stays its size.
-            .scaleEffect(playing || reduceMotion ? 1 : 0.9)
+            // Smaller while paused, as Apple Music's (a record keeps its size); with Reduce
+            // motion it stays its size.
+            .scaleEffect(playing || round || reduceMotion ? 1 : 0.9)
             .offset(x: swipe)
             .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.8), value: playing)
             .gesture(store.app.swipeCover ? skipDrag : nil)
