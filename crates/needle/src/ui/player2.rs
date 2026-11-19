@@ -22,7 +22,7 @@ pub(super) const HEIGHT: f32 = 58.;
 
 pub(super) const MAX_WIDTH: f32 = 860.;
 /// The buttons that sit left of the screen, with the transport.
-pub(super) const TRANSPORT: [&str; 5] = ["shuffle", "previous", "play", "next", "repeat"];
+const TRANSPORT: [&str; 5] = ["shuffle", "previous", "play", "next", "repeat"];
 const ICON: f32 = 26.;
 /// The buttons out of the box: the rest are in the ••• menu.
 const DEFAULT: [&str; 7] = [
@@ -31,7 +31,7 @@ const DEFAULT: [&str; 7] = [
 
 /// The buttons chosen, in order. A list never changed (the core's whole list, which every
 /// Needle before 2.0 kept) is the short one out of the box.
-pub(super) fn chosen_buttons(settings: &needle_core::model::Settings) -> Vec<&'static str> {
+fn chosen_buttons(settings: &needle_core::model::Settings) -> Vec<&'static str> {
     let list = settings.player_buttons();
     if list == needle_core::model::PLAYER_BUTTONS {
         DEFAULT.to_vec()

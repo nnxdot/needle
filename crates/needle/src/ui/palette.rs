@@ -411,7 +411,6 @@ impl AppView {
                     move |this, _, cx| {
                         this.big = true;
                         this.big_side = super::now_playing::Side::Stems;
-                        this.big_sheet = true;
                         this.separate(stems.clone(), cx);
                     },
                 ),

@@ -1,7 +1,7 @@
 //! The big player's looks (Settings: `big_look`): the cover with the lyrics beside it, the
 //! cover as a turning record, only the words very large, or the visualizer filling the space.
-//! The big player's More picks one.
-use super::{AppView, lyrics::LyricsKind, pal};
+//! The Look button in the big player's bar steps through them.
+use super::{AppView, lyrics::LyricsKind, pal, widgets::icon_button};
 use gpui::{prelude::*, *};
 use needle_core::model::{BIG_LOOKS, Track};
 
@@ -222,5 +222,30 @@ impl AppView {
             .child(arm("record-arm", cream.into(), 0.))
             .child(arm("record-arm-dot", rgb(0x1B1816).into(), 0.))
             .into_any_element()
+    }
+
+    /// The Look button: the look's icon; it steps to the next look.
+    pub(super) fn look_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let now = self.settings.big_look.as_str();
+        let (icon, name) = match now {
+            "record" => ("logo", "Record"),
+            "lyrics" => ("lyrics", "Lyrics"),
+            "visualizer" => ("wave", "Visualizer"),
+            _ => ("albums", "Cover"),
+        };
+        icon_button(
+            "big-look",
+            icon,
+            format!("Look: {name}. Click for the next look."),
+        )
+        .on_click(cx.listener(|this, _, _, cx| {
+            let at = BIG_LOOKS
+                .iter()
+                .position(|l| *l == this.settings.big_look)
+                .unwrap_or(0);
+            this.settings.big_look = BIG_LOOKS[(at + 1) % BIG_LOOKS.len()].into();
+            this.persist_settings();
+            cx.notify();
+        }))
     }
 }

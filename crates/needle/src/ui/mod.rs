@@ -731,9 +731,6 @@ pub struct AppView {
     muted_volume: Option<f32>,
     big: bool,
     big_side: now_playing::Side,
-    /// In a window too narrow for the pane beside the big player: the pane was asked for, and
-    /// shows as a sheet over its foot.
-    big_sheet: bool,
     /// What the last frame showed, to notice the big player opening or closing.
     big_was: bool,
     /// The big player is growing or shrinking; both layers are drawn meanwhile.
@@ -1063,15 +1060,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("secondary-7", GoTo(6), Some("Needle")),
                 KeyBinding::new("secondary-,", GoTo(7), Some("Needle")),
             ]);
-            // For screenshots: another size (NEEDLE_WINDOW_SIZE, such as "900x620").
-            let (width, height) = std::env::var("NEEDLE_WINDOW_SIZE")
-                .ok()
-                .and_then(|s| {
-                    let (w, h) = s.split_once('x')?;
-                    Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?))
-                })
-                .unwrap_or((1380., 880.));
-            let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
+            let bounds = Bounds::centered(None, size(px(1380.), px(880.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(MIN_WINDOW.0), px(MIN_WINDOW.1))),
@@ -1473,7 +1462,6 @@ impl AppView {
             muted_volume: None,
             big: false,
             big_side: now_playing::Side::Lyrics,
-            big_sheet: false,
             big_was: false,
             big_moving: false,
             immersive: false,

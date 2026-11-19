@@ -704,128 +704,134 @@ impl AppView {
                     .line_height(relative(1.5)),
                 )
             })
-            .child(self.queue_rows("queue-list", cx).flex_1())
-    }
-
-    /// The songs up next, each with Move up and Remove on hover; a double click plays one.
-    /// Shared by the side panel and the big player's pane.
-    pub(super) fn queue_rows(&self, id: &'static str, cx: &mut Context<Self>) -> UniformList {
-        let count = self.playback.queue.len();
-        uniform_list(
-            id,
-            count,
-            cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                range
-                    .map(|index| {
-                        let item = &this.playback.queue[index];
-                        let press = super::glass::press_fill(&pal(cx));
-                        let row = div()
-                            .id(("queue-row", index))
-                            .group("queue-row")
-                            .h(px(48.))
-                            .w_full()
-                            .px_2()
-                            .rounded(px(super::glass::SMALL))
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .cursor_pointer()
-                            .active(move |s| s.bg(press))
-                            .map(|el| super::glass::hover_row(el, super::glass::SMALL, cx))
-                            .on_click(cx.listener(move |this, event: &ClickEvent, _, _| {
-                                if event.click_count() == 2 {
-                                    this.player.send(Command::Jump(index));
-                                }
-                            }))
-                            .child(artwork(Some(&item.track), 34., cx))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
+            .child(
+                uniform_list(
+                    "queue-list",
+                    count,
+                    cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                        range
+                            .map(|index| {
+                                let item = &this.playback.queue[index];
+                                let press = super::glass::press_fill(&pal(cx));
+                                let row = div()
+                                    .id(("queue-row", index))
+                                    .group("queue-row")
+                                    .h(px(48.))
+                                    .w_full()
+                                    .px_2()
+                                    .rounded(px(super::glass::SMALL))
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .cursor_pointer()
+                                    .active(move |s| s.bg(press))
+                                    .map(|el| super::glass::hover_row(el, super::glass::SMALL, cx))
+                                    .on_click(cx.listener(move |this, event: &ClickEvent, _, _| {
+                                        if event.click_count() == 2 {
+                                            this.player.send(Command::Jump(index));
+                                        }
+                                    }))
+                                    .child(artwork(Some(&item.track), 34., cx))
                                     .child(
                                         div()
-                                            .text_size(px(13.))
-                                            .truncate()
-                                            .child(item.track.title.clone()),
+                                            .flex_1()
+                                            .min_w_0()
+                                            .child(
+                                                div()
+                                                    .text_size(px(13.))
+                                                    .truncate()
+                                                    .child(item.track.title.clone()),
+                                            )
+                                            .child(
+                                                meta(item.track.display_artist().to_string(), cx)
+                                                    .truncate(),
+                                            ),
                                     )
                                     .child(
-                                        meta(item.track.display_artist().to_string(), cx)
-                                            .truncate(),
+                                        div()
+                                            .flex()
+                                            .opacity(0.)
+                                            .group_hover("queue-row", |s| s.opacity(1.))
+                                            .child(
+                                                icon_button(
+                                                    ("queue-up", index),
+                                                    "arrow-up",
+                                                    "Move up",
+                                                )
+                                                .xsmall()
+                                                .disabled(index == 0)
+                                                // Its own click only: quick presses must not
+                                                // count as a double click on the row (which plays).
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    cx.stop_propagation();
+                                                    let to = index.saturating_sub(1);
+                                                    // The two rows slide past each other once
+                                                    // the player has moved them.
+                                                    if let Some(moved) =
+                                                        this.playback.queue.get(index)
+                                                    {
+                                                        this.queue_move = Some(QueueMove {
+                                                            serial: this
+                                                                .queue_move
+                                                                .as_ref()
+                                                                .map_or(0, |m| m.serial)
+                                                                + 1,
+                                                            to,
+                                                            id: moved.track.id.clone(),
+                                                            at: std::time::Instant::now(),
+                                                        });
+                                                    }
+                                                    this.player.send(Command::Move(index, to))
+                                                })),
+                                            )
+                                            .child(
+                                                icon_button(
+                                                    ("queue-remove", index),
+                                                    "close",
+                                                    "Remove",
+                                                )
+                                                .xsmall()
+                                                // Its own click only: removing songs quickly
+                                                // must not play the one that moves up under it.
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    cx.stop_propagation();
+                                                    this.player.send(Command::Remove(index))
+                                                })),
+                                            ),
+                                    );
+                                let row = div().w_full().px_2().child(row);
+                                // After Move up: the song moved comes up from one row lower,
+                                // and the one it passed goes down from one row higher.
+                                let shift = this.queue_move.as_ref().and_then(|m| {
+                                    let landed = this
+                                        .playback
+                                        .queue
+                                        .get(m.to)
+                                        .is_some_and(|i| i.track.id == m.id);
+                                    let fresh =
+                                        m.at.elapsed() < std::time::Duration::from_millis(1500);
+                                    match index {
+                                        _ if !landed || !fresh => None,
+                                        i if i == m.to => Some((m.serial, QUEUE_ROW)),
+                                        i if i == m.to + 1 => Some((m.serial, -QUEUE_ROW)),
+                                        _ => None,
+                                    }
+                                });
+                                match shift {
+                                    Some((serial, from)) => motion::animate(
+                                        row,
+                                        ("queue-move", serial * 2 + (from > 0.) as u64),
+                                        200,
+                                        cx,
+                                        move |el, t| el.relative().top(px(from * (1. - t))),
                                     ),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .opacity(0.)
-                                    .group_hover("queue-row", |s| s.opacity(1.))
-                                    .child(
-                                        icon_button(("queue-up", index), "arrow-up", "Move up")
-                                            .xsmall()
-                                            .disabled(index == 0)
-                                            // Its own click only: quick presses must not
-                                            // count as a double click on the row (which plays).
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                cx.stop_propagation();
-                                                let to = index.saturating_sub(1);
-                                                // The two rows slide past each other once
-                                                // the player has moved them.
-                                                if let Some(moved) = this.playback.queue.get(index)
-                                                {
-                                                    this.queue_move = Some(QueueMove {
-                                                        serial: this
-                                                            .queue_move
-                                                            .as_ref()
-                                                            .map_or(0, |m| m.serial)
-                                                            + 1,
-                                                        to,
-                                                        id: moved.track.id.clone(),
-                                                        at: std::time::Instant::now(),
-                                                    });
-                                                }
-                                                this.player.send(Command::Move(index, to))
-                                            })),
-                                    )
-                                    .child(
-                                        icon_button(("queue-remove", index), "close", "Remove")
-                                            .xsmall()
-                                            // Its own click only: removing songs quickly
-                                            // must not play the one that moves up under it.
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                cx.stop_propagation();
-                                                this.player.send(Command::Remove(index))
-                                            })),
-                                    ),
-                            );
-                        let row = div().w_full().px_2().child(row);
-                        // After Move up: the song moved comes up from one row lower,
-                        // and the one it passed goes down from one row higher.
-                        let shift = this.queue_move.as_ref().and_then(|m| {
-                            let landed = this
-                                .playback
-                                .queue
-                                .get(m.to)
-                                .is_some_and(|i| i.track.id == m.id);
-                            let fresh = m.at.elapsed() < std::time::Duration::from_millis(1500);
-                            match index {
-                                _ if !landed || !fresh => None,
-                                i if i == m.to => Some((m.serial, QUEUE_ROW)),
-                                i if i == m.to + 1 => Some((m.serial, -QUEUE_ROW)),
-                                _ => None,
-                            }
-                        });
-                        match shift {
-                            Some((serial, from)) => motion::animate(
-                                row,
-                                ("queue-move", serial * 2 + (from > 0.) as u64),
-                                200,
-                                cx,
-                                move |el, t| el.relative().top(px(from * (1. - t))),
-                            ),
-                            None => row.into_any_element(),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            }),
-        )
+                                    None => row.into_any_element(),
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }),
+                )
+                .flex_1(),
+            )
     }
 }
