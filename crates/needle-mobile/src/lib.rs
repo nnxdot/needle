@@ -238,6 +238,19 @@ pub(crate) fn read_only(playlist: &needle_core::model::Playlist) -> bool {
     playlist.server.as_ref().is_some_and(|s| s.read_only)
 }
 
+/// A decade that has songs, for Search's Browse: `year` is its first year (2020), `label` what
+/// to show ("2020s"), `rule` what finds its songs ("year >= 2020 and year < 2030": put it in the
+/// search field, or open the Songs page with it).
+#[derive(Clone, uniffi::Record)]
+pub struct Decade {
+    pub year: i64,
+    pub label: String,
+    pub songs: u32,
+    /// A cover from the decade, for its tile.
+    pub artwork: Option<String>,
+    pub rule: String,
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct Genre {
     pub name: String,
@@ -677,6 +690,31 @@ impl Needle {
                     name,
                     songs: songs as u32,
                     artwork,
+                }
+            })
+            .collect())
+    }
+
+    /// The decades that have songs, the newest first, each with a cover of its most played
+    /// songs (see [`Decade`]). For Search's Browse, beside the genres.
+    pub fn decades(&self) -> Result<Vec<Decade>> {
+        Ok(self
+            .library
+            .decades()?
+            .into_iter()
+            .map(|(year, songs)| {
+                let rule = format!("year >= {year} and year < {}", year + 10);
+                let artwork = self
+                    .library
+                    .search(&format!("{rule} order by play_count desc limit 30"))
+                    .ok()
+                    .and_then(|tracks| tracks.into_iter().find_map(|t| t.artwork));
+                Decade {
+                    year,
+                    label: format!("{year}s"),
+                    songs: songs as u32,
+                    artwork,
+                    rule,
                 }
             })
             .collect())
