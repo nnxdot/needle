@@ -526,8 +526,8 @@ impl AppView {
             .flex_col()
             .gap_6()
             .children(self.recent_section(content, cx))
-            .children(self.browse_section(content, cx))
             .child(self.rules_section(content, cx))
+            .children(self.browse_section(content, cx))
             .into_any_element()
     }
 
@@ -667,13 +667,16 @@ impl AppView {
         self.remember_search(kind, &key);
     }
 
-    /// Browse: the genres with the most songs, as colour tiles with a cover in the corner.
+    /// Browse: the genres with the most songs, as colour tiles with a cover in the corner. Two
+    /// lines of four on a wide page, three lines of two on a narrow one. There is no page of
+    /// all genres, so no "All".
     fn browse_section(&self, content: f32, cx: &mut Context<Self>) -> Option<Div> {
         let genres = self.search_genres.clone()?;
         if genres.is_empty() {
             return None;
         }
-        let columns = if content >= WIDE { 4 } else { 2 };
+        let (columns, lines) = if content >= WIDE { (4, 2) } else { (2, 3) };
+        let genres = &genres[..genres.len().min(columns * lines)];
         let gap = 12.;
         let w = (content - gap * (columns as f32 - 1.)) / columns as f32;
         // Rows of their own: a wrapped row in a column takes too much height (GPUI).
@@ -757,7 +760,9 @@ impl AppView {
             }))
     }
 
-    /// Rules: each chip puts its rule in the search field; a wide page shows the rule too.
+    /// Rules: one line of chips that scrolls sideways when it does not fit (the wheel's up and
+    /// down still move the page). Each chip puts its rule in the search field; a wide page
+    /// shows the rule too.
     fn rules_section(&self, content: f32, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let wide = content >= WIDE;
@@ -770,6 +775,7 @@ impl AppView {
                 div()
                     .id("search-rules")
                     .overflow_x_scroll()
+                    .sideways_only()
                     .flex()
                     .gap_2()
                     .children(RULE_EXAMPLES.iter().enumerate().map(|(i, (name, rule))| {

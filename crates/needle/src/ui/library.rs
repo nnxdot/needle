@@ -158,7 +158,7 @@ impl AppView {
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }
-            Page::Home => self.home_view(cx).into_any_element(),
+            Page::Home => self.home_view(width, cx).into_any_element(),
             Page::Artist(ref name) => self.artist_page(name, width, window, cx),
             _ => self.collection(width, window, cx).into_any_element(),
         };

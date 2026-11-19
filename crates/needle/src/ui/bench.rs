@@ -564,14 +564,15 @@ impl AppView {
             .detach();
         }
         // For screenshots: play what a rule finds (NEEDLE_SHOW_PLAY), from NEEDLE_SHOW_SEEK
-        // seconds into the first song.
+        // seconds into the first song, with why it plays (NEEDLE_SHOW_WHY, "From Albums").
         if let Ok(rule) = std::env::var("NEEDLE_SHOW_PLAY") {
+            let why = std::env::var("NEEDLE_SHOW_WHY").unwrap_or_else(|_| "From Albums".into());
             let seek = std::env::var("NEEDLE_SHOW_SEEK")
                 .ok()
                 .and_then(|s| s.parse::<f64>().ok());
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
-                let _ = view.update(cx, |v, _| v.play_rule(rule, "From Albums".into()));
+                let _ = view.update(cx, |v, _| v.play_rule(rule, why));
                 if let Some(at) = seek {
                     cx.background_executor().timer(Duration::from_secs(2)).await;
                     let _ = view.update(cx, |v, _| {

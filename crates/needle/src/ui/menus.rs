@@ -700,7 +700,12 @@ impl AppView {
     }
 
     /// Play a playlist's songs (a smart playlist's current matches), loaded in the background.
-    fn play_playlist(&mut self, playlist: needle_core::model::Playlist, shuffle: bool, next: bool) {
+    pub(super) fn play_playlist(
+        &mut self,
+        playlist: needle_core::model::Playlist,
+        shuffle: bool,
+        next: bool,
+    ) {
         let library = self.library.clone();
         let sender = self.sender.clone();
         std::thread::spawn(move || {
