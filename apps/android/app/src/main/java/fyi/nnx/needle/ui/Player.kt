@@ -422,6 +422,8 @@ internal fun PlayerBackdrop(song: Song, reading: Boolean = false) {
         // Darker toward the edges: a wide oval, lightest a little above the middle.
         Box(
             Modifier.fillMaxSize().drawBehind {
+                // Nothing to shade while it has no size (a gradient of no radius cannot be drawn).
+                if (size.width < 1f || size.height < 1f) return@drawBehind
                 val ry = size.height * 0.9f
                 val rx = size.width * 1.2f
                 val center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height * 0.36f)
