@@ -249,12 +249,13 @@ impl AppView {
         if text.is_empty() {
             self.found = None;
             self.found_error = None;
-            self.load_search_home();
+            self.found_tracks();
+            self.load_search_home(false);
             cx.notify();
             return;
         }
         if self.search_browse.is_none() {
-            self.load_search_home();
+            self.load_search_home(false);
         }
         let tab = self.search_tab;
         let limit = match tab {
@@ -310,12 +311,42 @@ impl AppView {
                 self.found_error = Some(error);
             }
         }
+        self.found_tracks();
     }
 
-    /// Reads the recent searches, and the genres and decades the first time.
-    pub(super) fn load_search_home(&mut self) {
-        let browse = self.search_browse.is_none();
-        if browse {
+    /// The songs on the page are the list the keys work on: Enter in the field takes the
+    /// first, the arrows move, Enter plays (as on the Songs page).
+    pub(super) fn found_tracks(&mut self) {
+        if self.page != super::Page::Search {
+            return;
+        }
+        self.tracks = match (&self.found, self.search_tab) {
+            (Some(found), SearchTab::All) => found.songs.iter().take(SONGS).cloned().collect(),
+            (Some(found), SearchTab::Songs) => found.songs.clone(),
+            _ => vec![],
+        };
+        self.matched_total = self.tracks.len();
+        self.reconcile_selection();
+    }
+
+    /// Plays a song found and the songs found after it: a press on its row, or Enter on it.
+    pub(super) fn play_found(&mut self, id: &str) {
+        let Some(list) = self.found.as_ref().and_then(|found| {
+            let at = found.songs.iter().position(|t| t.id == id)?;
+            Some(found.songs[at..].to_vec())
+        }) else {
+            return;
+        };
+        self.remember_search("song", id);
+        self.play_tracks(list, FROM_SEARCH);
+    }
+
+    /// Reads the recent searches, and the genres and decades: the first time, and `again`
+    /// each time the page opens (the library may have changed; the old tiles stay until the
+    /// new ones come).
+    pub(super) fn load_search_home(&mut self, again: bool) {
+        let browse = again || self.search_browse.is_none();
+        if self.search_browse.is_none() {
             self.search_browse = Some(Default::default());
         }
         let (library, sender) = (self.library.clone(), self.sender.clone());
@@ -412,6 +443,7 @@ impl AppView {
             return;
         }
         self.search_tab = tab;
+        self.found_tracks();
         self.page_scroll.set_offset(point(px(0.), px(0.)));
         self.run_find(cx);
         cx.notify();
@@ -1011,7 +1043,7 @@ impl AppView {
                         .iter()
                         .take(SONGS)
                         .enumerate()
-                        .map(|(i, t)| self.song_row(i, t, &found.songs[i..], words, false, cx)),
+                        .map(|(i, t)| self.song_row(i, t, words, false, cx)),
                 )
         });
         let top = div()
@@ -1173,7 +1205,7 @@ impl AppView {
                     .songs
                     .iter()
                     .enumerate()
-                    .map(|(i, t)| self.song_row(i, t, &found.songs[i..], words, true, cx)),
+                    .map(|(i, t)| self.song_row(i, t, words, true, cx)),
             )
             .children(self.show_all(SearchTab::Songs, found.song_count, found.songs.len(), cx))
             .into_any_element()
@@ -1622,7 +1654,6 @@ impl AppView {
         &self,
         i: usize,
         track: &Track,
-        from: &[Track],
         words: &[String],
         with_album: bool,
         cx: &mut Context<Self>,
@@ -1633,7 +1664,7 @@ impl AppView {
             .current
             .as_ref()
             .is_some_and(|c| c.track.id == track.id);
-        let list = from.to_vec();
+        let chosen = self.selection.ids.contains(&track.id);
         let id = track.id.clone();
         let second = if with_album && !track.album.is_empty() {
             format!("{} · {}", track.artist, track.album)
@@ -1650,6 +1681,7 @@ impl AppView {
                 .py(px(5.))
                 .rounded(px(9.))
                 .cursor_pointer()
+                .when(chosen, |el| el.bg(p.raised))
                 .hover(|s| s.bg(p.raised.opacity(0.6)))
                 .active(|s| s.bg(p.raised))
                 .child(artwork(Some(track), 38., cx))
@@ -1674,10 +1706,7 @@ impl AppView {
                         ),
                 )
                 .child(faint(format_duration(track.duration), cx))
-                .on_click(cx.listener(move |this, _, _, _| {
-                    this.remember_search("song", &id);
-                    this.play_tracks(list.clone(), FROM_SEARCH)
-                })),
+                .on_click(cx.listener(move |this, _, _, _| this.play_found(&id))),
         )
     }
 

@@ -285,11 +285,15 @@ impl Library {
                 "artist" => {
                     let name = crate::query::quote(&key);
                     let wanted = key.to_lowercase();
-                    self.artists(&format!("artist = {name} or album_artist = {name}"))
-                        .unwrap_or_default()
-                        .into_iter()
-                        .find(|a| a.name.to_lowercase() == wanted)
-                        .map(Recent::Artist)
+                    // A guest is found in a credit ("Maker feat. Guest"), where no tag is the
+                    // name alone: look in the credits, as the search that found them did.
+                    self.artists(&format!(
+                        "artist contains {name} or album_artist contains {name}"
+                    ))
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|a| a.name.to_lowercase() == wanted)
+                    .map(Recent::Artist)
                 }
                 _ => None,
             };
@@ -626,5 +630,32 @@ mod tests {
 
         library.clear_searches().unwrap();
         assert!(library.recent_searches(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_guest_found_in_a_credit_stays_in_recent() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let music = dir.path().join("music");
+        std::fs::create_dir_all(&music).unwrap();
+        let track = song(
+            &music,
+            "a",
+            "Duet",
+            "Mara Quinn feat. Sol Arden",
+            "Pairs",
+            1,
+        );
+        library.upsert(&track).unwrap();
+        // The search finds the guest by the credit; no tag is the guest's name alone.
+        let found = library.find("Sol Arden", 5).unwrap();
+        let guest = found
+            .artists
+            .iter()
+            .find(|a| a.name == "Sol Arden")
+            .expect("the guest is found by the credit");
+        library.remember_search("artist", &guest.name).unwrap();
+        let recent = library.recent_searches(10).unwrap();
+        assert!(matches!(&recent[..], [Recent::Artist(a)] if a.name == "Sol Arden"));
     }
 }

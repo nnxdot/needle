@@ -2584,7 +2584,8 @@ impl AppView {
             self.load_radio();
         }
         if self.page == Page::Search {
-            self.load_search_home();
+            self.load_search_home(true);
+            self.found_tracks();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
@@ -3811,6 +3812,12 @@ impl Render for AppView {
                 if selected.len() > 1 {
                     let reason = this.reason(cx);
                     this.play_tracks(selected, &reason);
+                } else if this.page == Page::Search {
+                    // A song found: the same as a press on its row.
+                    let at = this.selection.cursor.unwrap_or(0);
+                    if let Some(id) = this.tracks.get(at).map(|t| t.id.clone()) {
+                        this.play_found(&id);
+                    }
                 } else {
                     this.play_view(this.selection.cursor.unwrap_or(0), false, cx);
                 }
