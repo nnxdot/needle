@@ -17,6 +17,10 @@ struct SearchView: View {
     @State private var songs: [Song] = []
     @State private var error: String?
     @State private var genres: [Genre] = []
+    /// The decades that have songs, the newest first.
+    @State private var decades: [Decade] = []
+    /// Browse by "genres" or "decades": the person's choice, kept when the app closes.
+    @AppStorage("search-browse") private var browseBy = "genres"
     @State private var hints: [Suggestion] = []
     @State private var server: [Song] = []
     @State private var generation: UInt64 = 0
@@ -93,6 +97,7 @@ struct SearchView: View {
         #endif
         .task(id: store.libraryVersion) {
             genres = await store.load { try $0.genres() } ?? []
+            decades = await store.load { try $0.decades() } ?? []
             if examples.isEmpty { examples = await store.load { $0.ruleExamples() } ?? [] }
         }
         .task(id: "\(recentStamp)|\(words.isEmpty)|\(store.libraryVersion)") {
@@ -653,25 +658,77 @@ struct SearchView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Browse: only the genres with the most songs, 6 on a phone (three lines of two), two lines
-    /// (8 at most) in a wide window; "All N ›" opens the Genres page when there are more.
+    /// What Browse shows: the person's choice, or the one kind the library has.
+    private var browseDecades: Bool {
+        if genres.isEmpty { return true }
+        if decades.isEmpty { return false }
+        return browseBy == "decades"
+    }
+
+    /// Browse, by genre or by decade (a switch on the title line, when the library has both).
+    /// Genres: only those with the most songs, 6 on a phone (three lines of two), two lines (8
+    /// at most) in a wide window; "All N ›" opens the Genres page when there are more. Decades:
+    /// the newest first, whole lines, 8 at most; a tap puts the decade's rule in the field.
     @ViewBuilder
     private var browse: some View {
-        if !genres.isEmpty {
+        if !genres.isEmpty || !decades.isEmpty {
             // In a wide window as many across as the Genres page fits (tiles of 200 or more).
             let across = wide ? min(4, max(2, Int((row + 16) / 216))) : 2
+            let byDecade = browseDecades
             let shown = Array(genres.sorted { $0.songs > $1.songs }.prefix(wide ? 2 * across : 6))
             header("Browse") {
-                if genres.count > shown.count {
-                    NavigationLink(value: Route.genres) {
-                        Text("All \(genres.count.formatted()) ›").font(.needle(.subheadline)).foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    if !genres.isEmpty && !decades.isEmpty {
+                        Picker("Browse by", selection: $browseBy) {
+                            Text("Genres").tag("genres")
+                            Text("Decades").tag("decades")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .fixedSize()
+                        .accessibilityLabel("Browse by")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("All \(count(genres.count, "genre"))")
+                    if !byDecade && genres.count > shown.count {
+                        NavigationLink(value: Route.genres) {
+                            Text("All \(genres.count.formatted()) ›").font(.needle(.subheadline)).foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("All \(count(genres.count, "genre"))")
+                    }
                 }
             }
-            GenreTiles(genres: shown, across: across).padding(.top, 10)
+            ZStack(alignment: .topLeading) {
+                Group {
+                    if byDecade {
+                        decadeTiles(Array(decades.prefix(8 / across * across)), across: across)
+                    } else {
+                        GenreTiles(genres: shown, across: across)
+                    }
+                }
+                .id(byDecade)
+                // The tiles change in place with a short fade.
+                .transition(.opacity)
+            }
+            .animation(Motion.fade(.easeOut(duration: 0.18)), value: byDecade)
+            .padding(.top, 10)
         }
+    }
+
+    /// The decades as tiles like the genres'; a tap shows the decade's songs here.
+    private func decadeTiles(_ list: [Decade], across: Int) -> some View {
+        let gap: CGFloat = wide ? 16 : 12
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: gap), count: across), spacing: gap) {
+            ForEach(list, id: \.year) { decade in
+                Button { query = decade.rule; kind = .all } label: {
+                    BrowseTile(name: decade.label, artwork: decade.artwork)
+                }
+                .buttonStyle(Pressable())
+                .hoverEffect(.lift)
+                .accessibilityLabel("\(decade.label), \(count(Int(decade.songs), "song"))")
+            }
+        }
+        .padding(.horizontal, Tiles.margin(wide))
     }
 
     /// Rules: a tap puts the rule in the search field. A wide window also shows the rule.

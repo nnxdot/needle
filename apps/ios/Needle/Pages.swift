@@ -638,30 +638,42 @@ struct GenreTiles: View {
     var across: Int?
 
     var body: some View {
-        let colors = store.colors
         let gap: CGFloat = wide ? 16 : 12
         let columns = across.map { Array(repeating: GridItem(.flexible(), spacing: gap), count: $0) }
             ?? [GridItem(.adaptive(minimum: wide ? 200 : 150), spacing: gap)]
         LazyVGrid(columns: columns, spacing: gap) {
             ForEach(genres) { genre in
                 NavigationLink(value: Route.genre(genre.name)) {
-                    Artwork(path: genre.artwork, seed: genre.name, size: 300)
-                        .frame(height: wide ? 124 : 104)
-                        .frame(maxWidth: .infinity)
-                        .overlay(alignment: .bottomLeading) {
-                            Text(genre.name).font(.needle(.subheadline).bold()).lineLimit(1)
-                                .foregroundStyle(colors.text)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(colors.card.opacity(0.92), in: .soft(Corner.small))
-                                .padding(8)
-                        }
-                        .clipShape(.soft(Corner.middle))
+                    BrowseTile(name: genre.name, artwork: genre.artwork)
                 }
                 .buttonStyle(Pressable())
                 .hoverEffect(.lift)
             }
         }
         .padding(.horizontal, Tiles.margin(wide))
+    }
+}
+
+/// A genre's or a decade's tile: one of its covers, with its name on the page's raised colour.
+struct BrowseTile: View {
+    @Environment(Store.self) private var store
+    @Environment(\.wide) private var wide
+    let name: String
+    let artwork: String?
+
+    var body: some View {
+        let colors = store.colors
+        Artwork(path: artwork, seed: name, size: 300)
+            .frame(height: wide ? 124 : 104)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .bottomLeading) {
+                Text(name).font(.needle(.subheadline).bold()).lineLimit(1)
+                    .foregroundStyle(colors.text)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(colors.card.opacity(0.92), in: .soft(Corner.small))
+                    .padding(8)
+            }
+            .clipShape(.soft(Corner.middle))
     }
 }
 
