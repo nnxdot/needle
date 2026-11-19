@@ -1,5 +1,10 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateColorAsState
@@ -400,6 +405,12 @@ private fun windowFill(base: Color, blurred: Boolean, shown: Boolean = true): Co
  * down its sides. Elsewhere, the sheet's usual solid fill with the edge light. A song's, an
  * album's, or a playlist's sheet passes its cover (`art`): its colour comes in faintly from the
  * left, as the dock's does (DESIGN.md › Glass).
+ *
+ * It never has a second top: Material's sheet, grown to the screen's top, drew its fill up under
+ * the status bar and put its handle (where the glass starts) below it. Here the sheet's content
+ * is held short of that: a sheet taller than the screen stops a little under the status bar and
+ * scrolls inside, so above its round top there is only the dimmed page. `maxWidth`: how wide it
+ * may be (Material's 640 dp unless a sheet asks for more).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -407,6 +418,7 @@ fun GlassSheet(
     onDismissRequest: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(),
     art: String? = null,
+    maxWidth: androidx.compose.ui.unit.Dp = BottomSheetDefaults.SheetMaxWidth,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var blurred by remember { mutableStateOf(false) }
@@ -416,24 +428,40 @@ fun GlassSheet(
     // Past the foot of the tallest sheet: the screen's height.
     val reach = with(LocalDensity.current) { androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDp() }
     val dark = darkPage()
+    // The tallest the content may be: the screen less the status bar (and a cut-out), a small
+    // gap, the handle's row, and the foot's bars, which the sheet keeps clear inside it.
+    val density = LocalDensity.current
+    val topBars = with(density) { androidx.compose.foundation.layout.WindowInsets.safeDrawing.getTop(density).toDp() }
+    val footBars = with(density) { androidx.compose.foundation.layout.WindowInsets.safeDrawing.getBottom(density).toDp() }
+    var handle by remember { mutableStateOf(48.dp) }
+    val tallest = (reach - topBars - 8.dp - handle - footBars).coerceAtLeast(120.dp)
     // Reduce motion: the sheet comes and goes at once, with no slide; its shade still fades.
     StillSheetMotion(reduceMotion()) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
+        sheetMaxWidth = maxWidth,
         shape = shape,
         containerColor = windowFill(MaterialTheme.colorScheme.surfaceContainerLow, blurred, shown),
+        // No room kept for the status bar inside the sheet: it never reaches it (see `tallest`).
+        contentWindowInsets = { androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom) },
         // The glass's tint and edge light are drawn from the handle's row, which moves with the
         // sheet: the sheet's own outer box is not where the sheet shows as it slides.
         dragHandle = {
-            Box(Modifier.fillMaxWidth().sheetGlass(shape, dark, cover, reach), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { with(density) { it.height.toDp() }.let { h -> if (h != handle) handle = h } }
+                    .sheetGlass(shape, dark, cover, reach),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
                 BottomSheetDefaults.DragHandle()
             }
         },
     ) {
         val on = windowBlur()
         SideEffect { blurred = on }
-        content()
+        Column(Modifier.fillMaxWidth().heightIn(max = tallest)) { content() }
     }
     }
 }

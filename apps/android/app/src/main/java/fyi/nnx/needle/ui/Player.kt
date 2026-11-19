@@ -467,6 +467,23 @@ private enum class PlayerLayout { Tall, Short, Sideways, Wide, Tabletop }
  */
 private enum class Behind { Backdrop, Top, AreaTop, Left }
 
+/**
+ * The wide player's side pane: open or closed, and its tab (Up next or Lyrics), kept on the phone
+ * as the listener left them (not in Settings), through a turn, a fold, and a new start. Open on
+ * Up next the first time.
+ */
+private object PaneChoice {
+    private val prefs get() = NeedleApp.instance.getSharedPreferences("player", android.content.Context.MODE_PRIVATE)
+    val open = kotlinx.coroutines.flow.MutableStateFlow(prefs.getBoolean("pane_open", true))
+    val tab = kotlinx.coroutines.flow.MutableStateFlow(if (prefs.getString("pane_tab", null) == SideKind.Lyrics.name) SideKind.Lyrics else SideKind.Queue)
+
+    fun set(open: Boolean, tab: SideKind) {
+        this.open.value = open
+        this.tab.value = tab
+        prefs.edit().putBoolean("pane_open", open).putString("pane_tab", tab.name).apply()
+    }
+}
+
 /** A wide player's parts start this far under the status bar: under the round glass buttons. */
 private val WideTop = 62.dp
 
@@ -587,9 +604,9 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
     // The Lyrics look shows its song small at the top, while it has words to show.
     var bigHas by remember(song.id) { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<PlayerSheet?>(null) }
-    // A wide screen's pane (Up next, Lyrics): the tab shown, and whether the card layout shows it.
-    var paneTab by rememberSaveable { mutableStateOf(SideKind.Queue) }
-    var paneOpen by rememberSaveable { mutableStateOf(false) }
+    // A wide screen's pane (Up next, Lyrics): open or closed, and its tab, kept on the phone.
+    val paneTab by PaneChoice.tab.collectAsState()
+    val paneOpen by PaneChoice.open.collectAsState()
     // Pulled down far enough, or thrown down, the player goes on down at the finger's speed and
     // closes. Pulled up, it stretches a little (a rubber band).
     var pull by remember { mutableFloatStateOf(0f) }
@@ -682,29 +699,23 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
         LaunchedEffect(layout) {
             if (layout == PlayerLayout.Wide && panel == Panel.Lyrics) {
                 panel = Panel.Cover
-                paneTab = SideKind.Lyrics
-                paneOpen = true
+                PaneChoice.set(true, SideKind.Lyrics)
             }
         }
         // Settings › Appearance › Immersive cover. On a phone: the cover sharp at the top, edge
-        // to edge, going out into the backdrop. On a wide screen: the cover at the left and the
-        // pane of Up next and Lyrics always at the right (the card layout opens the pane only
-        // when asked).
+        // to edge, going out into the backdrop. On a wide screen: the cover across the top of
+        // the player's area, or down its left (see Behind).
         val immersive = look.immersiveCover && panel == Panel.Cover && bigLook == "cover" && layout == PlayerLayout.Tall
         val wideImmersive = look.immersiveCover && layout == PlayerLayout.Wide
         val still = reduceMotion()
-        // A wide screen's pane: always beside the immersive cover; on the card, when asked.
-        val paneShown = wideImmersive || paneOpen
+        // A wide screen's pane, in each view: open or closed as the listener left it.
+        val paneShown = paneOpen
         val paneWidth = (wideWidth * 0.27f).coerceIn(260.dp, 380.dp)
-        val togglePane: (SideKind) -> Unit = { kind ->
-            if (paneOpen && paneTab == kind) paneOpen = false else {
-                paneTab = kind
-                paneOpen = true
-            }
+        // Lyrics or Up next asked for (the pill's icons, or the round buttons where there is no
+        // pill): the pane opens on it, changes its tab, or closes (a press on the lit one).
+        val showPane: (SideKind) -> Unit = { kind ->
+            if (paneOpen && paneTab == kind) PaneChoice.set(false, kind) else PaneChoice.set(true, kind)
         }
-        // Lyrics or Up next asked for on a wide screen: the pane shows it (the immersive one,
-        // always there, only changes its tab).
-        val showPane: (SideKind) -> Unit = { kind -> if (wideImmersive) paneTab = kind else togglePane(kind) }
         // The player's area on a wide screen: the window less the pane, with the room round it,
         // while the pane shows. Nothing of the player sits under the pane.
         val sides = androidx.compose.foundation.layout.WindowInsets.navigationBars.union(androidx.compose.foundation.layout.WindowInsets.displayCutout)
@@ -739,7 +750,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                 val moving = look.animatedCovers && !still
                 when (lies) {
                     Behind.Top -> ImmersiveCover(song, animated = moving, swipe = coverSwipe)
-                    Behind.AreaTop -> ImmersiveCover(song, animated = moving, swipe = coverSwipe, width = areaWidth, height = pictureTall)
+                    // On under the pane (its glass blurs it) and fading out there, with no hard edge.
+                    Behind.AreaTop -> ImmersiveCover(song, animated = moving, swipe = coverSwipe, width = areaWidth + 20.dp + 96.dp, height = pictureTall, fadeEnd = 116.dp)
                     Behind.Left -> ImmersiveCover(song, animated = moving, swipe = coverSwipe, width = pictureWidth, sideways = true)
                     Behind.Backdrop -> PlayerBackdrop(song, reading = panel != Panel.Cover)
                 }
@@ -758,10 +770,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
             // The lyric line: not while the lyrics show anyway.
             val showsLine = hasLine && panel != Panel.Lyrics && !lyricsLook
             val openLyrics: () -> Unit = {
-                if (layout == PlayerLayout.Wide) {
-                    paneTab = SideKind.Lyrics
-                    paneOpen = true
-                } else panel = Panel.Lyrics
+                if (layout == PlayerLayout.Wide) PaneChoice.set(true, SideKind.Lyrics) else panel = Panel.Lyrics
             }
             // The two round glass buttons at the top (close, the menu), and between them what a
             // look or a layout adds (full screen; on a wide card, Lyrics and Up next).
@@ -957,22 +966,31 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                         }
                     }
                     PlayerLayout.Wide -> Box(Modifier.fillMaxSize()) {
-                        topBar {
-                            // The card layout's pane opens from here; the immersive one's is always there.
-                            if (!wideImmersive) {
-                                val lyricsOn = paneOpen && paneTab == SideKind.Lyrics
-                                val queueOn = paneOpen && paneTab == SideKind.Queue
-                                GlassRound(Icons.Rounded.Lyrics, "Lyrics", glassTint, on = lyricsOn, state = if (lyricsOn) "Showing" else "Hidden") { togglePane(SideKind.Lyrics) }
-                                GlassRound(Icons.AutoMirrored.Rounded.QueueMusic, "Up next", glassTint, on = queueOn, state = if (queueOn) "Showing" else "Hidden") { togglePane(SideKind.Queue) }
+                        // The player's area: the window less the pane and the room round it. It
+                        // narrows and widens with the pane as it slides.
+                        val paneRoom by animateDpAsState(
+                            if (paneShown) paneWidth + 40.dp else 0.dp,
+                            if (still) snap() else spring(dampingRatio = 1f, stiffness = 400f),
+                            label = "pane room",
+                        )
+                        Box(Modifier.fillMaxSize().padding(end = paneRoom)) {
+                            // The round buttons on the area, as on a phone: close at its left, the
+                            // menu at its right; where the area has no pill of tools (side by side),
+                            // Lyrics and Up next too, which open, change, and close the pane.
+                            topBar {
+                                if (!tallArea) {
+                                    val lyricsOn = paneShown && paneTab == SideKind.Lyrics
+                                    val queueOn = paneShown && paneTab == SideKind.Queue
+                                    GlassRound(Icons.Rounded.Lyrics, "Lyrics", glassTint, on = lyricsOn, state = if (lyricsOn) "Showing" else "Hidden") { showPane(SideKind.Lyrics) }
+                                    GlassRound(Icons.AutoMirrored.Rounded.QueueMusic, "Up next", glassTint, on = queueOn, state = if (queueOn) "Showing" else "Hidden") { showPane(SideKind.Queue) }
+                                }
                             }
-                        }
-                        Row(Modifier.fillMaxSize().padding(top = WideTop, bottom = 20.dp, end = 20.dp)) {
-                            // The player's area. The pane opening or closing can turn it from wide to
-                            // tall or back: the one layout fades into the other (as the views do)
-                            // while the pane slides; the song and the player's choices stay.
+                            // The pane opening or closing can turn the area from wide to tall or
+                            // back: the one layout fades into the other (as the views do) while the
+                            // pane slides; the song and the player's choices stay.
                             AnimatedContent(
                                 tallArea,
-                                Modifier.weight(1f).fillMaxHeight(),
+                                Modifier.fillMaxSize().padding(top = WideTop, bottom = 20.dp, end = 20.dp),
                                 transitionSpec = { (fadeIn(tween(200)) togetherWith fadeOut(tween(120))).using(null) },
                                 label = "wide layout",
                             ) { tallNow ->
@@ -1001,7 +1019,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                                             Modifier
                                                 .weight(1f)
                                                 .fillMaxHeight()
-                                                .padding(start = 32.dp, end = 24.dp, bottom = if (!wideImmersive && !paneShown) 56.dp else 0.dp),
+                                                .padding(start = 32.dp, end = 24.dp, bottom = if (!wideImmersive) 56.dp else 0.dp),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -1015,27 +1033,31 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                                     }
                                 }
                             }
-                            androidx.compose.animation.AnimatedVisibility(
-                                paneShown,
-                                enter = if (still) fadeIn(tween(150)) else fadeIn(tween(200)) + androidx.compose.animation.expandHorizontally(spring(dampingRatio = 1f, stiffness = 400f)),
-                                exit = if (still) fadeOut(tween(120)) else fadeOut(tween(120)) + androidx.compose.animation.shrinkHorizontally(spring(dampingRatio = 1f, stiffness = 400f)),
-                            ) {
-                                PlayerPane(
-                                    paneTab,
-                                    { paneTab = it },
-                                    song,
-                                    position,
-                                    queueVersion,
-                                    glassTint,
-                                    open,
-                                    // On the card layout, clear of the speaker's pill under it.
-                                    Modifier.padding(start = 20.dp, bottom = if (wideImmersive) 0.dp else 62.dp).width(paneWidth).fillMaxHeight(),
-                                )
+                            // The speaker in use, at the foot of the area on the right (the card
+                            // layout side by side; the phone's layout has Play on in its pill).
+                            if (!wideImmersive && !tallArea) {
+                                SpeakerPill(speakerInUse(song, networkOutput), glassTint, Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 20.dp))
                             }
                         }
-                        // The speaker in use, at the foot on the right (the card layout).
-                        if (!wideImmersive) {
-                            SpeakerPill(speakerInUse(song, networkOutput), glassTint, Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 20.dp))
+                        // The pane: as tall as the window, from the round buttons' top to the foot.
+                        androidx.compose.animation.AnimatedVisibility(
+                            paneShown,
+                            Modifier.align(Alignment.TopEnd),
+                            enter = if (still) fadeIn(tween(150)) else fadeIn(tween(200)) + androidx.compose.animation.expandHorizontally(spring(dampingRatio = 1f, stiffness = 400f)),
+                            exit = if (still) fadeOut(tween(120)) else fadeOut(tween(120)) + androidx.compose.animation.shrinkHorizontally(spring(dampingRatio = 1f, stiffness = 400f)),
+                        ) {
+                            PlayerPane(
+                                paneTab,
+                                { PaneChoice.set(true, it) },
+                                { PaneChoice.set(false, paneTab) },
+                                { searching = true },
+                                song,
+                                position,
+                                queueVersion,
+                                glassTint,
+                                open,
+                                Modifier.padding(top = 7.dp, end = 20.dp, bottom = 20.dp).width(paneWidth).fillMaxHeight(),
+                            )
                         }
                     }
                 }
@@ -1055,10 +1077,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit, onThrown: () -> Unit 
                         // The pill of tools is on every layout but a wide one side by side; on a
                         // wide one Up next is the pane, which has no Add songs.
                         tools = layout != PlayerLayout.Wide || tallArea,
-                        addsInUpNext = layout != PlayerLayout.Wide,
+                        // A wide window (not a phone on its side): two short columns.
+                        twoColumns = wideWidth >= 600.dp && wideHeight >= 480.dp,
                         onSleep = openSleep,
                         onLoop = onLoop,
-                        onAddSongs = { searching = true },
                         onFull = { Ui.fullVisualizer.value = true },
                         onPlayOn = { Ui.sheet.value = Sheet.PlayOn },
                         onDismiss = { sheet = null },
@@ -1454,6 +1476,8 @@ private fun RowScope.PillCell(icon: ImageVector, label: String, on: Boolean, sta
 private fun PlayerPane(
     tab: SideKind,
     onTab: (SideKind) -> Unit,
+    onClose: () -> Unit,
+    onAddSongs: () -> Unit,
     song: Song,
     position: () -> Double,
     queueVersion: ULong,
@@ -1467,11 +1491,26 @@ private fun PlayerPane(
             .glass(RoundedCornerShape(24.dp), cover = cover, large = true, shadow = 16.dp, solid = PlayerGlassSolid, fill = PlayerGlassFill)
             .padding(12.dp),
     ) {
-        Segments(listOf("Up next", "Lyrics"), tabs.indexOf(tab), 34.dp) { onTab(tabs[it]) }
+        // Its own top line: the two tabs, and a small plain close at the right.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Segments(listOf("Up next", "Lyrics"), tabs.indexOf(tab), 34.dp, Modifier.weight(1f)) { onTab(tabs[it]) }
+            Box(
+                Modifier
+                    .padding(start = 4.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = null, onClick = onClose)
+                    .semantics { contentDescription = "Close the side pane" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.White.copy(alpha = 0.75f), modifier = Modifier.size(20.dp))
+            }
+        }
         Box(Modifier.weight(1f).fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp)) {
             when (tab) {
                 SideKind.Lyrics -> LyricsPanel(song, position, compact = true) { open(Route.Timing(song.id)) }
-                SideKind.Queue -> UpNextPanel(queueVersion, titled = false)
+                // The same small line as the phone's Up next: Shuffle and Add songs.
+                SideKind.Queue -> UpNextPanel(queueVersion, titled = false) { UpNextActions(Modifier.padding(top = 2.dp, bottom = 8.dp), onAddSongs) }
             }
         }
     }
@@ -1558,10 +1597,12 @@ private fun speakerInUse(song: Song, network: Boolean): String {
  * - four pills, two by two: Playlist, Radio, the album's name, the artist's name;
  * - the player: the look (Cover, Record, Lyrics, Visualizer) as one row of choices, the A-B loop,
  *   Speed and pitch, Full screen; and where the layout has no pill of tools (`tools` off), the
- *   Sleep timer and Play on too; where Up next has no Add songs (`addsInUpNext` off), Add songs;
+ *   Sleep timer and Play on too (Add songs is in Up next, on the phone's sheet and in the pane);
  * - under a thin line, the rare ones: Edit tags (or for a server's song, Keep on this phone and
  *   Save to my music), Time the lyrics, and the commands of plugins.
  * A song playing on the computer: its cover and name only, then the player's rows.
+ * On a wide window (`twoColumns`): two short columns, at most 720 dp across in all: the song at
+ * the left, the player at the right.
  * Play next, Add to queue, and Select are not here: they stay in the menu of a song in a list.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -1575,10 +1616,9 @@ private fun PlayerMoreSheet(
     loopText: String,
     speaker: String,
     tools: Boolean,
-    addsInUpNext: Boolean,
+    twoColumns: Boolean,
     onSleep: () -> Unit,
     onLoop: () -> Unit,
-    onAddSongs: () -> Unit,
     onFull: () -> Unit,
     onPlayOn: () -> Unit,
     onDismiss: () -> Unit,
@@ -1599,72 +1639,89 @@ private fun PlayerMoreSheet(
     val speed by androidx.compose.runtime.produceState<String?>(null, song.id) {
         if (mine) value = withContext(Dispatchers.IO) { runCatching { core.speedAndPitch() }.getOrNull() }?.takeIf { it.available }?.let { speedText(it.speed) }
     }
-    GlassSheet(onDismissRequest = onDismiss, sheetState = state, art = song.artwork) {
+    // The song: its cover, its name and stars; the four pills; under a thin line, the rare ones.
+    val songPart: @Composable () -> Unit = {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Cover(
+                song.artwork,
+                Modifier.size(56.dp).shadow(10.dp, RoundedCornerShape(10.dp), ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f)),
+                RoundedCornerShape(10.dp),
+                seed = song.album + song.artist,
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    song.title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, lineHeight = 24.sp),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
+                )
+                // The stars' first touch room starts under the name's first letter.
+                if (mine) SongStars(song, Modifier.offset(x = (-12).dp), size = 24.dp, arrangement = Arrangement.Start)
+            }
+        }
+        if (mine) {
+            // Four pills, two by two: what is done with the song, and where it goes.
+            Column(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MorePill(Icons.AutoMirrored.Rounded.PlaylistAdd, "Playlist", "Add to a playlist", Modifier.weight(1f)) {
+                        act(then = true) { Ui.sheet.value = Sheet.AddToPlaylist(listOf(song.id)) }
+                    }
+                    MorePill(Icons.Rounded.Radio, "Radio", "Start radio", Modifier.weight(1f)) { act { startRadioFrom(song) } }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val album = song.album.ifBlank { "Unknown album" }
+                    val artist = song.artist.ifBlank { "Unknown artist" }
+                    MorePill(Icons.Rounded.Album, album, "Go to the album, $album", Modifier.weight(1f)) { act { open(Route.AlbumOf(song.album, song.id)) } }
+                    MorePill(Icons.Rounded.Person, artist, "Go to the artist, $artist", Modifier.weight(1f)) { act { open(Route.Artist(song.artist)) } }
+                }
+            }
+        }
+    }
+    val rarePart: @Composable () -> Unit = {
+        if (mine) {
+            Box(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp).height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.13f)))
+            SongFileRows(song, { then, work -> act(then, work) }) { icon, label, click -> MoreRow({ Icon(icon, contentDescription = null) }, label, onClick = click) }
+            MoreRow({ Icon(Icons.Rounded.Lyrics, contentDescription = null) }, "Time the lyrics") { act { open(Route.Timing(song.id)) } }
+            songCommands().forEach { (plugin, command) ->
+                MoreRow({ Icon(Icons.Rounded.Extension, contentDescription = null) }, command.title) { act(then = true) { core.runPluginCommand(plugin, command.id, listOf(song.id)) } }
+            }
+        }
+    }
+    // The player: the look, then plain rows.
+    val playerPart: @Composable (Dp) -> Unit = { top ->
+        Text("Look", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = top))
+        Segments(BigLooks.map { lookName(it) }, BigLooks.indexOf(bigLook), 40.dp, Modifier.padding(top = 6.dp, bottom = 4.dp)) { onLook(BigLooks[it]) }
+        MoreRow({ Text("A-B", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }, "A-B loop", loopText) { act(work = onLoop) }
+        if (mine) MoreRow({ Icon(Icons.Rounded.Speed, contentDescription = null) }, "Speed and pitch", speed) { act(then = true) { Ui.sheet.value = Sheet.SpeedPitch } }
+        MoreRow({ Icon(Icons.Rounded.Fullscreen, contentDescription = null) }, "Full screen") { act(work = onFull) }
+        // Nothing is lost: where the pill of tools is not on the screen, its rows stay here.
+        if (!tools) {
+            MoreRow({ Icon(Icons.Rounded.Bedtime, contentDescription = null) }, "Sleep timer", sleepText) { act(then = true, work = onSleep) }
+            MoreRow({ Icon(Icons.Rounded.Cast, contentDescription = null) }, "Play on", speaker) { act(then = true, work = onPlayOn) }
+        }
+    }
+    GlassSheet(onDismissRequest = onDismiss, sheetState = state, art = song.artwork, maxWidth = if (twoColumns) 720.dp else androidx.compose.material3.BottomSheetDefaults.SheetMaxWidth) {
         // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
-            // The song: its cover, and at its right its name with the stars under it.
-            Row(
-                Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Cover(
-                    song.artwork,
-                    Modifier.size(56.dp).shadow(10.dp, RoundedCornerShape(10.dp), ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f)),
-                    RoundedCornerShape(10.dp),
-                    seed = song.album + song.artist,
-                )
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        song.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp, lineHeight = 24.sp),
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() },
-                    )
-                    // The stars' first touch room starts under the name's first letter.
-                    if (mine) SongStars(song, Modifier.offset(x = (-12).dp), size = 24.dp, arrangement = Arrangement.Start)
-                }
-            }
-            if (mine) {
-                // Four pills, two by two: what is done with the song, and where it goes.
-                Column(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MorePill(Icons.AutoMirrored.Rounded.PlaylistAdd, "Playlist", "Add to a playlist", Modifier.weight(1f)) {
-                            act(then = true) { Ui.sheet.value = Sheet.AddToPlaylist(listOf(song.id)) }
-                        }
-                        MorePill(Icons.Rounded.Radio, "Radio", "Start radio", Modifier.weight(1f)) { act { startRadioFrom(song) } }
+            if (twoColumns) {
+                // Two columns that start at the same height, 24 dp apart, no line between.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        songPart()
+                        rarePart()
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val album = song.album.ifBlank { "Unknown album" }
-                        val artist = song.artist.ifBlank { "Unknown artist" }
-                        MorePill(Icons.Rounded.Album, album, "Go to the album, $album", Modifier.weight(1f)) { act { open(Route.AlbumOf(song.album, song.id)) } }
-                        MorePill(Icons.Rounded.Person, artist, "Go to the artist, $artist", Modifier.weight(1f)) { act { open(Route.Artist(song.artist)) } }
-                    }
+                    Column(Modifier.weight(1f)) { playerPart(6.dp) }
                 }
-            }
-            // The player.
-            Text("Look", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 10.dp, top = 16.dp))
-            Segments(BigLooks.map { lookName(it) }, BigLooks.indexOf(bigLook), 40.dp, Modifier.padding(top = 6.dp, bottom = 4.dp)) { onLook(BigLooks[it]) }
-            MoreRow({ Text("A-B", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }, "A-B loop", loopText) { act(work = onLoop) }
-            if (mine) MoreRow({ Icon(Icons.Rounded.Speed, contentDescription = null) }, "Speed and pitch", speed) { act(then = true) { Ui.sheet.value = Sheet.SpeedPitch } }
-            MoreRow({ Icon(Icons.Rounded.Fullscreen, contentDescription = null) }, "Full screen") { act(work = onFull) }
-            // Nothing is lost: where the pill of tools or Up next's own Add songs is not on the
-            // screen, its rows stay here.
-            if (!tools) {
-                MoreRow({ Icon(Icons.Rounded.Bedtime, contentDescription = null) }, "Sleep timer", sleepText) { act(then = true, work = onSleep) }
-                MoreRow({ Icon(Icons.Rounded.Cast, contentDescription = null) }, "Play on", speaker) { act(then = true, work = onPlayOn) }
-            }
-            if (!addsInUpNext) MoreRow({ Icon(Icons.Rounded.Add, contentDescription = null) }, "Add songs") { act(then = true, work = onAddSongs) }
-            if (mine) {
-                // The rare ones, under a thin line.
-                Box(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 4.dp).height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.13f)))
-                SongFileRows(song, { then, work -> act(then, work) }) { icon, label, click -> MoreRow({ Icon(icon, contentDescription = null) }, label, onClick = click) }
-                MoreRow({ Icon(Icons.Rounded.Lyrics, contentDescription = null) }, "Time the lyrics") { act { open(Route.Timing(song.id)) } }
-                songCommands().forEach { (plugin, command) ->
-                    MoreRow({ Icon(Icons.Rounded.Extension, contentDescription = null) }, command.title) { act(then = true) { core.runPluginCommand(plugin, command.id, listOf(song.id)) } }
-                }
+            } else {
+                songPart()
+                playerPart(16.dp)
+                rarePart()
             }
         }
     }
@@ -1751,21 +1808,31 @@ private fun UpNextSheet(version: ULong, count: Int, art: String?, onAddSongs: ()
                     }
                 }
                 Text(words, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.66f), modifier = Modifier.padding(start = 4.dp, top = 2.dp))
-                Row(Modifier.padding(top = 14.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val stays = NeedleApp.instance.more.collectAsState().value.shuffleStays && !onComputer()
-                    SheetPill(Icons.Rounded.Shuffle, "Shuffle", filled = true) {
-                        Controls.shuffle()
-                        if (!stays) showMessage("Shuffled what is up next")
-                    }
-                    SheetPill(Icons.Rounded.Add, "Add songs") {
-                        if (!acted) {
-                            acted = true
-                            scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); onAddSongs() }
-                        }
+                UpNextActions(Modifier.padding(top = 14.dp, bottom = 8.dp)) {
+                    if (!acted) {
+                        acted = true
+                        scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); onAddSongs() }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Up next's small line (the phone's sheet, the wide player's pane): Shuffle, a pill in the accent,
+ * and Add songs, a plain one. On a narrow pane the second goes under the first.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun UpNextActions(modifier: Modifier = Modifier, onAddSongs: () -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val stays = NeedleApp.instance.more.collectAsState().value.shuffleStays && !onComputer()
+        SheetPill(Icons.Rounded.Shuffle, "Shuffle", filled = true) {
+            Controls.shuffle()
+            if (!stays) showMessage("Shuffled what is up next")
+        }
+        SheetPill(Icons.Rounded.Add, "Add songs", onClick = onAddSongs)
     }
 }
 

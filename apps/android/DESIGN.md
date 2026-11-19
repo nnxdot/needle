@@ -39,6 +39,8 @@ plays and the one main button.
     is a soft dark line round the edge with the white light just inside it.
   - A sheet's edge runs its whole real height, top and sides; a sheet has no line along its
     bottom, which is the screen's.
+  - A sheet has one top only: above its round top there is only the dimmed page. A sheet taller
+    than the screen stops a little under the status bar and scrolls inside (`GlassSheet`).
   - A soft shadow under it.
   - The dock and the floating player take the playing cover's colour from the left, with
     "Mini player in the song's color" on. A song's, an album's, and a playlist's sheet take
@@ -96,22 +98,34 @@ The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open fol
   Lyrics, Visualizer) as one row of choices, the A-B loop, Speed and pitch (the speed at the
   right), Full screen; under a thin line the rare ones, each only where it applies: Edit tags (or
   Keep on this phone and Save to my music), Time the lyrics, the plugins' commands. Sleep timer
-  and Play on are in the pill of tools, and Add songs in Up next; where the layout has no pill
-  (a wide one side by side) or Up next is the pane (a wide one), those rows stay in More, after
-  Full screen. Play next, Add to queue, and Select stay in the menu of a song in a list only. A
-  song playing on the computer: its cover and name, then the player's rows. **Up next** on a phone is a glass sheet too: its
-  name, how many songs and how long, Shuffle (a pill in the accent), Add songs, then the songs.
+  and Play on are in the pill of tools; where the layout has no pill (a wide one side by side),
+  they stay in More, after Full screen. Add songs is in Up next (the phone's sheet, the wide
+  player's pane), not in More. Play next, Add to queue, and Select stay in the menu of a song in
+  a list only. A song playing on the computer: its cover and name, then the player's rows. On a
+  wide window (600 dp and over, not a phone on its side) More is two short columns, at most
+  720 dp across, centred, as tall as its parts: the song at the left (cover, name, stars, the
+  pills, the thin line, the rare rows), the player at the right (the look, the rows), 24 dp
+  apart, no line between. **Up next** on a phone is a glass sheet too: its name, how many songs
+  and how long, Shuffle (a pill in the accent), Add songs, then the songs.
 - **The looks:** Lyrics: the words in the cover's place, the song small at the top. Record: a
   black record standing still, the cover its turning label. Visualizer: bars in the accent. The
   seek bar, the buttons, and the pill stay where they are.
-- **Wide (a tablet, an open foldable, a TV):** the pane of Up next and Lyrics (one glass pane,
-  two tabs) at the right: always there with Immersive cover on; with it off, opened from the
-  round glass buttons at the top right (Lyrics, Up next, then More), with the speaker in use on a
-  glass pill at the foot on the right. Nothing of the player sits under the pane. The player's
-  area is the window less the pane; its shape picks the layout, and the sizes come from it:
+- **Wide (a tablet, an open foldable, a TV):** the pane of Up next and Lyrics at the right: one
+  glass pane as tall as the window (from the round buttons' top to the foot), its top line the
+  two tabs and a small plain close (TalkBack "Close the side pane"); Up next in it has Shuffle
+  and Add songs, as the phone's sheet. It can close in each view. The pill's Lyrics and Up next
+  (where the area has no pill, round glass buttons for them) open it, change its tab, and close
+  it (a press on the lit one). Open or closed, and the tab, are kept on the phone through a
+  turn, a fold, and a new start (not in Settings); open on Up next the first time. The player's
+  area is the window less the pane (the whole window with the pane closed); the round buttons
+  are on it, as on a phone: close at its left, More at its right. Nothing of the player but the
+  immersive cover's fading end sits under the pane. The area's shape picks the layout, and the
+  sizes come from it:
   - **Taller than wide (under 0.9; an unfolded phone beside its pane):** the phone's layout at
-    the area's width. Immersive: the cover sharp across the area's top, edge to edge, cut to the
-    room above the song's name and going out into the backdrop below. Card: as large as fits
+    the area's width. Immersive: the cover sharp across the area's top, cut to the room above
+    the song's name and going out into the backdrop below; at its right it goes on under the
+    pane (about 96 dp) and its last 116 dp go out from left to right, so it has no hard edge.
+    Card: as large as fits
     above the song. The song and its controls (the tools pill too: its Lyrics and Up next show
     in the pane) at most 560 dp wide, centred.
   - **Wider (0.9 and over):** side by side. Immersive: the cover fills the left from top to foot,
@@ -119,7 +133,8 @@ The big player (`FullPlayer` in Player.kt) on a phone, a tablet, and an open fol
     backdrop at its right; close floats on it. Card: at the left, centred top to foot, 62 % of
     the height or 46 % of the area's width, the smaller. At the right, one group centred top to
     foot, at most 560 dp wide: the title (44 sp), the artist and the heart, the lyric line (left
-    aligned), the seek bar, the main buttons.
+    aligned), the seek bar, the main buttons. The card has the speaker in use on a glass pill at
+    the foot of the area, on the right.
   - The pane opening or closing can change the layout: the one fades into the other while the
     pane slides, and a card grows or shrinks with it. Another look than Cover, with Immersive
     cover on, shows as the card does.

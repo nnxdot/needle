@@ -50,6 +50,7 @@ import kotlinx.coroutines.withContext
  * On a wide screen the player gives its size: `width` (the player's area left of its pane) and
  * `height` (down to the song's name); `sideways`, the cover fills the left of the player from
  * top to foot instead, solid to half its width and going out into the backdrop at its right.
+ * `fadeEnd`: across the top, its last part going out from left to right too (under the pane).
  */
 @Composable
 fun ImmersiveCover(
@@ -59,6 +60,7 @@ fun ImmersiveCover(
     width: Dp = Dp.Unspecified,
     height: Dp = Dp.Unspecified,
     sideways: Boolean = false,
+    fadeEnd: Dp = 0.dp,
 ) {
     val video = movingCover(song, animated)
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -95,6 +97,13 @@ fun ImmersiveCover(
                         else Brush.verticalGradient(0.5f to Color.Black, 1f to Color.Transparent),
                         blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
                     )
+                    if (fadeEnd > 0.dp && size.width > 0f) {
+                        val from = (1f - fadeEnd.toPx() / size.width).coerceIn(0f, 1f)
+                        drawRect(
+                            Brush.horizontalGradient(from to Color.Black, 1f to Color.Transparent),
+                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                        )
+                    }
                 }
                 .clipToBounds(),
         ) {
@@ -110,7 +119,8 @@ fun ImmersiveCover(
             }
             // A video fades in its own layer (see Shade.mask).
             video?.let {
-                val shade = if (sideways) Shade(Color.Transparent, right = 0f, foot = 0f, maskRight = 0.5f) else Shade(Color.Transparent, right = 0f, foot = 0f, mask = 0.5f)
+                val end = if (across > 0.dp) (fadeEnd / across).coerceIn(0f, 1f) else 0f
+                val shade = if (sideways) Shade(Color.Transparent, right = 0f, foot = 0f, maskRight = 0.5f) else Shade(Color.Transparent, right = 0f, foot = 0f, mask = 0.5f, maskRight = end)
                 MovingCover(it, shade, Modifier.fillMaxSize())
             }
             // The status bar and the two round buttons read over a bright cover.
