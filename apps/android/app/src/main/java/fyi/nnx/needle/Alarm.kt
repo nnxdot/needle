@@ -134,6 +134,8 @@ object WakeAlarm {
             val stream = AudioManager.STREAM_MUSIC
             val target = audio.getStreamVolume(stream).coerceAtLeast(audio.getStreamMaxVolume(stream) / 3)
             if (s.fadeIn) audio.setStreamVolume(stream, 1, 0)
+            // Home's "Start fast" tiles no longer hold what plays.
+            fyi.nnx.needle.ui.startedFrom.value = null
             runCatching {
                 when (s.what) {
                     "playlist" -> core.play(core.playlistSongs(s.playlistId).map { it.id }.shuffled(), 0u)

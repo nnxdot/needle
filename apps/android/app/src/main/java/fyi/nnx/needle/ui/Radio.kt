@@ -156,8 +156,28 @@ private fun startStation(id: String, title: String) {
     showMessage("Starting radio from $title…")
     NeedleApp.instance.scope.launch(Dispatchers.IO) {
         runCatching { core.startRadio(id) }
-            .onSuccess { NeedleApp.instance.openPlayer.tryEmit(Unit) }
+            .onSuccess { startedFrom.value = null; NeedleApp.instance.openPlayer.tryEmit(Unit) }
             .onFailure { showMessage(it.message ?: "Could not start the radio") }
+    }
+}
+
+/**
+ * Starts your station, as the Radio page's own start and Home's "Your station" tile: from the
+ * songs played most of late, or any song when nothing has played yet; the first that can start
+ * one (a song whose file is gone cannot).
+ */
+internal fun startYourStation() {
+    showMessage("Tuning in…")
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        val top = runCatching { core.stats(30u).topSongs.mapNotNull { it.songId } }.getOrDefault(emptyList())
+        val any = runCatching { core.songs().randomOrNull()?.id }.getOrNull()
+        val started = (top + listOfNotNull(any)).firstOrNull { runCatching { core.startRadio(it) }.isSuccess }
+        if (started == null) {
+            showMessage("Add music first")
+        } else {
+            startedFrom.value = StartStation
+            NeedleApp.instance.openPlayer.tryEmit(Unit)
+        }
     }
 }
 
@@ -183,14 +203,7 @@ private fun YourStation(seed: Ranked?, loading: Boolean) {
             .focusRing(interaction, 12.dp)
             .clip(RoundedCornerShape(12.dp))
             .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClickLabel = "Start a radio station", enabled = !loading) {
-                showMessage("Tuning in…")
-                NeedleApp.instance.scope.launch(Dispatchers.IO) {
-                    val top = runCatching { core.stats(30u).topSongs.mapNotNull { it.songId } }.getOrDefault(emptyList())
-                    val any = runCatching { core.songs().randomOrNull()?.id }.getOrNull()
-                    // The first that can start one (a song whose file is gone cannot).
-                    val started = (top + listOfNotNull(any)).firstOrNull { runCatching { core.startRadio(it) }.isSuccess }
-                    if (started == null) showMessage("Add music first") else NeedleApp.instance.openPlayer.tryEmit(Unit)
-                }
+                startYourStation()
             }
             .semantics { contentDescription = seed?.let { "Your station, from ${it.title} by ${it.artist}" } ?: "Your station" },
     ) {

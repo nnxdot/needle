@@ -78,10 +78,22 @@ plays and the one main button.
   faint tint; chosen rows: a soft accent tint. A row lit has 10 dp corners (`RowShape`).
 - **Lists:** 60 dp rows; cover 48 dp; title and one grey line; the row's menu at the right.
   Long press opens the same menu. Settings › Appearance › Density makes them 48 or 76 dp.
-- **Home** is the Mac's Home: a greeting, the song playing now (a card with its cover, "Playing
-  now" in the accent, and a round Play/Pause), then shelves of covers ("Jump back in", "New in
-  your library", "On repeat", "Favorites") and "Artists you play most" in circles, each shelf
-  with a grey line under its title and See all where there is a page of it.
+- **Home** is the Mac's Home: a greeting, "Start fast", then shelves of covers ("Jump back in",
+  "New in your library", "On repeat", "Favorites") and "Artists you play most" in circles, each
+  shelf with a grey line under its title and See all where there is a page of it. No card of the
+  song playing: the mini player shows it.
+  - "Start fast": up to six tiles, two across on a phone (three lines), three across on a wide
+    page (two lines). In this order, each left out when the library has none: Favorites (a heart
+    on the accent; plays the loved songs shuffled), Your station (the radio on the second accent;
+    starts as the Radio page's station does), the two albums played most, the first two playlists
+    with songs. Then the albums played last that are not there yet. An even number; with fewer
+    than two, no grid.
+  - A tile: 58 dp high, 12 dp corners, the page's raised colour (`surfaceContainer`); the cover
+    a square at the left, the full height; the name semibold, two lines at most; no grey line.
+    The tile of what plays: its name in the accent and the playing bars at its end.
+  - A press plays it. A long press on an album gives its own menu (Go to album opens it); the
+    others have no menu. TalkBack hears "Play <name>"; each tile takes the D-pad focus.
+  - It is there whether music plays or not; while it is read, six quiet tiles hold its place.
 - **Library** is one page with one bar of words at the top (All, Playlists, Albums, Artists,
   Songs, Genres, Folders); every kind shows in place under it.
   - The bar: one quiet pill in the page's raised tone with a faint 1 dp edge, 40 dp high (each
@@ -234,8 +246,6 @@ plays and the one main button.
   (the small song over the lyrics, the name under the cover) opens or closes its room.
 - Lyrics scrolled by hand stay where the reader put them for 3 seconds after the finger lets go,
   then follow the song again.
-- Home's "Playing now" card stays through the moment a new list has no song; it opens its room
-  for the first song played and closes it once nothing plays.
 - Drags that close or skip (the player pulled down; the mini player, the player's cover, and the
   immersive cover swiped sideways) follow the finger 1:1 and end one way (`flickWay` in
   Motion.kt): let go past a quarter of the way, or thrown faster than 900 dp a second, the thing

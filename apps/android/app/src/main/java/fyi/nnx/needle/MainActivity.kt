@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
                     val songs = app.core.searchSongsPage(query, 0u, 300u)
                     check(songs.isNotEmpty()) { "No songs match that search" }
                     app.core.play(songs.map { it.id }, 0u)
+                    fyi.nnx.needle.ui.startedFrom.value = null
                 }.onFailure { showMessage(it.message ?: "Could not play that search") }
             }
             return

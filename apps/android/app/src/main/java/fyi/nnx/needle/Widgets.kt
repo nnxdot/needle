@@ -357,7 +357,10 @@ class Toggle : ActionCallback {
         // after a start the app has not yet heard of the song it brought back, paused.
         // A library that cannot answer (busy, or broken) leaves the press undone; it does not close Needle.
         runCatching {
-            if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.searchSongsPage("shuffle limit 200", 0u, 200u).map { it.id }, 0u)
+            if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) {
+                core.play(core.searchSongsPage("shuffle limit 200", 0u, 200u).map { it.id }, 0u)
+                fyi.nnx.needle.ui.startedFrom.value = null
+            }
             else fyi.nnx.needle.ui.Controls.toggle()
         }
         startPlaybackService(context)
@@ -449,7 +452,7 @@ class PlayAlbum : ActionCallback {
         val key = parameters[AlbumKey] ?: return
         val core = NeedleApp.instance.core
         // A library that cannot answer leaves the press undone; it does not close Needle.
-        runCatching { core.play(core.albumSongs(key).map { it.id }, 0u) }
+        runCatching { core.play(core.albumSongs(key).map { it.id }, 0u) }.onSuccess { fyi.nnx.needle.ui.startedFrom.value = null }
         startPlaybackService(context)
         // The app looks at the player at once, and the widget then shows the press.
         NeedleApp.instance.wake()
@@ -487,7 +490,7 @@ class PlayPlaylist : ActionCallback {
         val id = parameters[PlaylistKey] ?: return
         val core = NeedleApp.instance.core
         // A library that cannot answer leaves the press undone; it does not close Needle.
-        runCatching { core.play(core.playlistSongs(id).map { it.id }, 0u) }
+        runCatching { core.play(core.playlistSongs(id).map { it.id }, 0u) }.onSuccess { fyi.nnx.needle.ui.startedFrom.value = null }
         startPlaybackService(context)
         NeedleApp.instance.wake()
         updateWidgets(context, recent = false)
@@ -532,7 +535,9 @@ class StartRadio : ActionCallback {
         runCatching {
             val top = runCatching { core.stats(30u).topSongs.mapNotNull { it.songId } }.getOrDefault(emptyList())
             val any = core.searchSongsPage("shuffle limit 1", 0u, 1u).map { it.id }
+            // Your station, as Home's tile starts it: that tile shows the playing mark.
             (top + any).firstOrNull { runCatching { core.startRadio(it) }.isSuccess }
+                ?.let { fyi.nnx.needle.ui.startedFrom.value = fyi.nnx.needle.ui.StartStation }
         }
         startPlaybackService(context)
         NeedleApp.instance.wake()

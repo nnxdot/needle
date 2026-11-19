@@ -96,7 +96,7 @@ const val ButtonPress = 0.92f
  * and springs back with no bounce, as covers do in Apple Music. With a remote it grows a little
  * and takes a ring while it has the focus, as on a TV's home screen.
  */
-fun Modifier.pressScale(interaction: MutableInteractionSource, scale: Float = 0.96f): Modifier = composed {
+fun Modifier.pressScale(interaction: MutableInteractionSource, scale: Float = 0.96f, corner: Dp = 20.dp): Modifier = composed {
     val pressed by interaction.collectIsPressedAsState()
     val focused by interaction.collectIsFocusedAsState()
     val reduce = reduceMotion()
@@ -111,7 +111,7 @@ fun Modifier.pressScale(interaction: MutableInteractionSource, scale: Float = 0.
         if (pressed) tween(100, easing = androidx.compose.animation.core.EaseOutCubic) else spring(dampingRatio = 1f, stiffness = 600f),
         label = "press",
     )
-    graphicsLayer { scaleX = value; scaleY = value }.focusRing(interaction)
+    graphicsLayer { scaleX = value; scaleY = value }.focusRing(interaction, corner)
 }
 
 /**

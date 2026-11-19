@@ -89,6 +89,15 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1066,9 +1075,9 @@ private fun LatestRelease(album: Album, open: (Route) -> Unit) {
 // ---------- Home
 
 /**
- * Home, as on the Mac: a greeting, the song playing now, then shelves of covers (albums played
- * lately, new, played most, loved) and the artists played most, each shelf with a grey line
- * under its title.
+ * Home, as on the Mac: a greeting, "Start fast" (up to six things to play with one press), then
+ * shelves of covers (albums played lately, new, played most, loved) and the artists played most,
+ * each shelf with a grey line under its title.
  */
 @Composable
 fun HomeScreen(open: (Route) -> Unit) {
@@ -1080,7 +1089,7 @@ fun HomeScreen(open: (Route) -> Unit) {
             return
         }
     }
-    val homeLoad = rememberLoaded { homeShelves(20u) }
+    val homeLoad = rememberLoaded { homeShelves(20u).let { HomeData(it, quickStarts(it)) } }
     val home by homeLoad
     val countLoad = rememberLoaded { songCount() }
     val count by countLoad
@@ -1109,11 +1118,12 @@ fun HomeScreen(open: (Route) -> Unit) {
             item { HomeEmpty(scan.running, scan.scanned, open) }
             return@LazyColumn
         }
-        item(key = "now") { NowCard(Modifier.animateItem()) }
+        // Start fast: there whether music plays or not, so the page never moves with the player.
+        item(key = "start") { QuickStartGrid(home?.starts, open) }
         // In December: the year in review.
         item { YearReviewRow(open, december = true) }
         // Soft tiles hold the shelves' places while they are read.
-        val h = home ?: run {
+        val h = home?.shelves ?: run {
             item { ShelfTitle("Jump back in", "Albums you played last") }
             item {
                 val tile = if (isWide()) 176.dp else 148.dp
@@ -1146,80 +1156,188 @@ private fun greeting(): String {
     }
 }
 
+// ---------- Home: Start fast
+
 /**
- * The song playing, large, at the top of Home: its cover, "Playing now" in the accent, the
- * song, and a round Play/Pause, on a wash of the cover's colour.
+ * One of Home's quick starts: Favorites, your station, an album, or a playlist. [ids] are its
+ * songs, to know when it plays (none for the station: its songs come as it plays).
  */
-@Composable
-private fun NowCard(modifier: Modifier = Modifier) {
-    val playbackState = NeedleApp.instance.playback.collectAsState()
-    val song by remember { derivedStateOf { playbackState.value?.current } }
-    val playing by remember { derivedStateOf { playbackState.value?.playing == true } }
-    // A new list of songs has no song for a moment (Root.kt): the last song stays meanwhile, so
-    // the card does not blink and Home does not jump. It goes only once nothing plays for a
-    // while, and then closes its room; the first song played opens it.
-    var last by remember { mutableStateOf(song) }
-    val current = song
-    androidx.compose.runtime.SideEffect { if (current != null) last = current }
-    var gone by remember { mutableStateOf(current == null) }
-    androidx.compose.runtime.LaunchedEffect(current == null) {
-        if (current == null) {
-            kotlinx.coroutines.delay(1500)
-            gone = true
-        } else gone = false
+private class QuickStart(
+    val key: String,
+    val name: String,
+    val album: Album? = null,
+    val playlist: fyi.nnx.needle.core.Playlist? = null,
+    val ids: Set<String> = emptySet(),
+)
+
+/** What Home reads: its shelves, and the quick starts made from them. */
+private class HomeData(val shelves: fyi.nnx.needle.core.HomeShelves, val starts: List<QuickStart>)
+
+/**
+ * Home's quick starts, in this order: Favorites (with one loved song or more), your station, the
+ * two albums played most, the first two playlists that have songs (in the user's order); then
+ * the albums played last that are not there yet. An even number, six at most; with fewer than
+ * two, none.
+ */
+private fun fyi.nnx.needle.core.Needle.quickStarts(h: fyi.nnx.needle.core.HomeShelves): List<QuickStart> {
+    val list = mutableListOf<QuickStart>()
+    val loved = runCatching { favorites().map { it.id } }.getOrDefault(emptyList())
+    if (loved.isNotEmpty()) list += QuickStart("favorites", "Favorites", ids = loved.toSet())
+    list += QuickStart(StartStation, "Your station")
+    fun album(a: Album) = QuickStart(
+        "album/${a.key}",
+        a.title.ifBlank { "Unknown album" },
+        album = a,
+        ids = runCatching { albumSongs(a.key).map { it.id }.toSet() }.getOrDefault(emptySet()),
+    )
+    h.mostPlayed.take(2).forEach { list += album(it) }
+    // An empty playlist cannot start anything; only a few are read to find two.
+    runCatching { playlists() }.getOrDefault(emptyList()).asSequence().take(8)
+        .map { p -> p to runCatching { playlistSongs(p.id).map { it.id }.toSet() }.getOrDefault(emptySet()) }
+        .filter { it.second.isNotEmpty() }
+        .take(2)
+        .forEach { (p, ids) -> list += QuickStart("playlist/${p.id}", p.name.ifBlank { "Playlist" }, playlist = p, ids = ids) }
+    h.recent.forEach { a -> if (list.size < 6 && list.none { it.key == "album/${a.key}" }) list += album(a) }
+    val shown = list.take(6).let { it.take(it.size / 2 * 2) }
+    return if (shown.size < 2) emptyList() else shown
+}
+
+/** Plays a quick start: Favorites shuffled, an album or a playlist from its first song, your station as the Radio page starts it. */
+private fun playQuick(q: QuickStart) {
+    if (q.key == StartStation) {
+        startYourStation()
+        return
     }
-    val reduce = reduceMotion()
-    androidx.compose.animation.AnimatedVisibility(
-        visible = !gone && (current ?: last) != null,
-        modifier = modifier,
-        enter = if (reduce) androidx.compose.animation.fadeIn(tween(150)) else androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 400f)) + androidx.compose.animation.fadeIn(tween(200)),
-        exit = if (reduce) androidx.compose.animation.fadeOut(tween(150)) else androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 400f)) + androidx.compose.animation.fadeOut(tween(150)),
-    ) {
-        val s = current ?: last ?: return@AnimatedVisibility
-        NowCardBody(s, playing)
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        val ids = runCatching {
+            when {
+                q.album != null -> core.albumSongs(q.album.key).map { it.id }
+                q.playlist != null -> core.playlistSongs(q.playlist.id).map { it.id }
+                else -> core.favorites().map { it.id }.shuffled()
+            }
+        }.getOrElse { showMessage(it.message ?: "Could not play these songs"); return@launch }
+        if (ids.isEmpty()) {
+            showMessage("Nothing to play yet")
+            return@launch
+        }
+        playSongs(ids)
+        startedFrom.value = q.key
     }
 }
 
+private val QuickHeight = 58.dp
+private val QuickShape = RoundedCornerShape(12.dp)
+
+/**
+ * "Start fast", under Home's greeting: up to six things to play with one press, two across on a
+ * phone and three on a wide page. It is there whether music plays or not, so Home never moves
+ * with the player; while it is read, quiet tiles hold its place. The tile that holds what plays
+ * shows the playing bars and its name in the accent.
+ */
 @Composable
-private fun NowCardBody(s: fyi.nnx.needle.core.Song, playing: Boolean) {
+private fun QuickStartGrid(starts: List<QuickStart>?, open: (Route) -> Unit) {
+    val current = playingSongId()
+    val from by startedFrom.collectAsState()
+    val playing by NeedleApp.instance.isPlaying.collectAsState()
+    // One tile at most: the one that started what plays, else the album it is from.
+    val lit = remember(starts, current, from) {
+        val list = starts.orEmpty()
+        val chosen = list.firstOrNull { it.key == from }
+        when {
+            current == null -> null
+            chosen != null && (chosen.key == StartStation || current in chosen.ids) -> chosen.key
+            else -> list.firstOrNull { it.album != null && current in it.ids }?.key
+        }
+    }
+    val columns = if (isWide()) 3 else 2
+    val count = starts?.size ?: 6
+    if (count == 0) return
+    Column(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        (0 until count).chunked(columns).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { i ->
+                    val cell = Modifier.weight(1f)
+                    if (starts == null) {
+                        Box(cell.height(QuickHeight).clip(QuickShape).background(MaterialTheme.colorScheme.surfaceContainer))
+                    } else {
+                        val q = starts[i]
+                        androidx.compose.runtime.key(q.key) { QuickTile(q, q.key == lit, playing, open, cell) }
+                    }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/**
+ * A quick start: its cover as a square at the left, the full height of the tile, then its name
+ * (two lines at most), on the page's raised colour. A press plays it; a long press gives an
+ * album its own menu (with Go to album). TalkBack hears "Play <name>".
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun QuickTile(q: QuickStart, lit: Boolean, playing: Boolean, open: (Route) -> Unit, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
     val haptics = rememberHaptics()
-    CoverTheme(s.artwork) {
-        val scheme = MaterialTheme.colorScheme
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Brush.horizontalGradient(listOf(scheme.primaryContainer.copy(alpha = 0.55f), scheme.surfaceContainer.copy(alpha = 0.6f))))
-                .clickable(onClickLabel = "Open the player") { Ui.showPlayer.tryEmit(Unit) }
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Cover(s.artwork, Modifier.size(76.dp).shadow(8.dp, CoverShape), CoverShape, seed = s.album + s.artist)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (playing) "Playing now" else "Paused",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = scheme.primary,
-                )
-                Text(s.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOf(s.artist, s.album).filter { it.isNotBlank() }.joinToString(" · "),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+    var menu by remember { mutableStateOf(false) }
+    val album = q.album
+    if (menu && album != null) AlbumSheet(album, open) { menu = false }
+    Row(
+        modifier
+            .height(QuickHeight)
+            .pressScale(interaction, corner = 12.dp)
+            .clip(QuickShape)
+            .background(scheme.surfaceContainer)
+            .semantics {
+                contentDescription = "Play ${q.name}"
+                if (lit) stateDescription = if (playing) "Playing" else "Paused"
+            }
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                role = Role.Button,
+                onLongClickLabel = if (album != null) "More" else null,
+                onLongClick = if (album != null) ({ haptics(true); menu = true }) else null,
+                onClick = { playQuick(q) },
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        QuickCover(q, Modifier.size(QuickHeight).clearAndSetSemantics {})
+        Text(
+            q.name,
+            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 18.sp),
+            fontWeight = FontWeight.SemiBold,
+            color = if (lit) scheme.primary else scheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).padding(start = 10.dp, end = if (lit) 6.dp else 10.dp).clearAndSetSemantics {},
+        )
+        if (lit) PlayingBars(playing, Modifier.padding(end = 12.dp))
+    }
+}
+
+/** A quick start's cover: the album's or the playlist's; Favorites a heart on the accent, your station the radio on the second accent. */
+@Composable
+private fun QuickCover(q: QuickStart, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    when {
+        q.album != null -> Cover(q.album.artwork, modifier, RectangleShape, seed = q.album.title + q.album.artist)
+        q.playlist != null -> PlaylistCover(q.playlist, modifier, RectangleShape)
+        else -> {
+            val station = q.key == StartStation
+            Box(modifier.background(if (station) scheme.tertiary else scheme.primary), contentAlignment = Alignment.Center) {
+                Icon(
+                    if (station) Icons.Rounded.Radio else Icons.Rounded.Favorite,
+                    contentDescription = null,
+                    tint = if (station) scheme.onTertiary else scheme.onPrimary,
+                    modifier = Modifier.size(24.dp),
                 )
             }
-            val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            androidx.compose.material3.FilledIconButton(
-                onClick = { haptics(false); Controls.toggle() },
-                shape = CircleShape,
-                interactionSource = press,
-                modifier = Modifier.size(52.dp).pressScale(press, ButtonPress).playPauseSemantics(playing) { haptics(false); Controls.toggle() },
-            ) { PlayPauseIcon(playing, 28.dp) }
         }
     }
 }

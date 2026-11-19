@@ -1088,7 +1088,7 @@ private fun PlayerSearch(computer: Boolean, onDismiss: () -> Unit) {
                     computer && how == "now" -> core.pcPlay(listOf(id))
                     computer && how == "next" -> core.pcPlayNext(listOf(id))
                     computer -> core.pcEnqueue(listOf(id))
-                    how == "now" -> core.play(listOf(id), 0u)
+                    how == "now" -> { core.play(listOf(id), 0u); startedFrom.value = null }
                     how == "next" -> core.playNext(listOf(id))
                     else -> core.enqueue(listOf(id))
                 }

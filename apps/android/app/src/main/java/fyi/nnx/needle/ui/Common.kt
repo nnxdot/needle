@@ -334,12 +334,23 @@ fun songKeys(list: List<fyi.nnx.needle.core.Song>): List<String> {
 fun playingSongId(): String? = NeedleApp.instance.playingId.collectAsState().value
 
 /**
+ * What Home's "Start fast" started last ([StartStation], "favorites", "album/…", "playlist/…"),
+ * so that its tile shows the playing mark. Whatever else starts music clears it ([playSongs],
+ * a station from a song).
+ */
+val startedFrom = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+/** Home's key for your station (see [startedFrom]). */
+const val StartStation = "station"
+
+/**
  * Plays songs from `start`, then opens the player (when that is on). Off the main thread: the
  * core looks each song up, which for a whole library or a long playlist takes a moment.
  */
 fun playSongs(ids: List<String>, start: Int = 0) {
     // Nothing to play (an empty playlist): the player is not opened on nothing.
     if (ids.isEmpty()) return
+    startedFrom.value = null
     NeedleApp.instance.scope.launch(Dispatchers.IO) {
         runCatching { core.play(ids, start.toUInt()) }
             .onSuccess { NeedleApp.instance.openPlayer.tryEmit(Unit) }
