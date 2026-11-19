@@ -140,6 +140,12 @@ fun NeedleRoot() {
     // Each tab keeps its own pages, as in Apple Music; kept too when Android stops Needle in the
     // background and starts it again (StacksSaver).
     val stacks = rememberSaveable(saver = StacksSaver) { mutableStateMapOf<Tab, List<Route>>() }
+    // The pages the side bar put in a tab (by their key). Each sits on its tab's first page, in
+    // every layout: with the side bar it is the tab's place (no Back on it, shown at once);
+    // with a phone's tabs it is a page with a way back. So when the side bar comes or goes (a
+    // foldable opened or closed), the page is the same page: nothing is made again, nothing jumps.
+    var sidePlaces by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val isSide: (Tab, List<Route>) -> Boolean = { t, pages -> pages.size == 2 && pageKey(t, 1, pages[1]) in sidePlaces }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     // The player was thrown down and is already off the screen: it goes without its own slide.
     var playerThrown by remember { mutableStateOf(false) }
@@ -180,6 +186,8 @@ fun NeedleRoot() {
     // A second tap while the page slides in (or OK pressed twice) does not open it twice.
     val open: (Route) -> Unit = {
         if (stack.lastOrNull() != it) {
+            // A page opened from a tab's first page is a page as any other, not the side bar's place.
+            if (stack.size == 1) sidePlaces = sidePlaces.filterNot { key -> key.startsWith(tab.name + "/") }
             pushed[pageKey(tab, stack.size, it)] = android.os.SystemClock.uptimeMillis()
             stacks[tab] = stack + it
         }
@@ -214,22 +222,25 @@ fun NeedleRoot() {
         kept.clear()
         kept += live
     }
-    // A place chosen in a tablet's side bar: the page alone in its tab, as the Mac's side bar does.
+    // A place chosen in a tablet's side bar: the tab's place, on the tab's first page (see sidePlaces).
     val show: (Tab, Route) -> Unit = { t, r ->
-        stacks[t] = listOf(r)
+        sidePlaces = sidePlaces.filterNot { it.startsWith(t.name + "/") } + if (r == t.root) emptyList() else listOf(pageKey(t, 1, r))
+        stacks[t] = if (r == t.root) listOf(r) else listOf(t.root, r)
         tab = t
     }
     val chooseTab: (Tab) -> Unit = { t ->
         // Tapping the open tab again goes back to its first page.
         if (t == tab) stacks[t] = listOf(t.root) else tab = t
     }
-    // The side bar went (a foldable closed to its cover screen, a window made narrow): a page
-    // the side bar had put alone in a tab (Favorites, History, a playlist) gets the tab's first
-    // page under it. So it has a way back, and the tab under the dock is whole again.
-    LaunchedEffect(wide) {
-        if (!wide) Tab.entries.forEach { t ->
+    // Pages kept from before 2.0.7, when the side bar put a page alone in its tab: each gets its
+    // tab's first page under it, once.
+    LaunchedEffect(Unit) {
+        Tab.entries.forEach { t ->
             val pages = stacks[t] ?: return@forEach
-            if (pages.firstOrNull() != t.root) stacks[t] = listOf(t.root) + pages
+            if (pages.firstOrNull() != t.root) {
+                if (pages.size == 1) sidePlaces = sidePlaces + pageKey(t, 1, pages[0])
+                stacks[t] = listOf(t.root) + pages
+            }
         }
     }
 
@@ -241,7 +252,11 @@ fun NeedleRoot() {
         Ui.toCopy.collect { (from, copy) ->
             val pages = stacks[tab] ?: return@collect
             val top = pages.last()
-            if (top is Route.Playlist && top.id == from) stacks[tab] = pages.dropLast(1) + copy
+            if (top is Route.Playlist && top.id == from) {
+                // The side bar's place stays the side bar's place when it becomes the copy.
+                if (isSide(tab, pages)) sidePlaces = sidePlaces.filterNot { it.startsWith(tab.name + "/") } + pageKey(tab, 1, copy)
+                stacks[tab] = pages.dropLast(1) + copy
+            }
         }
     }
     LaunchedEffect(Unit) {
@@ -276,7 +291,7 @@ fun NeedleRoot() {
     val backScope = androidx.compose.runtime.rememberCoroutineScope()
     var swiping by remember { mutableStateOf(false) }
     LaunchedEffect(pageTarget) { if (!swiping) pageMotion.animateTo(pageTarget) }
-    androidx.activity.compose.PredictiveBackHandler(enabled = !playerOpen && choosing.isEmpty() && stack.size > 1) { progress ->
+    androidx.activity.compose.PredictiveBackHandler(enabled = !playerOpen && choosing.isEmpty() && stack.size > 1 && !(wide && isSide(tab, stack))) { progress ->
         val from = tab to stack
         val behind = tab to stack.dropLast(1)
         try {
@@ -407,6 +422,9 @@ fun NeedleRoot() {
                             val (toTab, to) = targetState
                             when {
                                 reduce -> fadeIn(tween(120)) togetherWith fadeOut(tween(120))
+                                // A place in the side bar shows at once, as another tab does.
+                                wide && fromTab == toTab && from.size <= 2 && to.size <= 2 && (isSide(toTab, to) || isSide(fromTab, from)) ->
+                                    androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
                                 // A back swipe: the page slides off to the right, solid, over the
                                 // page behind, which comes in from a little to the left.
                                 // Linear, so the page stays under the thumb all the way.
@@ -431,7 +449,8 @@ fun NeedleRoot() {
                             LocalAnimated provides this,
                             LocalPageOpened provides opened,
                             LocalPagePushed provides pushedAt,
-                            LocalCanGoBack provides (pages.size > 1),
+                            // The side bar's place has no Back while the side bar shows.
+                            LocalCanGoBack provides (pages.size > 1 && !(wide && isSide(pageTab, pages))),
                             // Covers fly only between pages of one tab, never across tabs.
                             LocalSharedScope provides pageTab.name,
                             LocalCoverClip provides coverClip,
@@ -443,7 +462,10 @@ fun NeedleRoot() {
                             CompositionLocalProvider(LocalBottomInset provides dockRoom) {
                                 // On the page's colour, so a page sliding off over another hides it.
                                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                                    Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
+                                    // Beside the side bar the pane has taken the status bar's room
+                                    // already (Adaptive.kt pane). Said here outright, so the room is
+                                    // right at once when the side bar comes or goes, never twice.
+                                    Box(if (fullBleed) Modifier else Modifier.padding(padding).then(if (wide) Modifier else Modifier.statusBarsPadding())) {
                                         Page(route, open)
                                     }
                                 }
