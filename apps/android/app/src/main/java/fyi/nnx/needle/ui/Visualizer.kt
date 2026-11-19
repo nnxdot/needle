@@ -75,14 +75,36 @@ private fun rememberSpectrum(): FloatArray {
 /**
  * Light that moves with the music, in the cover's colours (the player's colour scheme): a
  * soft glow in the middle that swells with the bass, and rays all round, each as long as its
- * band is loud.
+ * band is loud. `bars`: the big player's Visualizer look, a row of bars instead.
  */
 @Composable
-fun Visualizer(modifier: Modifier = Modifier) {
+fun Visualizer(modifier: Modifier = Modifier, bars: Boolean = false) {
     val bands = rememberSpectrum()
     val scheme = MaterialTheme.colorScheme
     val inner = scheme.primary
     val outer = scheme.tertiary
+    if (bars) {
+        // The player's look: a row of bars standing on its foot, each as tall as its band is
+        // loud, in the accent at the top and faint white at the foot. Two bands to a bar.
+        Canvas(modifier) {
+            val count = Bands / 2
+            val gap = 5.dp.toPx()
+            val width = ((size.width - gap * (count - 1)) / count).coerceAtLeast(1f)
+            val corner = androidx.compose.ui.geometry.CornerRadius(5.dp.toPx().coerceAtMost(width / 2))
+            val foot = Color.White.copy(alpha = 0.22f)
+            for (i in 0 until count) {
+                val v = maxOf(bands[i * 2], bands[i * 2 + 1])
+                val tall = size.height * (0.06f + 0.94f * v)
+                drawRoundRect(
+                    Brush.verticalGradient(listOf(inner, foot), startY = size.height - tall, endY = size.height),
+                    topLeft = Offset(i * (width + gap), size.height - tall),
+                    size = androidx.compose.ui.geometry.Size(width, tall),
+                    cornerRadius = corner,
+                )
+            }
+        }
+        return
+    }
     Canvas(modifier) {
         val c = Offset(size.width / 2, size.height / 2)
         val r = minOf(size.width, size.height) / 2

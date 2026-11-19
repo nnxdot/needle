@@ -187,26 +187,30 @@ private fun coverBrush(cover: Color, dark: Boolean, strength: Float = 1f): Brush
  * Frosted glass (the dock, a tablet's player and side bar): the page behind it blurred and tinted
  * with the page's raised colour, with `cover`'s colour from the left when given, the edge light,
  * and a soft shadow. Where it cannot blur (see [blurAllowed]), the raised colour (or `solid`),
- * solid.
+ * solid. The player passes its own `fill` and `solid`: a faint white over its blurred cover.
  */
 @Composable
-fun Modifier.glass(shape: Shape, cover: Color? = null, large: Boolean = false, shadow: Dp = 18.dp, solid: Color? = null): Modifier {
+fun Modifier.glass(shape: Shape, cover: Color? = null, large: Boolean = false, shadow: Dp = 18.dp, solid: Color? = null, fill: Color? = null): Modifier {
     val scheme = MaterialTheme.colorScheme
     val dark = darkPage()
     val haze = LocalHaze.current
     val blur = haze != null && blurAllowed(large)
-    val fill = scheme.surfaceContainer.copy(alpha = if (dark) 0.62f else 0.72f)
+    // `fill`: the tint over the blur, for glass on a picture rather than a page (the player's).
+    val tint = fill ?: scheme.surfaceContainer.copy(alpha = if (dark) 0.62f else 0.72f)
+    // A see-through `solid` (the player's, where it cannot blur) would show its own shadow
+    // through it as a dark smudge: it has none.
+    val depth = if (!blur && solid != null && solid.alpha < 1f) 0.dp else shadow
     val back = scheme.background
-    val style = remember(fill, back, cover, dark) {
+    val style = remember(tint, back, cover, dark) {
         HazeBlurStyle {
             blurRadius(28.dp)
             noiseFactor(0.06f)
             backgroundColor(back)
-            colorEffects(listOfNotNull(HazeColorEffect.tint(fill), cover?.let { HazeColorEffect.tint(coverBrush(it, dark)) }))
+            colorEffects(listOfNotNull(HazeColorEffect.tint(tint), cover?.let { HazeColorEffect.tint(coverBrush(it, dark)) }))
         }
     }
     return this
-        .then(if (shadow > 0.dp) Modifier.shadow(shadow, shape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f)) else Modifier)
+        .then(if (depth > 0.dp) Modifier.shadow(depth, shape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.35f)) else Modifier)
         .clip(shape)
         .then(
             if (blur) {
